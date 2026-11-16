@@ -37,11 +37,13 @@ M0 is implemented, but live-provider streaming remains credential-gated and unve
 - Focused reducer tests cover startup/auth readiness, idle/running/settled/failed states, duplicate prompt/mode guards, authoritative final messages, tool/usage events, and shutdown.
 - ROOK-006: added a custom `pi-tui` alternate-screen shell with a responsive header, home view, fixed multiline editor/footer, streaming Markdown, basic command handling, and terminal cleanup. Interactive SDK sessions disable all tools until the permission policy lands.
 - TUI visual choices follow `tui_references/SCREEN_SPEC.md` and `tokens.json`; the design reference files remain untouched.
+- ROOK-007: mapped public Pi session events for streamed/final assistant text, usage, tool start/end, errors, and aborts. The TUI renders final text authoritatively and shows compact status-only tool rows; raw tool args/results are not exposed.
 
 ### Validation
 
 - `npm run typecheck` — passed.
 - `npx vitest run tests/app/state.test.ts` — passed (5 focused tests).
+- `npx vitest run tests/pi/event-adapter.test.ts tests/pi/mock-agent-gateway.test.ts` — passed (4 tests; event mapping, no raw tool data, and final-message deduplication).
 - `npm run test:pty` — passed (fake-terminal render, resize, prompt, and cleanup flow).
 - `npm run test:integration` — passed (pinned Pi SDK session lifecycle).
 - `npm run build` — passed.
@@ -50,4 +52,4 @@ M0 is implemented, but live-provider streaming remains credential-gated and unve
 
 ### Next
 
-- ROOK-007: deepen the transcript/editor/tool display using actual Pi events; keep tools disabled until ROOK-010 implements enforced mode-aware policy.
+- ROOK-008: add Pi-backed provider authentication, model selection, and settings flows. Keep tool execution disabled until ROOK-010.

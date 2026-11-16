@@ -1,7 +1,40 @@
 import { describe, expect, it } from "vitest";
 import { visibleWidth, type Terminal } from "@earendil-works/pi-tui";
-import { MockAgentGateway } from "../../src/pi/mock-agent-gateway.js";
+import type { AgentEvent, AgentGateway } from "../../src/pi/agent-gateway.js";
 import { createRookTui } from "../../src/tui/rook-tui.js";
+
+class EventGateway implements AgentGateway {
+  private handlers = new Set<(event: AgentEvent) => void>();
+
+  async send(): Promise<void> {
+    this.emit({ type: "text_delta", text: "draft answer" });
+    this.emit({
+      type: "tool_started",
+      id: "read-1",
+      name: "read",
+      summary: "package.json",
+    });
+    this.emit({ type: "tool_finished", id: "read-1", status: "ok" });
+    this.emit({ type: "message_complete", text: "final answer" });
+    this.emit({ type: "usage", inputTokens: 8, outputTokens: 3 });
+    this.emit({ type: "run_settled", aborted: false });
+  }
+
+  async cancel(): Promise<void> {}
+
+  subscribe(handler: (event: AgentEvent) => void): () => void {
+    this.handlers.add(handler);
+    return () => this.handlers.delete(handler);
+  }
+
+  async dispose(): Promise<void> {
+    this.handlers.clear();
+  }
+
+  private emit(event: AgentEvent): void {
+    for (const handler of this.handlers) handler(event);
+  }
+}
 
 class FakeTerminal implements Terminal {
   columns = 100;
@@ -54,7 +87,7 @@ describe("Rook TUI shell", () => {
     const app = createRookTui({
       cwd: "/workspace/sample-project",
       branch: "feature/ui",
-      gateway: new MockAgentGateway(),
+      gateway: new EventGateway(),
       terminal,
     });
     const finished = app.start();
@@ -65,7 +98,8 @@ describe("Rook TUI shell", () => {
 
     await app.submit("hello");
     app.tui.renderNow(true);
-    expect(terminal.writes.join("")).toContain("Mock response to: hello");
+    expect(terminal.writes.join("")).toContain("final answer");
+    expect(terminal.writes.join("")).toContain("package.json");
 
     const writesBeforeResize = terminal.writes.length;
     terminal.resize(60, 20);

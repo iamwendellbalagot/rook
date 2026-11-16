@@ -5,9 +5,11 @@ describe("MockAgentGateway", () => {
   it("streams 100 chunks exactly once and settles without provider credentials", async () => {
     const gateway = new MockAgentGateway();
     const chunks: string[] = [];
+    let finalText = "";
     let settled = 0;
     const unsubscribe = gateway.subscribe((event) => {
       if (event.type === "text_delta") chunks.push(event.text);
+      if (event.type === "message_complete") finalText = event.text;
       if (event.type === "run_settled") settled += 1;
     });
 
@@ -15,6 +17,7 @@ describe("MockAgentGateway", () => {
     await gateway.send(prompt);
     expect(chunks).toHaveLength(100);
     expect(chunks.join("")).toBe(`Mock response to: ${prompt}`);
+    expect(finalText).toBe(chunks.join(""));
     expect(settled).toBe(1);
     unsubscribe();
     await gateway.dispose();

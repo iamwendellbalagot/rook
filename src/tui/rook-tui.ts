@@ -135,14 +135,18 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   state = reduceAppState(state, { type: "mode_changed", mode: "plan" });
   let settled = false;
   let resolveRun: (() => void) | undefined;
+  const toolCards = new Map<string, Text>();
   const finished = new Promise<void>((resolvePromise) => {
     resolveRun = resolvePromise;
   });
   const updateFooter = (): void => {
     const status = state.runState === "running" ? " · running" : "";
+    const usage = state.usage
+      ? ` · ↑ ${state.usage.inputTokens ?? 0} ↓ ${state.usage.outputTokens ?? 0}`
+      : "";
     footer.setText(
       truncateToWidth(
-        `${tone("PLAN", "blue", true)} · tools disabled · memory unavailable${status} · Ctrl+C exit`,
+        `${tone("PLAN", "blue", true)} · tools disabled · memory unavailable${usage}${status} · Ctrl+C exit`,
         Math.max(1, terminal.columns),
       ),
     );
@@ -155,8 +159,42 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       state = reduceAppState(state, event);
       activeResponse?.setText(state.response);
       tui.requestRender();
+    } else if (event.type === "message_complete") {
+      state = reduceAppState(state, event);
+      activeResponse?.setText(state.response);
+      tui.requestRender();
+    } else if (event.type === "tool_started") {
+      state = reduceAppState(state, {
+        type: "tool_started",
+        tool: { id: event.id, name: event.name, summary: event.summary },
+      });
+      const card = new Text(
+        formatToolCard(event.name, event.summary, "running"),
+        2,
+        0,
+      );
+      toolCards.set(event.id, card);
+      transcript.addChild(card);
+      tui.requestRender();
+    } else if (event.type === "tool_finished") {
+      state = reduceAppState(state, {
+        type: "tool_finished",
+        id: event.id,
+        status: event.status,
+      });
+      const tool = state.tools.find((candidate) => candidate.id === event.id);
+      const card = toolCards.get(event.id);
+      if (tool && card) {
+        card.setText(formatToolCard(tool.name, tool.summary, tool.status));
+      }
+      toolCards.delete(event.id);
+      tui.requestRender();
+    } else if (event.type === "usage") {
+      state = reduceAppState(state, event);
+      updateFooter();
     } else if (event.type === "run_settled") {
       state = reduceAppState(state, { type: "run_state", state: "settled" });
+      if (event.aborted) appendText("Run cancelled.", "muted");
       updateFooter();
     } else if (event.type === "error") {
       state = reduceAppState(state, event);
@@ -185,7 +223,14 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
 
   const submitPrompt = async (text: string): Promise<void> => {
     const prompt = text.trim();
-    if (!prompt || state.runState === "running") return;
+    if (!prompt) return;
+    if (state.runState === "running" && prompt !== "/cancel") {
+      appendText(
+        "A response is still running. Use /cancel or Ctrl+C.",
+        "muted",
+      );
+      return;
+    }
 
     if (prompt.startsWith("/")) {
       switch (prompt.split(/\s+/, 1)[0]) {
@@ -234,7 +279,9 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     state = reduceAppState(state, { type: "prompt_submitted" });
     if (state.runState !== "running") return;
     appendText(`› ${prompt}`, "user");
-    activeResponse = new Markdown("", 2, 0, markdownTheme);
+    activeResponse = new Markdown("", 2, 0, markdownTheme, {
+      color: (content) => tone(content, "text"),
+    });
     transcript.addChild(activeResponse);
     updateFooter();
     try {
@@ -281,4 +328,16 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     submit: submitPrompt,
     stop: exit,
   };
+}
+
+function formatToolCard(
+  name: string,
+  summary: string,
+  status: "running" | "ok" | "error" | "blocked",
+): string {
+  const icon = status === "running" ? "▸" : status === "ok" ? "✓" : "×";
+  const color =
+    status === "ok" ? "green" : status === "error" ? "error" : "muted";
+  const detail = summary === name ? "" : `  ${summary}`;
+  return `${tone(icon, color, true)}  ${tone(name, "text", true)}${tone(detail, "muted")}`;
 }

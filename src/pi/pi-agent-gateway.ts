@@ -1,5 +1,6 @@
 import { createAgentSession } from "@earendil-works/pi-coding-agent";
 import type { AgentEvent, AgentGateway } from "./agent-gateway.js";
+import { adaptPiEvent } from "./event-adapter.js";
 
 export async function createPiAgentGateway(
   cwd = process.cwd(),
@@ -8,14 +9,7 @@ export async function createPiAgentGateway(
   const { session } = await createAgentSession({ cwd, ...options });
   const handlers = new Set<(event: AgentEvent) => void>();
   const unsubscribe = session.subscribe((event) => {
-    if (
-      event.type === "message_update" &&
-      event.assistantMessageEvent.type === "text_delta"
-    ) {
-      emit({ type: "text_delta", text: event.assistantMessageEvent.delta });
-    } else if (event.type === "agent_settled") {
-      emit({ type: "run_settled" });
-    }
+    for (const mapped of adaptPiEvent(event)) emit(mapped);
   });
 
   function emit(event: AgentEvent): void {

@@ -10,7 +10,10 @@ export class MockAgentGateway implements AgentGateway {
       for (const handler of this.handlers)
         handler({ type: "text_delta", text });
     }
-    for (const handler of this.handlers) handler({ type: "run_settled" });
+    for (const handler of this.handlers) {
+      handler({ type: "message_complete", text: response });
+      handler({ type: "run_settled", aborted: false });
+    }
   }
 
   async cancel(): Promise<void> {}
