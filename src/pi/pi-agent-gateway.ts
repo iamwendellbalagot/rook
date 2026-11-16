@@ -3,8 +3,9 @@ import type { AgentEvent, AgentGateway } from "./agent-gateway.js";
 
 export async function createPiAgentGateway(
   cwd = process.cwd(),
+  options: { tools?: string[] } = {},
 ): Promise<AgentGateway> {
-  const { session } = await createAgentSession({ cwd });
+  const { session } = await createAgentSession({ cwd, ...options });
   const handlers = new Set<(event: AgentEvent) => void>();
   const unsubscribe = session.subscribe((event) => {
     if (

@@ -27,7 +27,7 @@ M0 is implemented, but live-provider streaming remains credential-gated and unve
 ### Next
 
 - Run the credential-gated live-provider smoke when Pi credentials are available.
-- Proceed to ROOK-006: build the basic TUI shell on the reducer/state contract.
+- Proceed to ROOK-007: transcript, editor, and tool-event display. The live-provider smoke remains credential-gated.
 
 ## M1 — Custom TUI and coding workflow
 
@@ -35,15 +35,19 @@ M0 is implemented, but live-provider streaming remains credential-gated and unve
 
 - ROOK-005: added the Rook app state/event reducer for lifecycle, run states, modes, streamed/final messages, tool activity, usage, errors, and shutdown. The headless CLI now uses it to gate prompts and track runs.
 - Focused reducer tests cover startup/auth readiness, idle/running/settled/failed states, duplicate prompt/mode guards, authoritative final messages, tool/usage events, and shutdown.
+- ROOK-006: added a custom `pi-tui` alternate-screen shell with a responsive header, home view, fixed multiline editor/footer, streaming Markdown, basic command handling, and terminal cleanup. Interactive SDK sessions disable all tools until the permission policy lands.
+- TUI visual choices follow `tui_references/SCREEN_SPEC.md` and `tokens.json`; the design reference files remain untouched.
 
 ### Validation
 
 - `npm run typecheck` — passed.
 - `npx vitest run tests/app/state.test.ts` — passed (5 focused tests).
+- `npm run test:pty` — passed (fake-terminal render, resize, prompt, and cleanup flow).
+- `npm run test:integration` — passed (pinned Pi SDK session lifecycle).
 - `npm run build` — passed.
-- `node bin/rook.mjs --smoke` — passed.
+- `node bin/rook.mjs --smoke` — passed with the mock gateway.
 - `npm run lint` — passed.
 
 ### Next
 
-- ROOK-006: read `tui_references/README.md`, `SCREEN_SPEC.md`, and `IMPLEMENTATION_HANDOFF.md`, inspect the individual reference screens and tokens, then implement/test the minimal custom TUI shell with application state outside view components.
+- ROOK-007: deepen the transcript/editor/tool display using actual Pi events; keep tools disabled until ROOK-010 implements enforced mode-aware policy.
