@@ -27,4 +27,23 @@ M0 is implemented, but live-provider streaming remains credential-gated and unve
 ### Next
 
 - Run the credential-gated live-provider smoke when Pi credentials are available.
-- Otherwise proceed to ROOK-005: app state/event reducer, then build the basic TUI shell.
+- Proceed to ROOK-006: build the basic TUI shell on the reducer/state contract.
+
+## M1 — Custom TUI and coding workflow
+
+### Completed
+
+- ROOK-005: added the Rook app state/event reducer for lifecycle, run states, modes, streamed/final messages, tool activity, usage, errors, and shutdown. The headless CLI now uses it to gate prompts and track runs.
+- Focused reducer tests cover startup/auth readiness, idle/running/settled/failed states, duplicate prompt/mode guards, authoritative final messages, tool/usage events, and shutdown.
+
+### Validation
+
+- `npm run typecheck` — passed.
+- `npx vitest run tests/app/state.test.ts` — passed (5 focused tests).
+- `npm run build` — passed.
+- `node bin/rook.mjs --smoke` — passed.
+- `npm run lint` — passed.
+
+### Next
+
+- ROOK-006: implement and test a minimal custom TUI shell; keep application state outside view components.
