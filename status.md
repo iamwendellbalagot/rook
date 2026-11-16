@@ -10,5 +10,5 @@
 
 ## Pending
 
-- When continuing, start ROOK-006: the minimal custom TUI shell, using the reducer/state contract.
+- ROOK-006 is next: implement the minimal custom TUI shell using the reducer/state contract and `tui_references/` as read-only design input. Follow its README/SPEC/HANDOFF read order and treat screenshot content as illustrative.
 - Run a real-provider prompt when Pi credentials are available.

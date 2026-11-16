@@ -46,4 +46,4 @@ M0 is implemented, but live-provider streaming remains credential-gated and unve
 
 ### Next
 
-- ROOK-006: implement and test a minimal custom TUI shell; keep application state outside view components.
+- ROOK-006: read `tui_references/README.md`, `SCREEN_SPEC.md`, and `IMPLEMENTATION_HANDOFF.md`, inspect the individual reference screens and tokens, then implement/test the minimal custom TUI shell with application state outside view components.
