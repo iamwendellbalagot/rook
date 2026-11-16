@@ -37,6 +37,8 @@ export const editorTheme: EditorTheme = {
   },
 };
 
+export const selectListTheme = editorTheme.selectList;
+
 export const markdownTheme: MarkdownTheme = {
   heading: (text) => tone(text, "text", true),
   link: (text) => tone(text, "blue"),

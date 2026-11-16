@@ -3,6 +3,7 @@ import {
   Editor,
   Markdown,
   ProcessTerminal,
+  SelectList,
   ScrollView,
   Text,
   TuiAltScreen,
@@ -17,7 +18,13 @@ import { resolve } from "node:path";
 import type { AppState } from "../app/state.js";
 import { initialAppState, reduceAppState } from "../app/state.js";
 import type { AgentGateway } from "../pi/agent-gateway.js";
-import { editorTheme, markdownTheme, roleColors, tone } from "./theme.js";
+import {
+  editorTheme,
+  markdownTheme,
+  roleColors,
+  selectListTheme,
+  tone,
+} from "./theme.js";
 
 const TAGLINE = "A coding agent that grows with your codebase.";
 
@@ -77,6 +84,9 @@ function createHome(cwd: string): Text {
   const commands = [
     ["/plan", "Chat with tools disabled in this initial shell"],
     ["/build", "Unavailable until tool permissions are implemented"],
+    ["/model", "Choose a model from Pi's catalog"],
+    ["/login", "Sign in to a Pi provider"],
+    ["/settings", "Adjust thinking level"],
     ["/memory", "Repository memory is not available yet"],
     ["/help", "Show available commands"],
   ] as const;
@@ -133,6 +143,10 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     type: "startup_complete",
   });
   state = reduceAppState(state, { type: "mode_changed", mode: "plan" });
+  const initialModel = options.gateway.currentModel();
+  let modelLabel = initialModel
+    ? `${initialModel.provider}/${initialModel.name}`
+    : "no model selected";
   let settled = false;
   let resolveRun: (() => void) | undefined;
   const toolCards = new Map<string, Text>();
@@ -146,7 +160,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       : "";
     footer.setText(
       truncateToWidth(
-        `${tone("PLAN", "blue", true)} · tools disabled · memory unavailable${usage}${status} · Ctrl+C exit`,
+        `${tone(modelLabel, "muted")} · ${tone("PLAN", "blue", true)} · tools disabled${usage}${status} · Ctrl+C exit`,
         Math.max(1, terminal.columns),
       ),
     );
@@ -241,9 +255,19 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/help":
           removeHome();
           appendText(
-            "Available: /help, /plan, /build, /memory, /cancel, /exit",
+            "Available: /help, /login, /logout, /model, /settings, /plan, /build, /memory, /cancel, /exit",
             "muted",
           );
+          return;
+        case "/model":
+          await showModelMenu();
+          return;
+        case "/login":
+        case "/logout":
+          await showProviderMenu(prompt === "/login" ? "login" : "logout");
+          return;
+        case "/settings":
+          showThinkingMenu();
           return;
         case "/plan":
           state = reduceAppState(state, { type: "mode_changed", mode: "plan" });
@@ -303,6 +327,137 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     }
   };
 
+  async function showModelMenu(): Promise<void> {
+    try {
+      const models = await options.gateway.listModels();
+      if (models.length === 0) {
+        removeHome();
+        appendText(
+          "Pi did not report any models in its current catalog.",
+          "muted",
+        );
+        return;
+      }
+      showSelection(
+        "Select a Pi model",
+        models.map((model) => ({
+          value: `${model.provider}/${model.id}`,
+          label: model.name,
+          description: model.provider,
+        })),
+        async (value) => {
+          const model = models.find(
+            (candidate) => `${candidate.provider}/${candidate.id}` === value,
+          );
+          if (!model) return;
+          try {
+            await options.gateway.selectModel(model);
+            modelLabel = `${model.provider}/${model.name}`;
+            appendText(`Selected ${modelLabel}.`, "muted");
+            updateFooter();
+          } catch (error) {
+            appendText(errorMessage(error), "error");
+          }
+        },
+      );
+    } catch (error) {
+      appendText(errorMessage(error), "error");
+    }
+  }
+
+  async function showProviderMenu(action: "login" | "logout"): Promise<void> {
+    const providers = options.gateway.listProviders();
+    if (providers.length === 0) {
+      removeHome();
+      appendText(
+        "No providers are registered in Pi's current configuration.",
+        "muted",
+      );
+      return;
+    }
+    showSelection(
+      action === "login"
+        ? "Pi providers · sign-in options"
+        : "Select provider to log out",
+      providers.map((provider) => ({
+        value: provider.id,
+        label: provider.name,
+        description: provider.configured
+          ? "configured in Pi"
+          : provider.authMethods.length
+            ? `not configured · ${provider.authMethods.join(", ")}`
+            : "not configured",
+      })),
+      async (providerId) => {
+        const provider = providers.find(
+          (candidate) => candidate.id === providerId,
+        );
+        if (!provider) return;
+        if (action === "login") {
+          appendText(
+            `Sign in to ${provider.name} with Pi: exit Rook, run \`pi\`, and use Pi's /login flow. Then restart Rook.`,
+            "muted",
+          );
+          return;
+        }
+        try {
+          await options.gateway.logout(providerId);
+          appendText(`Logged out of ${provider.name} in Pi.`, "muted");
+        } catch (error) {
+          appendText(errorMessage(error), "error");
+        }
+      },
+    );
+  }
+
+  function showThinkingMenu(): void {
+    const thinking = options.gateway.getThinkingInfo();
+    if (thinking.available.length === 0) {
+      appendText(
+        "Thinking-level selection is unavailable for this model.",
+        "muted",
+      );
+      return;
+    }
+    showSelection(
+      `Thinking level · current: ${thinking.current}`,
+      thinking.available.map((level) => ({
+        value: level,
+        label: level,
+        ...(level === thinking.current ? { description: "current" } : {}),
+      })),
+      (level) => {
+        try {
+          options.gateway.setThinkingLevel(level);
+          appendText(`Thinking level set to ${level}.`, "muted");
+          updateFooter();
+        } catch (error) {
+          appendText(errorMessage(error), "error");
+        }
+      },
+    );
+  }
+
+  function showSelection(
+    title: string,
+    items: { value: string; label: string; description?: string }[],
+    onSelect: (value: string) => void | Promise<void>,
+  ): void {
+    const list = new SelectList(items, 10, selectListTheme);
+    const panel = new VStack([new Text(tone(title, "text", true), 1, 0), list]);
+    const overlay = tui.showOverlay(panel, {
+      width: "80%",
+      maxHeight: "70%",
+      margin: 1,
+    });
+    list.onSelect = (item) => {
+      overlay.hide();
+      void onSelect(item.value);
+    };
+    list.onCancel = () => overlay.hide();
+    tui.setFocus(list);
+  }
+
   editor.onSubmit = (text) => {
     void submitPrompt(text);
   };
@@ -340,4 +495,8 @@ function formatToolCard(
     status === "ok" ? "green" : status === "error" ? "error" : "muted";
   const detail = summary === name ? "" : `  ${summary}`;
   return `${tone(icon, color, true)}  ${tone(name, "text", true)}${tone(detail, "muted")}`;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

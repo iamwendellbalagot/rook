@@ -1,4 +1,9 @@
-import type { AgentEvent, AgentGateway } from "./agent-gateway.js";
+import type {
+  AgentEvent,
+  AgentGateway,
+  ModelInfo,
+  ThinkingInfo,
+} from "./agent-gateway.js";
 
 export class MockAgentGateway implements AgentGateway {
   private readonly handlers = new Set<(event: AgentEvent) => void>();
@@ -17,6 +22,32 @@ export class MockAgentGateway implements AgentGateway {
   }
 
   async cancel(): Promise<void> {}
+
+  async listModels(): Promise<ModelInfo[]> {
+    return [];
+  }
+
+  currentModel(): undefined {
+    return undefined;
+  }
+
+  async selectModel(): Promise<void> {
+    throw new Error("The mock gateway has no model catalog.");
+  }
+
+  listProviders(): [] {
+    return [];
+  }
+
+  async logout(): Promise<void> {
+    throw new Error("The mock gateway has no provider credentials.");
+  }
+
+  getThinkingInfo(): ThinkingInfo {
+    return { current: "medium", available: ["medium"] };
+  }
+
+  setThinkingLevel(): void {}
 
   subscribe(handler: (event: AgentEvent) => void): () => void {
     this.handlers.add(handler);

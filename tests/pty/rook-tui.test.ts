@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { visibleWidth, type Terminal } from "@earendil-works/pi-tui";
-import type { AgentEvent, AgentGateway } from "../../src/pi/agent-gateway.js";
+import type {
+  AgentEvent,
+  AgentGateway,
+  ModelInfo,
+  ThinkingInfo,
+} from "../../src/pi/agent-gateway.js";
 import { createRookTui } from "../../src/tui/rook-tui.js";
 
 class EventGateway implements AgentGateway {
@@ -21,6 +26,28 @@ class EventGateway implements AgentGateway {
   }
 
   async cancel(): Promise<void> {}
+
+  async listModels(): Promise<ModelInfo[]> {
+    return [];
+  }
+
+  currentModel(): undefined {
+    return undefined;
+  }
+
+  async selectModel(): Promise<void> {}
+
+  listProviders(): [] {
+    return [];
+  }
+
+  async logout(): Promise<void> {}
+
+  getThinkingInfo(): ThinkingInfo {
+    return { current: "medium", available: ["low", "medium", "high"] };
+  }
+
+  setThinkingLevel(): void {}
 
   subscribe(handler: (event: AgentEvent) => void): () => void {
     this.handlers.add(handler);
@@ -100,6 +127,10 @@ describe("Rook TUI shell", () => {
     app.tui.renderNow(true);
     expect(terminal.writes.join("")).toContain("final answer");
     expect(terminal.writes.join("")).toContain("package.json");
+
+    await app.submit("/login");
+    app.tui.renderNow(true);
+    expect(terminal.writes.join("")).toContain("No providers are registered");
 
     const writesBeforeResize = terminal.writes.length;
     terminal.resize(60, 20);
