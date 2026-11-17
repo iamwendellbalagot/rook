@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { visibleWidth, type Terminal } from "@earendil-works/pi-tui";
 import type {
   AgentEvent,
@@ -14,6 +17,8 @@ import type {
   GitSnapshot,
   RepositoryIdentity,
 } from "../../src/repo/workspace.js";
+import { RookStore } from "../../src/db/store.js";
+import { MemoryCaptureManager } from "../../src/memory/capture.js";
 import { createRookTui } from "../../src/tui/rook-tui.js";
 
 class EventGateway implements AgentGateway {
@@ -218,5 +223,49 @@ describe("Rook TUI shell", () => {
     terminal.input("\u0003");
     await finished;
     expect(terminal.stopped).toBe(1);
+  });
+
+  it("exposes repository memory pause and project opt-out controls", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rook-memory-tui-"));
+    const store = await RookStore.open(join(directory, "state.sqlite"));
+    const repository: RepositoryIdentity = {
+      id: "memory-tui-repo",
+      logicalId: "memory-tui-repo",
+      kind: "directory",
+      root: directory,
+      displayName: "memory-tui",
+      remoteFingerprint: null,
+    };
+    store.saveWorkspace(repository, null);
+    const memoryCapture = new MemoryCaptureManager(store, repository, null);
+    const terminal = new FakeTerminal();
+    const app = createRookTui({
+      cwd: directory,
+      repository,
+      memoryCapture,
+      gateway: new EventGateway(),
+      terminal,
+    });
+    const finished = app.start();
+    try {
+      await app.submit("/memory pause");
+      expect(memoryCapture.status().paused).toBe(true);
+      await app.submit("/memory opt-out");
+      expect(memoryCapture.status().optedOut).toBe(true);
+      await app.submit("/memory opt-in");
+      expect(memoryCapture.status().optedOut).toBe(false);
+      await app.submit("/memory resume");
+      expect(memoryCapture.status().paused).toBe(false);
+      app.tui.renderNow(true);
+      expect(terminal.writes.join(" ")).toContain("Memory capture paused");
+      expect(terminal.writes.join(" ")).toContain(
+        "Project memory capture is off",
+      );
+    } finally {
+      terminal.input("\u0003");
+      await finished;
+      store.close();
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });

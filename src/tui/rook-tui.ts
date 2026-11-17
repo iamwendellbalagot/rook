@@ -19,6 +19,7 @@ import type { AppState } from "../app/state.js";
 import { initialAppState, reduceAppState } from "../app/state.js";
 import type { AgentGateway } from "../pi/agent-gateway.js";
 import type { GitSnapshot, RepositoryIdentity } from "../repo/workspace.js";
+import type { MemoryCaptureManager } from "../memory/capture.js";
 import {
   editorTheme,
   markdownTheme,
@@ -34,6 +35,7 @@ export interface RookTuiOptions {
   branch?: string;
   repository?: RepositoryIdentity;
   snapshot?: GitSnapshot | null;
+  memoryCapture?: MemoryCaptureManager;
   gateway: AgentGateway;
   terminal?: Terminal;
 }
@@ -83,6 +85,13 @@ function compactPath(path: string, maxWidth: number): string {
   return truncateToWidth(tail, maxWidth, "…");
 }
 
+function safeTerminalText(value: string): string {
+  return value
+    .replace(/\x1B(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g, "")
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, " ")
+    .slice(0, 1000);
+}
+
 function createHome(
   cwd: string,
   repository?: RepositoryIdentity,
@@ -97,7 +106,7 @@ function createHome(
     ["/login", "Sign in to a Pi provider"],
     ["/settings", "Adjust thinking level"],
     ["/permissions", "Review recent tool permission decisions"],
-    ["/memory", "Repository memory is not available yet"],
+    ["/memory", "Show, pause, resume, or control repository memory"],
     ["/help", "Show available commands"],
   ] as const;
   const commandLines = commands
@@ -116,7 +125,12 @@ function createHome(
       tone("GET STARTED", "dim", true),
       commandLines,
       "",
-      tone("◇  No repository memory yet", "dim"),
+      tone(
+        repository
+          ? "◇  Repository memory available · /memory show"
+          : "◇  No repository memory yet",
+        "dim",
+      ),
       `   ${tone(resolve(cwd), "dim")}`,
       ...(repository
         ? [
@@ -246,10 +260,17 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     tui.requestRender();
   };
 
+  const unsubscribeMemory = options.memoryCapture?.subscribeNotices(
+    (notice) => {
+      appendText(safeTerminalText(notice), "muted");
+    },
+  );
+
   const exit = (): void => {
     if (settled) return;
     settled = true;
     unsubscribe();
+    unsubscribeMemory?.();
     tui.stop();
     resolveRun?.();
   };
@@ -278,7 +299,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/help":
           removeHome();
           appendText(
-            "Available: /help, /login, /logout, /model, /settings, /new, /sessions, /resume, /plan, /build, /permissions, /memory, /cancel, /exit",
+            "Available: /help, /login, /logout, /model, /settings, /new, /sessions, /resume, /plan, /build, /permissions, /memory status|show|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
             "muted",
           );
           return;
@@ -346,7 +367,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         }
         case "/memory":
           removeHome();
-          appendText("Repository memory is not available yet.", "muted");
+          await handleMemoryCommand(prompt);
           return;
         case "/cancel":
           await options.gateway.cancel();
@@ -388,6 +409,122 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       updateFooter();
     }
   };
+
+  async function handleMemoryCommand(command: string): Promise<void> {
+    const [, action = "status", ...args] = command.trim().split(/\s+/);
+    const memory = options.memoryCapture;
+    if (!memory) {
+      appendText("Repository memory is unavailable in this run.", "muted");
+      return;
+    }
+    switch (action) {
+      case "status": {
+        const status = memory.status();
+        appendText(
+          `Memory capture ${status.optedOut ? "opted out" : status.paused ? "paused" : "active"}; ${status.capturedThisSession}/${status.sessionCaptureLimit} session captures; ${status.pendingConfirmations} pending confirmation(s).`,
+          "muted",
+        );
+        return;
+      }
+      case "pause": {
+        memory.pause();
+        appendText("Memory capture paused for this repository.", "muted");
+        return;
+      }
+      case "resume": {
+        const status = memory.resume();
+        appendText(
+          status.optedOut
+            ? "Capture remains disabled because this project is opted out; use /memory opt-in."
+            : "Memory capture resumed for this repository.",
+          "muted",
+        );
+        return;
+      }
+      case "opt-out": {
+        memory.optOut();
+        appendText(
+          "Project memory capture is off; pending confirmations were cleared. Use /memory opt-in to re-enable it.",
+          "muted",
+        );
+        return;
+      }
+      case "opt-in": {
+        const status = memory.optIn();
+        appendText(
+          status.paused
+            ? "Project memory capture is enabled but remains paused; use /memory resume."
+            : "Project memory capture is enabled.",
+          "muted",
+        );
+        return;
+      }
+      case "show": {
+        const entries = memory.show();
+        appendText(
+          entries.length
+            ? entries.map(safeTerminalText).join("\n")
+            : "No memories are stored for this repository.",
+          "muted",
+        );
+        return;
+      }
+      case "pending": {
+        const pending = memory.pending();
+        appendText(
+          pending.length
+            ? pending
+                .map(
+                  (item) =>
+                    `[${item.id}] ${safeTerminalText(item.title)} — /memory confirm ${item.id} or /memory cancel ${item.id}`,
+                )
+                .join("\n")
+            : "No explicit memories are awaiting confirmation.",
+          "muted",
+        );
+        return;
+      }
+      case "confirm": {
+        if (!args[0]) {
+          appendText("Usage: /memory confirm <pending-id>", "error");
+          return;
+        }
+        appendText(safeTerminalText(memory.confirm(args[0])), "muted");
+        return;
+      }
+      case "cancel": {
+        if (!args[0]) {
+          appendText("Usage: /memory cancel <pending-id>", "error");
+          return;
+        }
+        appendText(
+          memory.cancel(args[0])
+            ? "Pending memory discarded."
+            : "No pending memory matches that ID in this repository.",
+          "muted",
+        );
+        return;
+      }
+      case "forget": {
+        if (!args[0] || args[1]?.toLowerCase() !== "confirm") {
+          appendText("Usage: /memory forget <memory-id> confirm", "error");
+          return;
+        }
+        appendText(
+          memory.forget(args[0])
+            ? "Memory and its evidence/history were forgotten from the live database. Existing external backups are unaffected."
+            : "No memory matches that ID in this repository.",
+          "muted",
+        );
+        return;
+      }
+      default:
+        appendText(
+          "Usage: /memory [status|show|pause|resume|opt-out|opt-in|pending|confirm <id>|cancel <id>|forget <id> confirm]. Use `remember: <claim>` in a prompt to request a memory, then confirm its pending ID.",
+          "muted",
+        );
+    }
+  }
 
   async function showModelMenu(): Promise<void> {
     try {

@@ -4,6 +4,7 @@ import { createPiAgentGateway } from "./pi/pi-agent-gateway.js";
 import type { AgentGateway } from "./pi/agent-gateway.js";
 import { RookStore } from "./db/store.js";
 import { retrieveMemoryContext } from "./memory/context.js";
+import { MemoryCaptureManager } from "./memory/capture.js";
 import { resolveWorkspace } from "./repo/workspace.js";
 import { createRookTui } from "./tui/rook-tui.js";
 import { initialAppState, reduceAppState, type AppState } from "./app/state.js";
@@ -55,15 +56,28 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
               workspace.snapshot,
             )
         : undefined;
+    const memoryCapture =
+      workspace && store
+        ? new MemoryCaptureManager(
+            store,
+            workspace.repository,
+            workspace.snapshot,
+          )
+        : undefined;
     const gateway = mock
       ? new MockAgentGateway()
       : await createPiAgentGateway(cwd, {
           ...(memoryContext ? { memoryContext } : {}),
+          ...(memoryCapture ? { memoryCapture } : {}),
         });
     let state = reduceAppState(initialAppState(), { type: "startup_complete" });
     try {
       if (prompt) {
         state = await runPrompt(gateway, prompt, state);
+        await memoryCapture?.flush();
+        for (const notice of memoryCapture?.drainNotices() ?? []) {
+          stdout.write(`\n${notice}\n`);
+        }
         return;
       }
       const app = createRookTui({
@@ -75,8 +89,10 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
         ...(workspace
           ? { repository: workspace.repository, snapshot: workspace.snapshot }
           : {}),
+        ...(memoryCapture ? { memoryCapture } : {}),
       });
       await app.start();
+      await memoryCapture?.flush();
     } finally {
       await gateway.dispose();
     }

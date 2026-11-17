@@ -38,7 +38,10 @@ interface MemoryCandidate {
 export function retrieveMemoryContext(
   store: Pick<
     RookStore,
-    "listMemories" | "searchMemories" | "recordMemoryRetrieval"
+    | "listMemories"
+    | "searchMemories"
+    | "recordMemoryRetrieval"
+    | "getMemoryCaptureSettings"
   >,
   repoId: string,
   query: string,
@@ -48,6 +51,10 @@ export function retrieveMemoryContext(
   const limit = clamp(Math.trunc(options.limit ?? 4), 1, 6);
   const tokenBudget = clamp(Math.trunc(options.tokenBudget ?? 1000), 800, 1500);
   const now = options.now ?? new Date();
+  if (store.getMemoryCaptureSettings(repoId).optedOut) {
+    store.recordMemoryRetrieval(repoId, [], 0, tokenBudget);
+    return { content: "", memoryIds: [], estimatedTokens: 0, tokenBudget };
+  }
   const tokens = queryTokens(query);
   if (tokens.length === 0) {
     store.recordMemoryRetrieval(repoId, [], 0, tokenBudget);
@@ -242,14 +249,19 @@ function formatMemory(
       }`
     : "source unavailable";
   const commit = evidence?.commitSha ?? memory.validAtCommit ?? "unknown";
-  const status = memory.status.toUpperCase();
+  const status =
+    memory.sourceClass === "user_explicit"
+      ? "USER_ASSERTED"
+      : memory.status.toUpperCase();
   const currentCommit = snapshot?.headCommit;
   const caveat =
-    memory.status === "possibly_stale"
-      ? "Historical lead; verify current files before relying on it."
-      : currentCommit && commit !== "unknown" && commit !== currentCommit
-        ? `Evidence commit ${commit} differs from current HEAD ${currentCommit}; freshness is unconfirmed.`
-        : "Commit is a freshness hint, not proof; verify the cited source.";
+    memory.sourceClass === "user_explicit"
+      ? "User-confirmed assertion; not independently verified against repository files."
+      : memory.status === "possibly_stale"
+        ? "Historical lead; verify current files before relying on it."
+        : currentCommit && commit !== "unknown" && commit !== currentCommit
+          ? `Evidence commit ${commit} differs from current HEAD ${currentCommit}; freshness is unconfirmed.`
+          : "Commit is a freshness hint, not proof; verify the cited source.";
   return `  <memory id="${escapeXml(memory.id)}" kind="${escapeXml(memory.kind)}" status="${status}" source="${escapeXml(memory.sourceClass)}" commit="${escapeXml(commit)}" location="${location}">\n    <claim>${escapeXml(memory.title)}</claim>\n    <detail>${escapedBody}</detail>\n    <caveat>${escapeXml(caveat)}</caveat>\n  </memory>`;
 }
 
@@ -336,7 +348,7 @@ function truncateEscaped(value: string, maxLength: number): string {
 
 function escapeXml(value: string): string {
   return value
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .replace(/[\u0000-\u001F\u007F-\u009F\u202A-\u202E\u2066-\u2069]/g, "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")

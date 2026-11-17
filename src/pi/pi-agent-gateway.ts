@@ -27,6 +27,7 @@ import {
   createMemoryContextExtension,
   type RetrievedMemoryContext,
 } from "../memory/context.js";
+import type { MemoryCaptureManager } from "../memory/capture.js";
 
 const AVAILABLE_TOOLS = ["read", "find", "ls", "edit", "write"];
 
@@ -43,6 +44,7 @@ export async function createPiAgentGateway(
     memoryContext?: (
       prompt: string,
     ) => RetrievedMemoryContext | Promise<RetrievedMemoryContext>;
+    memoryCapture?: MemoryCaptureManager;
   } = {},
 ): Promise<AgentGateway> {
   const handlers = new Set<(event: AgentEvent) => void>();
@@ -65,6 +67,9 @@ export async function createPiAgentGateway(
             createToolPolicyExtension(policy),
             ...(options.memoryContext
               ? [createMemoryContextExtension(options.memoryContext)]
+              : []),
+            ...(options.memoryCapture
+              ? [options.memoryCapture.createExtension()]
               : []),
           ],
         },

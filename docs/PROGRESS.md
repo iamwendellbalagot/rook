@@ -46,20 +46,21 @@ M0 is implemented, but live-provider streaming remains credential-gated and unve
 - ROOK-012: added `better-sqlite3` (Node 22.19+ verified) and transactional, versioned SQLite migrations with WAL, foreign keys, constraints, indexes, FTS5 triggers, and a rebuild operation. Real workspaces now persist generated repository identity and append snapshot history to `~/.rook/state.sqlite`; the ROOK-011 JSON registry remains the identity resolver. Added parameterized memory persistence/search, content-clearing soft delete and purge, SQLite backup, and JSON export. The database is created with owner-only file permissions.
 - ROOK-013: added repo-scoped memory create/get/list, source evidence management, revision history for edits, pinning, semantic-key deduplication with evidence dedupe, and explicit forget with cascading physical removal from the live database. Secret-like content and secret-bearing file paths are rejected before persistence; soft-deleted content is removed from FTS and copied text is cleared from revision/evidence records.
 - ROOK-014: added repo-scoped, query-dependent retrieval with exact repository scoping, verified/trusted/evidence-backed filters, lexical/FTS/path/symbol/source/recency/freshness ranking, and a top-K context composer capped at 1,500 estimated tokens. Context is XML-escaped and explicitly untrusted; stale memories are labeled historical, and irrelevant queries inject nothing. The Pi SDK's documented `before_agent_start` hook receives context as a hidden custom message without rewriting the system prompt. Retrieval logs persist only memory IDs and token estimates, never prompt or memory content.
+- ROOK-015: added bounded deterministic capture on Pi `agent_settled` for high-signal user decisions/conventions/fix statements with successful read/edit/write evidence. Capture revalidates workspace boundaries, rejects sensitive paths, hashes at most three small files without persisting their contents, and creates non-retrievable candidates. `remember:` requests are persisted as pending claims and require `/memory confirm <id>`; `/memory cancel`, `/memory pause|resume`, project `/memory opt-out|opt-in`, `/memory show`, and confirmed `/memory forget` controls are available. Capture is capped at three records per session, has no LLM extraction, and project opt-out suppresses both capture and retrieval.
 
 ### Validation
 
 - `npm run typecheck` — passed.
 - `npx vitest run tests/app/state.test.ts` — passed (5 focused tests).
 - `npx vitest run tests/pi/event-adapter.test.ts tests/pi/mock-agent-gateway.test.ts` — passed (4 tests; event mapping, no raw tool data, and final-message deduplication).
-- `npm test` — passed (9 files, 38 tests; includes policy traversal, sensitive path, link, tool-hook, mode/concurrency, repository identity/snapshot, migrations, FTS, memory revisions/deduplication/forget, retrieval scoping/ranking/sanitization, backup, and export cases).
+- `npm test` — passed (10 files, 47 tests; includes policy traversal, sensitive path, link, tool-hook, mode/concurrency, repository identity/snapshot, migrations, FTS, memory revisions/deduplication/forget, retrieval scoping/ranking/sanitization, settled capture/confirmation/limits, backup, and export cases).
 - Node 22.19 compatibility — passed: rebuilt the native driver under Node 22.19, verified FTS5, and ran all focused database tests.
-- `npm run test:pty` — passed (fake-terminal render, resize, prompt, mode/session commands, and cleanup flow).
-- `npm run test:integration` — passed (SDK lifecycle, tool allowlist/mode changes, optional memory extension loading, and persistent session list/resume/new/rebind flow).
+- `npm run test:pty` — passed (fake-terminal render, resize, prompt, mode/session/memory controls, and cleanup flow).
+- `npm run test:integration` — passed (SDK lifecycle, tool allowlist/mode changes, optional context/capture extension loading, and persistent session list/resume/new/rebind flow).
 - `npm run build` — passed.
 - `node bin/rook.mjs --smoke` — passed with the mock gateway.
 - `npm run lint` — passed.
 
 ### Next
 
-- ROOK-015: implement bounded memory capture from settled runs with explicit user controls and evidence validation.
+- ROOK-016: implement Git change impact and evidence invalidation so stale memories are never treated as fresh.

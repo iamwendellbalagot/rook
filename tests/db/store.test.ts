@@ -78,8 +78,12 @@ describe("Rook SQLite store", () => {
     expect(versions).toEqual([
       { version: 1, name: "initial_memory_schema" },
       { version: 2, name: "memory_identity_and_revision_titles" },
+      {
+        version: 3,
+        name: "memory_capture_controls_and_confirmation",
+      },
     ]);
-    expect(reopened.db.pragma("user_version", { simple: true })).toBe(2);
+    expect(reopened.db.pragma("user_version", { simple: true })).toBe(3);
     expect(reopened.db.pragma("foreign_keys", { simple: true })).toBe(1);
     expect(reopened.db.pragma("journal_mode", { simple: true })).toBe("wal");
     expect(
@@ -398,7 +402,7 @@ describe("Rook SQLite store", () => {
 
     const exported = store.exportJson();
     expect(exported.format).toBe("rook-sqlite-export-v1");
-    expect(exported.schemaVersion).toBe(2);
+    expect(exported.schemaVersion).toBe(3);
     expect(exported.tables).toHaveProperty("repo_snapshots");
     expect(await readFile(backupPath)).toBeInstanceOf(Buffer);
     store.close();

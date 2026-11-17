@@ -7,6 +7,9 @@ import {
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { createPiAgentGateway } from "../../src/pi/pi-agent-gateway.js";
+import { RookStore } from "../../src/db/store.js";
+import { MemoryCaptureManager } from "../../src/memory/capture.js";
+import type { RepositoryIdentity } from "../../src/repo/workspace.js";
 
 describe("Pi SDK compatibility", () => {
   it("creates and disposes an in-memory session without credentials", async () => {
@@ -41,6 +44,18 @@ describe("Pi SDK compatibility", () => {
   });
 
   it("loads the optional memory context extension alongside the tool policy", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rook-memory-extension-"));
+    const store = await RookStore.open(join(directory, "state.sqlite"));
+    const repository: RepositoryIdentity = {
+      id: "extension-repo",
+      logicalId: "extension-repo",
+      kind: "directory",
+      root: process.cwd(),
+      displayName: "integration",
+      remoteFingerprint: null,
+    };
+    store.saveWorkspace(repository, null);
+    const memoryCapture = new MemoryCaptureManager(store, repository, null);
     const gateway = await createPiAgentGateway(process.cwd(), {
       memoryContext: () => ({
         content: "",
@@ -48,6 +63,7 @@ describe("Pi SDK compatibility", () => {
         estimatedTokens: 0,
         tokenBudget: 1000,
       }),
+      memoryCapture,
     });
     try {
       expect(gateway.getActiveTools()).toEqual(
@@ -56,6 +72,8 @@ describe("Pi SDK compatibility", () => {
       expect(gateway.getActiveTools()).not.toContain("bash");
     } finally {
       await gateway.dispose();
+      store.close();
+      await rm(directory, { recursive: true, force: true });
     }
   });
 

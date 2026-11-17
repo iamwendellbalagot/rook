@@ -176,6 +176,47 @@ describe("repository memory retrieval and context", () => {
     store.close();
   });
 
+  it("honors repository-level memory opt-out for retrieval as well as capture", async () => {
+    const store = await makeStore();
+    store.recordMemory(draft());
+    store.setMemoryCaptureSettings("repo-1", { optedOut: true });
+    const result = retrieveMemoryContext(
+      store,
+      "repo-1",
+      "authentication AuthService",
+      snapshot(),
+    );
+    expect(result.content).toBe("");
+    expect(result.memoryIds).toEqual([]);
+    expect(store.listMemories("repo-1")).toHaveLength(1);
+    store.close();
+  });
+
+  it("labels confirmed user assertions separately from file-verified memory", async () => {
+    const store = await makeStore();
+    store.recordMemory({
+      repoId: "repo-1",
+      kind: "preference",
+      title: "Prefer small modules",
+      body: "The user explicitly prefers small focused modules.",
+      status: "verified",
+      confidence: 1,
+      sourceClass: "user_explicit",
+      evidence: [{ sourceType: "user_explicit" }],
+    });
+    const result = retrieveMemoryContext(
+      store,
+      "repo-1",
+      "What is the preference for modules?",
+      snapshot(),
+    );
+    expect(result.content).toContain('status="USER_ASSERTED"');
+    expect(result.content).toContain(
+      "not independently verified against repository files",
+    );
+    store.close();
+  });
+
   it("escapes untrusted content and stays within the configured token cap", async () => {
     const store = await makeStore();
     store.recordMemory(

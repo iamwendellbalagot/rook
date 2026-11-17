@@ -95,6 +95,21 @@ export interface RecordMemoryResult {
   created: boolean;
 }
 
+export interface MemoryCaptureSettings {
+  paused: boolean;
+  optedOut: boolean;
+}
+
+export interface PendingMemoryConfirmation {
+  id: string;
+  repoId: string;
+  kind: string;
+  title: string;
+  body: string;
+  semanticKey: string | null;
+  createdAt: string;
+}
+
 export interface RepositorySummary {
   id: string;
   logicalId: string;
@@ -252,6 +267,29 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_evidence_identity ON memory_evidence(
         memory_id, path, symbol, content_sha256, commit_sha, source_type
       );
+    `,
+  },
+  {
+    version: 3,
+    name: "memory_capture_controls_and_confirmation",
+    sql: `
+      CREATE TABLE memory_capture_settings (
+        repo_id TEXT PRIMARY KEY REFERENCES repositories(id) ON DELETE CASCADE,
+        paused INTEGER NOT NULL DEFAULT 0 CHECK (paused IN (0, 1)),
+        opted_out INTEGER NOT NULL DEFAULT 0 CHECK (opted_out IN (0, 1)),
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE memory_pending_confirmations (
+        id TEXT PRIMARY KEY,
+        repo_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        title TEXT NOT NULL CHECK (length(title) <= 200),
+        body TEXT NOT NULL CHECK (length(body) <= 1000),
+        semantic_key TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX idx_memory_pending_repo_created
+        ON memory_pending_confirmations(repo_id, created_at);
     `,
   },
 ];
@@ -453,6 +491,162 @@ export class RookStore {
       dirtyFingerprint: row.dirty_fingerprint,
       createdAt: row.created_at,
     }));
+  }
+
+  getMemoryCaptureSettings(repoId: string): MemoryCaptureSettings {
+    this.db
+      .prepare(
+        `
+      INSERT INTO memory_capture_settings(repo_id, updated_at)
+      VALUES (?, ?)
+      ON CONFLICT(repo_id) DO NOTHING
+    `,
+      )
+      .run(repoId, new Date().toISOString());
+    const row = this.db
+      .prepare(
+        `
+      SELECT paused, opted_out FROM memory_capture_settings WHERE repo_id = ?
+    `,
+      )
+      .get(repoId) as { paused: number; opted_out: number };
+    return { paused: row.paused === 1, optedOut: row.opted_out === 1 };
+  }
+
+  setMemoryCaptureSettings(
+    repoId: string,
+    settings: Partial<MemoryCaptureSettings>,
+    now = new Date().toISOString(),
+  ): MemoryCaptureSettings {
+    const current = this.getMemoryCaptureSettings(repoId);
+    const next = {
+      paused: settings.paused ?? current.paused,
+      optedOut: settings.optedOut ?? current.optedOut,
+    };
+    this.db
+      .prepare(
+        `
+      UPDATE memory_capture_settings SET paused = ?, opted_out = ?, updated_at = ?
+      WHERE repo_id = ?
+    `,
+      )
+      .run(next.paused ? 1 : 0, next.optedOut ? 1 : 0, now, repoId);
+    return next;
+  }
+
+  queueMemoryConfirmation(
+    repoId: string,
+    input: { kind: string; title: string; body: string; semanticKey?: string },
+    now = new Date().toISOString(),
+  ): PendingMemoryConfirmation {
+    const kind = normalizeMemoryKind(input.kind);
+    assertSafeMemoryText(kind);
+    assertSafeMemoryText(input.title);
+    assertSafeMemoryText(input.body);
+    if (input.semanticKey) assertSafeMemoryText(input.semanticKey);
+    const title = input.title.trim().slice(0, 200);
+    const body = input.body.trim().slice(0, 1000);
+    if (!title || !body)
+      throw new Error("A memory title and claim are required.");
+    const pending: PendingMemoryConfirmation = {
+      id: randomUUID().slice(0, 12),
+      repoId,
+      kind,
+      title,
+      body,
+      semanticKey: input.semanticKey?.trim() || null,
+      createdAt: now,
+    };
+    this.db
+      .prepare(
+        `
+      INSERT INTO memory_pending_confirmations(id, repo_id, kind, title, body, semantic_key, created_at)
+      VALUES (@id, @repoId, @kind, @title, @body, @semanticKey, @createdAt)
+    `,
+      )
+      .run(pending);
+    return pending;
+  }
+
+  listPendingMemoryConfirmations(repoId: string): PendingMemoryConfirmation[] {
+    return this.db
+      .prepare(
+        `
+      SELECT id, repo_id AS repoId, kind, title, body,
+        semantic_key AS semanticKey, created_at AS createdAt
+      FROM memory_pending_confirmations WHERE repo_id = ? ORDER BY created_at, id
+    `,
+      )
+      .all(repoId) as PendingMemoryConfirmation[];
+  }
+
+  confirmPendingMemory(
+    repoId: string,
+    pendingId: string,
+    now = new Date().toISOString(),
+  ): RecordMemoryResult | undefined {
+    const confirm = this.db.transaction(() => {
+      const pending = this.db
+        .prepare(
+          `
+        SELECT * FROM memory_pending_confirmations WHERE id = ? AND repo_id = ?
+      `,
+        )
+        .get(pendingId, repoId) as
+        | {
+            id: string;
+            repo_id: string;
+            kind: string;
+            title: string;
+            body: string;
+            semantic_key: string | null;
+          }
+        | undefined;
+      if (!pending) return undefined;
+      const result = this.recordMemory(
+        {
+          repoId,
+          kind: pending.kind,
+          title: pending.title,
+          body: pending.body,
+          ...(pending.semantic_key
+            ? { semanticKey: pending.semantic_key }
+            : {}),
+          status: "verified",
+          confidence: 1,
+          sourceClass: "user_explicit",
+          evidence: [{ sourceType: "user_explicit" }],
+        },
+        now,
+      );
+      this.db
+        .prepare("DELETE FROM memory_pending_confirmations WHERE id = ?")
+        .run(pendingId);
+      return result;
+    });
+    return confirm.immediate();
+  }
+
+  cancelPendingMemory(repoId: string, pendingId: string): boolean {
+    return (
+      this.db
+        .prepare(
+          `
+      DELETE FROM memory_pending_confirmations WHERE id = ? AND repo_id = ?
+    `,
+        )
+        .run(pendingId, repoId).changes > 0
+    );
+  }
+
+  clearPendingMemoryConfirmations(repoId: string): number {
+    return this.db
+      .prepare(
+        `
+      DELETE FROM memory_pending_confirmations WHERE repo_id = ?
+    `,
+      )
+      .run(repoId).changes;
   }
 
   private insertMemory(memory: MemoryRecord): void {
@@ -1075,14 +1269,47 @@ function makeLegacyDedupeKey(kind: string, identity: string): string {
 const SECRET_PATTERNS = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/i,
   /\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/,
+  /\bAIza[0-9A-Za-z_-]{30,}\b/,
+  /\bxox[baprs]-[0-9A-Za-z-]{16,}\b/,
+  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/,
   /\bAKIA[0-9A-Z]{16}\b/,
   /\bBearer\s+[A-Za-z0-9._~+/-]{12,}/i,
   /(?:^|\b)[A-Z0-9_-]*(?:API[_-]?KEY|ACCESS[_-]?TOKEN|AUTH[_-]?TOKEN|PASSWORD|PASSWD|SECRET|TOKEN|PRIVATE[_-]?KEY|DATABASE[_-]?URL)[A-Z0-9_-]*\s*[:=]\s*["']?[^\s"']{8,}/im,
   /\bsk-[A-Za-z0-9_-]{20,}\b/,
 ];
 
+export function isSafeMemoryContent(value: string): boolean {
+  if (
+    /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u202A-\u202E\u2066-\u2069]/.test(
+      value,
+    )
+  ) {
+    return false;
+  }
+  if (SECRET_PATTERNS.some((pattern) => pattern.test(value))) return false;
+  if (/\b\d{3}-\d{2}-\d{4}\b/.test(value)) return false;
+  const cardNumbers = value.match(/\b(?:\d[ -]?){13,19}\b/g) ?? [];
+  return !cardNumbers.some((candidate) => passesLuhn(candidate));
+}
+
+function passesLuhn(candidate: string): boolean {
+  const digits = candidate.replace(/\D/g, "");
+  let sum = 0;
+  let double = false;
+  for (let index = digits.length - 1; index >= 0; index -= 1) {
+    let digit = Number(digits[index]);
+    if (double) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    sum += digit;
+    double = !double;
+  }
+  return digits.length >= 13 && sum % 10 === 0;
+}
+
 function assertSafeMemoryText(value: string): void {
-  if (SECRET_PATTERNS.some((pattern) => pattern.test(value))) {
+  if (!isSafeMemoryContent(value)) {
     throw new Error(
       "Potential secret content was rejected; remove credentials before recording memory.",
     );
