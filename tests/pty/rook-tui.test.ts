@@ -50,10 +50,10 @@ class EventGateway implements AgentGateway {
       return;
     }
     if (prompt === "long running prompt") {
-      this.emit({ type: "text_delta", text: "working" });
       await new Promise<void>((resolve) => {
         this.finishPendingRun = resolve;
       });
+      this.emit({ type: "text_delta", text: "working" });
       this.emit({ type: "message_complete", text: "finished" });
       this.emit({ type: "run_settled", aborted: false });
       return;
@@ -369,6 +369,26 @@ describe("Rook TUI shell", () => {
     await finished;
     expect(terminal.stopped).toBe(1);
     expect(gateway.externalAccessPrompt).toBeUndefined();
+  });
+
+  it("shows a Rook loading phrase until response text starts", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    const pendingRun = app.submit("long running prompt");
+    expect(app.tui.render(100).join("\n")).toContain("Rook is thinking.");
+
+    gateway.completePendingRun();
+    await pendingRun;
+    expect(app.tui.render(100).join("\n")).not.toContain("Rook is thinking");
+
+    terminal.input("\u0003");
+    await finished;
   });
 
   it("exposes repository memory pause and project opt-out controls", async () => {

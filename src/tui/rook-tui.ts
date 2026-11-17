@@ -295,6 +295,14 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     request: ExternalAccessRequest;
     resolve: (choice: ExternalAccessChoice) => void;
   }[] = [];
+  const thinkingPhrases = [
+    "Rook is thinking",
+    "Connecting the pieces",
+    "Working through it",
+  ];
+  let loadingTimer: ReturnType<typeof setInterval> | undefined;
+  let loadingTick = 0;
+  let loadingStatus: string | undefined;
   let activePermissionPrompt:
     | {
         resolve: (choice: ExternalAccessChoice) => void;
@@ -304,6 +312,16 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     resolveRun = resolvePromise;
   });
   const updateFooter = (): void => {
+    if (loadingStatus) {
+      footer.setText(
+        truncateToWidth(
+          `${tone(modelLabel, "muted")} · ${tone(`♜ ${loadingStatus}`, "blue")} · ${tone(state.mode.toUpperCase(), state.mode === "plan" ? "blue" : "amber", true)} · ${state.mode === "plan" ? "read-only tools" : "workspace edits enabled"} · Ctrl+C exit`,
+          Math.max(1, terminal.columns),
+        ),
+      );
+      tui.requestRender();
+      return;
+    }
     const status = state.runState === "running" ? " · running" : "";
     const usage = state.usage
       ? ` · ↑ ${state.usage.inputTokens ?? 0} ↓ ${state.usage.outputTokens ?? 0}`
@@ -318,16 +336,43 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   };
   updateFooter();
 
+  function startLoadingStatus(reset = false): void {
+    stopLoadingStatus();
+    if (reset) loadingTick = 0;
+    const update = (): void => {
+      const phrase =
+        thinkingPhrases[Math.floor(loadingTick / 3) % thinkingPhrases.length]!;
+      const dots = ".".repeat((loadingTick % 3) + 1);
+      loadingStatus = `${phrase}${dots}`;
+      loadingTick += 1;
+      updateFooter();
+    };
+    update();
+    loadingTimer = setInterval(update, 650);
+  }
+
+  function stopLoadingStatus(): void {
+    if (loadingTimer) clearInterval(loadingTimer);
+    loadingTimer = undefined;
+    if (loadingStatus) {
+      loadingStatus = undefined;
+      updateFooter();
+    }
+  }
+
   const unsubscribe = options.gateway.subscribe((event) => {
     if (event.type === "text_delta") {
+      stopLoadingStatus();
       state = reduceAppState(state, event);
       activeResponse?.setText(state.response);
       tui.requestRender();
     } else if (event.type === "message_complete") {
+      stopLoadingStatus();
       state = reduceAppState(state, event);
       activeResponse?.setText(state.response);
       tui.requestRender();
     } else if (event.type === "tool_started") {
+      stopLoadingStatus();
       state = reduceAppState(state, {
         type: "tool_started",
         tool: { id: event.id, name: event.name, summary: event.summary },
@@ -352,15 +397,18 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         card.setText(formatToolCard(tool.name, tool.summary, tool.status));
       }
       toolCards.delete(event.id);
+      if (state.runState === "running") startLoadingStatus();
       tui.requestRender();
     } else if (event.type === "usage") {
       state = reduceAppState(state, event);
       updateFooter();
     } else if (event.type === "run_settled") {
+      stopLoadingStatus();
       state = reduceAppState(state, { type: "run_state", state: "settled" });
       if (event.aborted) appendText("Run cancelled.", "muted");
       updateFooter();
     } else if (event.type === "error") {
+      stopLoadingStatus();
       state = reduceAppState(state, event);
       activeResponse?.setText(tone(event.message, roleColors.error));
       updateFooter();
@@ -386,6 +434,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     denyPendingPermissionPrompts();
     unsubscribe();
     unsubscribeMemory?.();
+    stopLoadingStatus();
     tui.stop();
     resolveRun?.();
   };
@@ -563,6 +612,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     activeResponse = new Markdown("", 2, 0, markdownTheme, {
       color: (content) => tone(content, "text"),
     });
+    startLoadingStatus(true);
     transcript.addChild(activeResponse);
     updateFooter();
     try {
@@ -579,6 +629,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         activeResponse.setText(tone(state.error ?? "Request failed", "error"));
       }
     } finally {
+      stopLoadingStatus();
       activeResponse = undefined;
       updateFooter();
     }
