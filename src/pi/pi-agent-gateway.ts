@@ -10,6 +10,9 @@ import type {
   AgentEvent,
   AgentGateway,
   CurrentSessionInfo,
+  ExternalAccessChoice,
+  ExternalAccessGrant,
+  ExternalAccessRequest,
   ModelInfo,
   PermissionDecision,
   PermissionMode,
@@ -188,6 +191,15 @@ export async function createPiAgentGateway(
     },
     getPermissionDecisions(): PermissionDecision[] {
       return policy.getDecisions();
+    },
+    setExternalAccessPrompt(handler) {
+      policy.setExternalAccessPrompt(handler);
+    },
+    getExternalAccessGrants(): ExternalAccessGrant[] {
+      return policy.getExternalAccessGrants();
+    },
+    revokeExternalAccessGrant(id: string): boolean {
+      return policy.revokeExternalAccessGrant(id);
     },
     getActiveTools(): string[] {
       return runtime.session.getActiveToolNames();

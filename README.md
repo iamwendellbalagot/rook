@@ -42,4 +42,6 @@ To inspect the TUI without credentials, run `node bin/rook.mjs --mock`. Submit a
 
 The TUI uses the visual references in [`tui_references/`](tui_references/README.md). See [`docs/PROGRESS.md`](docs/PROGRESS.md), [`docs/PI_PARITY.md`](docs/PI_PARITY.md), and [`plan.md`](plan.md).
 
+Rook keeps tool access inside the current project by default. In the interactive TUI, a tool request for an outside folder opens an approval prompt with one-time or session-only read/write choices. Session grants are listed and can be revoked with `/permissions` and `/permissions revoke <grant-id>`; headless runs deny outside-folder requests because they cannot ask interactively. macOS privacy permissions are separate: after approving in Rook, the terminal app may also need access under System Settings → Privacy & Security → Files & Folders.
+
 Pi SDK/TUI attribution and license notices are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

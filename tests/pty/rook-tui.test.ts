@@ -8,6 +8,9 @@ import { visibleWidth, type Terminal } from "@earendil-works/pi-tui";
 import type {
   AgentEvent,
   AgentGateway,
+  ExternalAccessChoice,
+  ExternalAccessGrant,
+  ExternalAccessRequest,
   ModelInfo,
   PermissionDecision,
   PermissionMode,
@@ -27,6 +30,10 @@ class EventGateway implements AgentGateway {
   private handlers = new Set<(event: AgentEvent) => void>();
   private sessionId = "session-12345678";
   private mode: PermissionMode = "plan";
+  externalAccessPrompt:
+    | ((request: ExternalAccessRequest) => Promise<ExternalAccessChoice>)
+    | undefined = undefined;
+  externalGrants: ExternalAccessGrant[] = [];
 
   async send(): Promise<void> {
     this.emit({ type: "text_delta", text: "draft answer" });
@@ -90,6 +97,26 @@ class EventGateway implements AgentGateway {
 
   getPermissionDecisions(): PermissionDecision[] {
     return [];
+  }
+
+  setExternalAccessPrompt(
+    handler:
+      | ((request: ExternalAccessRequest) => Promise<ExternalAccessChoice>)
+      | undefined,
+  ): void {
+    this.externalAccessPrompt = handler;
+  }
+
+  getExternalAccessGrants(): ExternalAccessGrant[] {
+    return this.externalGrants;
+  }
+
+  revokeExternalAccessGrant(id: string): boolean {
+    const previous = this.externalGrants.length;
+    this.externalGrants = this.externalGrants.filter(
+      (grant) => grant.id !== id,
+    );
+    return previous !== this.externalGrants.length;
   }
 
   getActiveTools(): string[] {
@@ -158,6 +185,7 @@ class FakeTerminal implements Terminal {
 describe("Rook TUI shell", () => {
   it("renders the home view, handles resize, and restores the terminal on exit", async () => {
     const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
     const app = createRookTui({
       cwd: "/workspace/sample-project",
       branch: "feature/ui",
@@ -176,13 +204,14 @@ describe("Rook TUI shell", () => {
         dirtyFingerprint: null,
         capturedAt: new Date(0).toISOString(),
       } satisfies GitSnapshot,
-      gateway: new EventGateway(),
+      gateway,
       terminal,
     });
     const finished = app.start();
     app.tui.renderNow(true);
 
     expect(terminal.started).toBe(1);
+    expect(gateway.externalAccessPrompt).toBeDefined();
     expect(terminal.writes.join("")).toContain("rook.");
     expect(terminal.writes.join("")).toContain("Repository repo-12");
     expect(terminal.writes.join("")).toContain("Snapshot 0123456 · clean");
@@ -214,6 +243,41 @@ describe("Rook TUI shell", () => {
     app.tui.renderNow(true);
     expect(terminal.writes.join("")).toContain("Plan mode enabled");
 
+    const accessRequest = gateway.externalAccessPrompt?.({
+      toolName: "read",
+      path: "/Users/test/Downloads/notes.txt",
+      folderPath: "/Users/test/Downloads",
+      access: "read",
+    });
+    expect(accessRequest).toBeDefined();
+    app.tui.renderNow(true);
+    expect(terminal.writes.join(" ")).toContain(
+      "External read access requested",
+    );
+    terminal.input("\u001b[B");
+    terminal.input("\r");
+    await expect(accessRequest).resolves.toBe("once");
+
+    const deniedRequest = gateway.externalAccessPrompt?.({
+      toolName: "read",
+      path: "/Users/test/Downloads/private.txt",
+      folderPath: "/Users/test/Downloads",
+      access: "read",
+    });
+    expect(deniedRequest).toBeDefined();
+    terminal.input("\r");
+    await expect(deniedRequest).resolves.toBe("deny");
+
+    gateway.externalGrants.push({
+      id: "grant-123",
+      path: "/Users/test/Downloads",
+      requestedPath: "/Users/test/Downloads",
+      access: "read",
+    });
+    await app.submit("/permissions");
+    await app.submit("/permissions revoke grant-123");
+    expect(gateway.externalGrants).toHaveLength(0);
+
     const writesBeforeResize = terminal.writes.length;
     terminal.resize(60, 20);
     app.tui.renderNow(true);
@@ -225,6 +289,7 @@ describe("Rook TUI shell", () => {
     terminal.input("\u0003");
     await finished;
     expect(terminal.stopped).toBe(1);
+    expect(gateway.externalAccessPrompt).toBeUndefined();
   });
 
   it("exposes repository memory pause and project opt-out controls", async () => {

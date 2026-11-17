@@ -48,6 +48,22 @@ export interface PermissionDecision {
   timestamp: Date;
 }
 
+export interface ExternalAccessRequest {
+  toolName: string;
+  path: string;
+  folderPath: string;
+  access: "read" | "write";
+}
+
+export type ExternalAccessChoice = "once" | "session" | "deny";
+
+export interface ExternalAccessGrant {
+  id: string;
+  path: string;
+  requestedPath: string;
+  access: "read" | "write";
+}
+
 export type PermissionMode = "plan" | "build";
 
 export interface SessionMessage {
@@ -72,6 +88,13 @@ export interface AgentGateway {
   resumeSession(path: string): Promise<void>;
   setMode(mode: PermissionMode): void;
   getPermissionDecisions(): PermissionDecision[];
+  setExternalAccessPrompt(
+    handler:
+      | ((request: ExternalAccessRequest) => Promise<ExternalAccessChoice>)
+      | undefined,
+  ): void;
+  getExternalAccessGrants(): ExternalAccessGrant[];
+  revokeExternalAccessGrant(id: string): boolean;
   getActiveTools(): string[];
   subscribe(handler: (event: AgentEvent) => void): () => void;
   dispose(): Promise<void>;

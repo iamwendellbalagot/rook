@@ -3,6 +3,7 @@ import {
   link,
   mkdtemp,
   mkdir,
+  realpath,
   rm,
   symlink,
   writeFile,
@@ -126,6 +127,106 @@ describe("ToolPolicy", () => {
         .allowed,
     ).toBe(false);
     await expect(access(join(outside, "new.txt"))).rejects.toThrow();
+  });
+
+  it("requests outside read approval and supports a session-scoped folder grant", async () => {
+    const root = await workspace();
+    const outside = await mkdtemp(join(tmpdir(), "rook-approved-"));
+    roots.push(outside);
+    await writeFile(join(outside, "notes.txt"), "approved content");
+    const policy = new ToolPolicy(root);
+    const requests: unknown[] = [];
+    policy.setExternalAccessPrompt(async (request) => {
+      requests.push(request);
+      return "session";
+    });
+
+    expect(
+      (await policy.check("read", { path: join(outside, "notes.txt") }, "r1"))
+        .allowed,
+    ).toBe(true);
+    expect(requests).toEqual([
+      {
+        toolName: "read",
+        path: join(outside, "notes.txt"),
+        folderPath: outside,
+        access: "read",
+      },
+    ]);
+    expect((await policy.check("ls", { path: outside }, "l1")).allowed).toBe(
+      true,
+    );
+    expect(policy.getExternalAccessGrants()).toHaveLength(1);
+    expect(policy.getExternalAccessGrants()[0]?.access).toBe("read");
+  });
+
+  it("requires separate read/write approval, supports one-time grants, and revokes session grants", async () => {
+    const root = await workspace();
+    const outside = await mkdtemp(join(tmpdir(), "rook-approved-"));
+    roots.push(outside);
+    await writeFile(join(outside, "notes.txt"), "existing");
+    const policy = new ToolPolicy(root);
+    policy.setMode("build");
+    const choices = ["once", "session", "deny"] as const;
+    let requests = 0;
+    policy.setExternalAccessPrompt(async () => choices[requests++] ?? "deny");
+
+    expect(
+      (await policy.check("write", { path: join(outside, "new.txt") }, "w1"))
+        .allowed,
+    ).toBe(true);
+    policy.finish("w1");
+    expect(policy.getExternalAccessGrants()).toHaveLength(0);
+    expect(
+      (await policy.check("write", { path: join(outside, "newer.txt") }, "w2"))
+        .allowed,
+    ).toBe(true);
+    const grant = policy.getExternalAccessGrants()[0];
+    expect(grant).toMatchObject({
+      path: await realpath(outside),
+      access: "write",
+    });
+    expect(
+      (await policy.check("read", { path: join(outside, "notes.txt") }, "r1"))
+        .allowed,
+    ).toBe(false);
+    expect(grant && policy.revokeExternalAccessGrant(grant.id)).toBe(true);
+    expect(policy.getExternalAccessGrants()).toHaveLength(0);
+  });
+
+  it("denies external access if no interactive approval handler is installed", async () => {
+    const root = await workspace();
+    const outside = await mkdtemp(join(tmpdir(), "rook-unapproved-"));
+    roots.push(outside);
+    await writeFile(join(outside, "notes.txt"), "private");
+    const decision = await new ToolPolicy(root).check(
+      "read",
+      { path: join(outside, "notes.txt") },
+      "r1",
+    );
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toContain("no interactive approval");
+  });
+
+  it("asks before touching an outside path and does not inspect it after denial", async () => {
+    const root = await workspace();
+    const outside = await mkdtemp(join(tmpdir(), "rook-denied-"));
+    roots.push(outside);
+    let prompted = false;
+    const policy = new ToolPolicy(root);
+    policy.setExternalAccessPrompt(async () => {
+      prompted = true;
+      return "deny";
+    });
+
+    const decision = await policy.check(
+      "read",
+      { path: join(outside, "missing.txt") },
+      "r1",
+    );
+    expect(prompted).toBe(true);
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toContain("access was denied");
   });
 
   it("serializes mutating tool calls and releases the slot at tool completion", async () => {

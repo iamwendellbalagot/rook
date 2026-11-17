@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { lstat, realpath } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type {
   ExtensionAPI,
   InlineExtension,
@@ -7,6 +9,9 @@ import type {
 import type {
   PermissionDecision,
   PermissionMode,
+  ExternalAccessChoice,
+  ExternalAccessGrant,
+  ExternalAccessRequest,
 } from "../pi/agent-gateway.js";
 
 const READ_TOOLS = new Set(["read", "find", "ls"]);
@@ -27,6 +32,10 @@ export class ToolPolicy {
   private workspaceRoot?: Promise<string>;
   private readonly decisions: PermissionDecision[] = [];
   private readonly activeMutations = new Set<string>();
+  private readonly externalGrants: ExternalAccessGrant[] = [];
+  private externalAccessPrompt:
+    | ((request: ExternalAccessRequest) => Promise<ExternalAccessChoice>)
+    | undefined = undefined;
 
   constructor(private readonly cwd: string) {}
 
@@ -42,6 +51,25 @@ export class ToolPolicy {
     return this.decisions.map((decision) => ({ ...decision }));
   }
 
+  setExternalAccessPrompt(
+    handler:
+      | ((request: ExternalAccessRequest) => Promise<ExternalAccessChoice>)
+      | undefined,
+  ): void {
+    this.externalAccessPrompt = handler;
+  }
+
+  getExternalAccessGrants(): ExternalAccessGrant[] {
+    return this.externalGrants.map((grant) => ({ ...grant }));
+  }
+
+  revokeExternalAccessGrant(id: string): boolean {
+    const index = this.externalGrants.findIndex((grant) => grant.id === id);
+    if (index < 0) return false;
+    this.externalGrants.splice(index, 1);
+    return true;
+  }
+
   async check(
     toolName: string,
     input: Record<string, unknown>,
@@ -52,8 +80,8 @@ export class ToolPolicy {
 
     if (READ_TOOLS.has(toolName)) {
       const path = typeof input.path === "string" ? input.path : ".";
-      reason = await this.checkWorkspacePath(path, false);
-      allowed = reason === "Allowed within the workspace.";
+      reason = await this.checkPath(path, false, toolName);
+      allowed = reason.startsWith("Allowed ");
     } else if (MUTATING_TOOLS.has(toolName)) {
       if (this.mode !== "build") {
         reason =
@@ -65,9 +93,9 @@ export class ToolPolicy {
         const path = typeof input.path === "string" ? input.path : "";
         this.activeMutations.add(toolCallId);
         reason = path
-          ? await this.checkWorkspacePath(path, true)
+          ? await this.checkPath(path, true, toolName)
           : "A valid workspace path is required.";
-        allowed = reason === "Allowed within the workspace.";
+        allowed = reason.startsWith("Allowed ");
         if (!allowed) this.activeMutations.delete(toolCallId);
       }
     } else if (toolName === "bash" || toolName === "powershell") {
@@ -87,15 +115,19 @@ export class ToolPolicy {
     this.activeMutations.delete(toolCallId);
   }
 
-  private async checkWorkspacePath(
+  private async checkPath(
     inputPath: string,
     mutation: boolean,
+    toolName: string,
   ): Promise<string> {
     try {
       const root = await (this.workspaceRoot ??= realpath(this.cwd));
       if (inputPath.includes("\0"))
         return "Paths containing null bytes are denied.";
-      const segments = inputPath.split(/[\\/]+/).filter(Boolean);
+      const expandedPath = inputPath.startsWith("~/")
+        ? resolve(homedir(), inputPath.slice(2))
+        : inputPath;
+      const segments = expandedPath.split(/[\\/]+/).filter(Boolean);
       if (segments.includes(".."))
         return "Parent-directory traversal is denied.";
       if (
@@ -105,51 +137,104 @@ export class ToolPolicy {
         return "Sensitive and dependency paths are denied.";
       }
 
-      const target = isAbsolute(inputPath)
-        ? resolve(inputPath)
-        : resolve(root, inputPath || ".");
-      if (!isWithin(root, target))
-        return "Path is outside the authorized workspace.";
-
-      const relativePath = relative(root, target);
-      let current = root;
-      if (relativePath) {
-        for (const segment of relativePath.split(sep)) {
-          current = resolve(current, segment);
-          try {
-            const entry = await lstat(current);
-            if (entry.isSymbolicLink())
-              return "Symbolic links are denied by policy.";
-            if (entry.isFile() && entry.nlink > 1)
-              return "Hard-linked paths are denied by policy.";
-          } catch (error) {
-            if (isMissing(error)) {
-              if (mutation && current !== target) {
-                return "Parent directories must already exist for a write.";
-              }
-              if (mutation) break;
-              return "Read paths must exist within the workspace.";
-            }
-            throw error;
-          }
-        }
-      }
-
-      if (mutation) {
-        const parent = await realpath(resolve(target, ".."));
-        if (!isWithin(root, parent)) {
-          return "Resolved parent directory is outside the authorized workspace.";
-        }
-      } else {
-        const resolved = await realpath(target);
-        if (!isWithin(root, resolved)) {
+      const target = isAbsolute(expandedPath)
+        ? resolve(expandedPath)
+        : resolve(root, expandedPath || ".");
+      const access = mutation ? "write" : "read";
+      if (isWithin(root, target)) {
+        const checked = await this.inspectPath(target, mutation);
+        if ("error" in checked) return checked.error;
+        if (!isWithin(root, checked.path))
           return "Resolved path is outside the authorized workspace.";
+        if (checked.path !== target)
+          return "Symbolic links are denied by policy.";
+        if (hasSensitivePath(checked.path))
+          return "Sensitive and dependency paths are denied.";
+        return "Allowed within the workspace.";
+      }
+
+      const requestedFolder =
+        toolName === "ls" || toolName === "find" ? target : dirname(target);
+      const existingGrant = this.externalGrants.find(
+        (grant) =>
+          grant.access === access &&
+          (isWithin(grant.requestedPath, target) ||
+            isWithin(grant.path, target)),
+      );
+      if (existingGrant) {
+        const checked = await this.inspectPath(target, mutation);
+        if ("error" in checked) return checked.error;
+        if (hasSensitivePath(checked.path))
+          return "Sensitive and dependency paths are denied.";
+        if (isWithin(existingGrant.path, checked.path)) {
+          return `Allowed by this session's ${access} grant for ${existingGrant.path}.`;
         }
       }
-      return "Allowed within the workspace.";
+      if (!this.externalAccessPrompt) {
+        return "Path is outside the authorized workspace; no interactive approval is available.";
+      }
+
+      const request: ExternalAccessRequest = {
+        toolName,
+        path: target,
+        folderPath: requestedFolder,
+        access,
+      };
+      const choice = await this.externalAccessPrompt(request);
+      if (choice === "deny")
+        return `External ${access} access was denied for ${target}.`;
+      const checked = await this.inspectPath(target, mutation);
+      if ("error" in checked) return checked.error;
+      if (hasSensitivePath(checked.path))
+        return "Sensitive and dependency paths are denied.";
+      if (choice === "once") {
+        return `Allowed once for ${access} access to ${checked.path}.`;
+      }
+      if (choice === "session") {
+        this.externalGrants.push({
+          id: randomUUID(),
+          path: checked.folderPath,
+          requestedPath: requestedFolder,
+          access,
+        });
+        return `Allowed by this session's ${access} grant for ${checked.folderPath}.`;
+      }
+      return `External ${access} access was denied for ${checked.path}.`;
     } catch {
-      return "Workspace path could not be verified; access is denied.";
+      return "Path could not be verified; access is denied.";
     }
+  }
+
+  private async inspectPath(
+    target: string,
+    mutation: boolean,
+  ): Promise<{ path: string; folderPath: string } | { error: string }> {
+    let targetInfo;
+    try {
+      targetInfo = await lstat(target);
+    } catch (error) {
+      if (!mutation && isMissing(error)) {
+        return { error: "Read paths must exist." };
+      }
+      if (!mutation || !isMissing(error)) throw error;
+    }
+    if (targetInfo?.isSymbolicLink()) {
+      return { error: "Symbolic links are denied by policy." };
+    }
+    if (targetInfo?.isFile() && targetInfo.nlink > 1) {
+      return { error: "Hard-linked paths are denied by policy." };
+    }
+
+    const parent = await realpath(
+      targetInfo?.isDirectory() ? target : dirname(target),
+    );
+    const canonicalPath = targetInfo
+      ? await realpath(target)
+      : resolve(parent, target.split(sep).at(-1) ?? "");
+    return {
+      path: canonicalPath,
+      folderPath: targetInfo?.isDirectory() ? canonicalPath : parent,
+    };
   }
 }
 
@@ -197,6 +282,14 @@ function isSensitiveFile(fileName: string): boolean {
     normalized.endsWith(".pfx") ||
     normalized === "id_rsa" ||
     normalized === "id_ed25519"
+  );
+}
+
+function hasSensitivePath(path: string): boolean {
+  const segments = path.split(/[\\/]+/).filter(Boolean);
+  return (
+    segments.some((segment) => isSensitiveSegment(segment)) ||
+    isSensitiveFile(segments.at(-1) ?? "")
   );
 }
 

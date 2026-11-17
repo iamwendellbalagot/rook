@@ -17,7 +17,11 @@ import {
 import { resolve } from "node:path";
 import type { AppState } from "../app/state.js";
 import { initialAppState, reduceAppState } from "../app/state.js";
-import type { AgentGateway } from "../pi/agent-gateway.js";
+import type {
+  AgentGateway,
+  ExternalAccessChoice,
+  ExternalAccessRequest,
+} from "../pi/agent-gateway.js";
 import type { GitSnapshot, RepositoryIdentity } from "../repo/workspace.js";
 import type { MemoryCaptureManager } from "../memory/capture.js";
 import {
@@ -105,7 +109,7 @@ function createHome(
     ["/sessions", "Browse and resume saved sessions"],
     ["/login", "Sign in to a Pi provider"],
     ["/settings", "Adjust thinking level"],
-    ["/permissions", "Review recent tool permission decisions"],
+    ["/permissions", "Review or revoke session access grants"],
     ["/memory", "Show, pause, resume, or control repository memory"],
     ["/help", "Show available commands"],
   ] as const;
@@ -187,6 +191,16 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   let settled = false;
   let resolveRun: (() => void) | undefined;
   const toolCards = new Map<string, Text>();
+  const permissionQueue: {
+    request: ExternalAccessRequest;
+    resolve: (choice: ExternalAccessChoice) => void;
+  }[] = [];
+  let activePermissionPrompt:
+    | {
+        resolve: (choice: ExternalAccessChoice) => void;
+        hide: () => void;
+      }
+    | undefined;
   const finished = new Promise<void>((resolvePromise) => {
     resolveRun = resolvePromise;
   });
@@ -269,6 +283,8 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   const exit = (): void => {
     if (settled) return;
     settled = true;
+    options.gateway.setExternalAccessPrompt(undefined);
+    denyPendingPermissionPrompts();
     unsubscribe();
     unsubscribeMemory?.();
     tui.stop();
@@ -299,7 +315,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/help":
           removeHome();
           appendText(
-            "Available: /help, /login, /logout, /model, /settings, /new, /sessions, /resume, /plan, /build, /permissions, /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
+            "Available: /help, /login, /logout, /model, /settings, /new, /sessions, /resume, /plan, /build, /permissions [revoke <grant-id>], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
             "muted",
           );
           return;
@@ -314,7 +330,11 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           showThinkingMenu();
           return;
         case "/permissions":
-          showPermissionDecisions();
+          if (prompt.startsWith("/permissions revoke ")) {
+            revokeExternalGrant(prompt.slice("/permissions revoke ".length));
+          } else {
+            showPermissionDecisions();
+          }
           return;
         case "/new":
           await startNewSession();
@@ -328,7 +348,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           options.gateway.setMode("plan");
           removeHome();
           appendText(
-            "Plan mode enabled: workspace reads and file discovery are allowed; mutations and shell execution are blocked.",
+            "Plan mode enabled: workspace reads and file discovery are allowed; outside-folder reads require approval, mutations and shell execution are blocked.",
             "muted",
           );
           updateFooter();
@@ -341,7 +361,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           options.gateway.setMode("build");
           removeHome();
           appendText(
-            "Build mode enabled: workspace edits are allowed; shell, content grep, sensitive paths, links, and unknown tools remain blocked.",
+            "Build mode enabled: workspace edits are allowed; outside-folder access requires separate approval; shell, content grep, sensitive paths, links, and unknown tools remain blocked.",
             "muted",
           );
           updateFooter();
@@ -643,8 +663,20 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   }
 
   function showPermissionDecisions(): void {
+    const grants = options.gateway.getExternalAccessGrants();
+    if (grants.length) {
+      appendText(
+        `External folder grants (session only):\n${grants
+          .map(
+            (grant) =>
+              `${grant.access.toUpperCase()} ${safeTerminalText(grant.path)} · /permissions revoke ${grant.id}`,
+          )
+          .join("\n")}`,
+        "muted",
+      );
+    }
     const decisions = options.gateway.getPermissionDecisions();
-    if (decisions.length === 0) {
+    if (decisions.length === 0 && grants.length === 0) {
       appendText(
         "No tool permission decisions have been recorded this session.",
         "muted",
@@ -658,6 +690,76 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         decision.allowed ? "muted" : "error",
       );
     }
+  }
+
+  function revokeExternalGrant(id: string): void {
+    const revoked = options.gateway.revokeExternalAccessGrant(id.trim());
+    appendText(
+      revoked
+        ? "External folder grant revoked."
+        : "No external folder grant matches that ID.",
+      revoked ? "muted" : "error",
+    );
+  }
+
+  function requestExternalAccess(
+    request: ExternalAccessRequest,
+  ): Promise<ExternalAccessChoice> {
+    return new Promise((resolveChoice) => {
+      permissionQueue.push({ request, resolve: resolveChoice });
+      showNextPermissionPrompt();
+    });
+  }
+
+  function showNextPermissionPrompt(): void {
+    if (activePermissionPrompt || settled) return;
+    const pending = permissionQueue.shift();
+    if (!pending) return;
+    const operation = pending.request.access === "read" ? "read" : "write";
+    const finish = (choice: ExternalAccessChoice): void => {
+      if (activePermissionPrompt?.resolve !== pending.resolve) return;
+      const active = activePermissionPrompt;
+      activePermissionPrompt = undefined;
+      active.hide();
+      pending.resolve(choice);
+      showNextPermissionPrompt();
+    };
+    const hide = showSelection(
+      `External ${operation} access requested`,
+      [
+        {
+          value: "deny",
+          label: "Deny",
+          description: "Block this tool operation",
+        },
+        {
+          value: "once",
+          label: `Allow ${operation} once`,
+          description: safeTerminalText(pending.request.path),
+        },
+        {
+          value: "session",
+          label: `Allow ${operation} in this folder for this session`,
+          description: safeTerminalText(pending.request.folderPath),
+        },
+      ],
+      (value) =>
+        finish(value === "once" || value === "session" ? value : "deny"),
+      () => finish("deny"),
+    );
+    activePermissionPrompt = { resolve: pending.resolve, hide };
+    appendText(
+      `${pending.request.toolName} requests ${operation} access to ${safeTerminalText(pending.request.path)}.`,
+      "muted",
+    );
+  }
+
+  function denyPendingPermissionPrompts(): void {
+    const active = activePermissionPrompt;
+    activePermissionPrompt = undefined;
+    active?.hide();
+    active?.resolve("deny");
+    for (const pending of permissionQueue.splice(0)) pending.resolve("deny");
   }
 
   function renderCurrentSession(): void {
@@ -759,7 +861,8 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     title: string,
     items: { value: string; label: string; description?: string }[],
     onSelect: (value: string) => void | Promise<void>,
-  ): void {
+    onCancel?: () => void,
+  ): () => void {
     const list = new SelectList(items, 10, selectListTheme);
     const panel = new VStack([new Text(tone(title, "text", true), 1, 0), list]);
     const overlay = tui.showOverlay(panel, {
@@ -771,9 +874,15 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       overlay.hide();
       void onSelect(item.value);
     };
-    list.onCancel = () => overlay.hide();
+    list.onCancel = () => {
+      overlay.hide();
+      onCancel?.();
+    };
     tui.setFocus(list);
+    return () => overlay.hide();
   }
+
+  options.gateway.setExternalAccessPrompt(requestExternalAccess);
 
   editor.onSubmit = (text) => {
     void submitPrompt(text);
@@ -782,6 +891,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   tui.addInputListener((data) => {
     if (matchesKey(data, "ctrl+c") || matchesKey(data, "escape")) {
       if (state.runState === "running") {
+        denyPendingPermissionPrompts();
         void options.gateway.cancel().catch(() => undefined);
       } else {
         exit();
