@@ -5,11 +5,9 @@ import { HomeScreenBody } from "../../src/tui/home-screen.js";
 describe("home screen body", () => {
   it("encloses the brand, tagline, and all four actions in a rounded frame", () => {
     const lines = new HomeScreenBody().render(65).map(stripTerminalSequences);
-    expect(lines[0]).toMatch(/^  ╭━+╮$/);
-    expect(lines.at(-1)).toMatch(/^  ╰━+╯$/);
-    expect(lines.slice(1, -1).every((line) => /^  ┃.*┃$/.test(line))).toBe(
-      true,
-    );
+    expect(lines[0]).toMatch(/^╭━+╮$/);
+    expect(lines.at(-1)).toMatch(/^╰━+╯$/);
+    expect(lines.slice(1, -1).every((line) => /^┃.*┃$/.test(line))).toBe(true);
     expect(lines.every((line) => visibleWidth(line) === 65)).toBe(true);
     const screen = lines.join("\n");
     expect(screen).toContain("A coding agent that grows with your codebase.");
@@ -28,7 +26,7 @@ describe("home screen body", () => {
       descriptions.map((description) =>
         lines.find((line) => line.includes(description))!.indexOf(description),
       ),
-    ).toEqual([19, 19, 19, 19]);
+    ).toEqual([17, 17, 17, 17]);
   });
 
   it("uses bold heavy strokes without changing the panel's dimensions", () => {
@@ -52,7 +50,7 @@ describe("home screen body", () => {
     const lines = new HomeScreenBody().render(38).map(stripTerminalSequences);
     const content = lines
       .slice(1, -1)
-      .map((line) => line.slice(3, -1).trim())
+      .map((line) => line.slice(1, -1).trim())
       .join(" ");
     expect(content).toContain("Think through a task before making changes");
     expect(content).toContain("View what Rook knows about this repository");
@@ -62,7 +60,7 @@ describe("home screen body", () => {
   it("caps the panel width on wide terminals and survives invalidation", () => {
     const body = new HomeScreenBody();
     const lines = body.render(160);
-    expect(visibleWidth(lines[0]!)).toBe(78);
+    expect(visibleWidth(lines[0]!)).toBe(76);
     body.invalidate();
     expect(body.render(160)).toEqual(lines);
   });

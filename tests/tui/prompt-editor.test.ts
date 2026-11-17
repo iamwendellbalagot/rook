@@ -7,7 +7,7 @@ import {
   visibleWidth,
 } from "@earendil-works/pi-tui";
 import { PromptEditor } from "../../src/tui/prompt-editor.js";
-import { editorTheme } from "../../src/tui/theme.js";
+import { editorTheme, tone } from "../../src/tui/theme.js";
 
 function createEditor(): PromptEditor {
   const editor = new PromptEditor(
@@ -19,18 +19,19 @@ function createEditor(): PromptEditor {
 }
 
 describe("prompt editor", () => {
-  it("frames a left-aligned prompt with rounded heavy edges and equal margins", () => {
+  it("frames a left-aligned prompt with thin rounded edges and no outer margins", () => {
     const editor = createEditor();
     editor.setText("hello");
     const rendered = editor.render(60);
     const lines = rendered.map(stripTerminalSequences);
     expect(lines).toHaveLength(3);
-    expect(lines[0]).toMatch(/^  ╭━+╮  $/);
-    expect(lines[2]).toMatch(/^  ╰━+╯  $/);
-    expect(lines[1]).toMatch(/^  ┃ rook > hello +┃  $/);
-    expect(lines[1]!.indexOf("rook >")).toBe(4);
-    expect(rendered[0]).toContain("\x1b[1m");
-    expect(rendered[1]).toContain("\x1b[1m");
+    expect(lines[0]).toMatch(/^╭─+╮$/);
+    expect(lines[2]).toMatch(/^╰─+╯$/);
+    expect(lines[1]).toMatch(/^│ rook > hello +│$/);
+    expect(lines[1]!.indexOf("rook >")).toBe(2);
+    expect(rendered[0]).not.toContain("\x1b[1m");
+    expect(rendered[2]).not.toContain("\x1b[1m");
+    expect(rendered[1]!.startsWith(tone("│", "border"))).toBe(true);
     expect(rendered[1]).toContain(CURSOR_MARKER);
     expect(rendered.every((line) => visibleWidth(line) === 60)).toBe(true);
   });
@@ -40,14 +41,14 @@ describe("prompt editor", () => {
     for (const text of ["", "hello", "first line\nsecond line"]) {
       editor.setText(text);
       const lines = editor.render(60).map(stripTerminalSequences);
-      expect(lines[1]).toMatch(/^  ┃ rook > /);
+      expect(lines[1]).toMatch(/^│ rook > /);
       if (text.includes("\n")) {
-        expect(lines[2]).toMatch(/^  ┃ {8}second line +┃  $/);
+        expect(lines[2]).toMatch(/^│ {8}second line +│$/);
       }
     }
   });
 
-  it.each([0, 1, 4, 9, 10, 11, 16, 17, 18, 24, 40, 80, 120])(
+  it.each([0, 1, 4, 6, 7, 9, 10, 11, 13, 14, 16, 17, 18, 24, 40, 80, 120])(
     "keeps empty, Unicode, and wrapped prompts within %i columns",
     (width) => {
       const editor = createEditor();
@@ -94,8 +95,8 @@ describe("prompt editor", () => {
       const cursorRow = lines.find((line) => line.includes(CURSOR_MARKER))!;
       expect(cursorRow).toBeDefined();
       const cursorColumn = visibleWidth(cursorRow.split(CURSOR_MARKER)[0]!);
-      expect(cursorColumn).toBeGreaterThanOrEqual(4);
-      expect(cursorColumn).toBeLessThan(width - 4);
+      expect(cursorColumn).toBeGreaterThanOrEqual(2);
+      expect(cursorColumn).toBeLessThan(width - 2);
       expect(lines.every((line) => visibleWidth(line) === width)).toBe(true);
     }
     expect(editor.getExpandedText()).toBe(text);

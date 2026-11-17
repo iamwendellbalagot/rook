@@ -18,9 +18,8 @@ export class HomeScreenBody implements Component {
   private readonly brand = new HomeBrand();
 
   render(width: number): string[] {
-    if (width < 6) return [truncateToWidth("rook.", width, "")];
-    const margin = "  ";
-    const boxWidth = Math.min(width - margin.length, 76);
+    if (width < 4) return [truncateToWidth("rook.", width, "")];
+    const boxWidth = Math.min(width, 76);
     const insideWidth = boxWidth - 2;
     const contentWidth = Math.max(1, insideWidth - 2);
     const lines = ["", ...this.brand.render(contentWidth), ""];
@@ -52,12 +51,12 @@ export class HomeScreenBody implements Component {
 
     const horizontal = "━".repeat(insideWidth);
     return [
-      `${margin}${tone(`╭${horizontal}╮`, "border", true)}`,
+      tone(`╭${horizontal}╮`, "border", true),
       ...lines.map((line) => {
         const clipped = truncateToWidth(line, insideWidth, "");
-        return `${margin}${tone("┃", "border", true)}${clipped}${" ".repeat(insideWidth - visibleWidth(clipped))}${tone("┃", "border", true)}`;
+        return `${tone("┃", "border", true)}${clipped}${" ".repeat(insideWidth - visibleWidth(clipped))}${tone("┃", "border", true)}`;
       }),
-      `${margin}${tone(`╰${horizontal}╯`, "border", true)}`,
+      tone(`╰${horizontal}╯`, "border", true),
     ];
   }
 

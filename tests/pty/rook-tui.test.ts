@@ -260,6 +260,74 @@ class FakeTerminal implements Terminal {
 }
 
 describe("Rook TUI shell", () => {
+  it("shares screen gutters across the header, home, transcript, prompt, and footer", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    const screen = (): string[] => {
+      app.tui.renderNow(true);
+      return app.tui.getScreenLines().map(stripTerminalSequences);
+    };
+    const expectGutters = (lines: string[]): void => {
+      expect(
+        lines.every(
+          (line) =>
+            !line.trim() || (line.startsWith("  ") && line.endsWith("  ")),
+        ),
+      ).toBe(true);
+      expect(
+        lines.every((line) => visibleWidth(line) <= terminal.columns),
+      ).toBe(true);
+    };
+    let lines = screen();
+    expectGutters(lines);
+    expect(lines[0]).toMatch(/^  rook/);
+    expect(lines.find((line) => line.includes("╭━"))).toMatch(/^  ╭/);
+    expect(lines.find((line) => line.includes("╭─"))).toMatch(/^  ╭─+╮  $/);
+    expect(lines.some((line) => line.includes("S:session-"))).toBe(true);
+    await app.submit("hello");
+    for (const width of [100, 70, 30, 8]) {
+      terminal.resize(width, 36);
+      lines = screen();
+      expectGutters(lines);
+    }
+    for (const width of [4, 1]) {
+      terminal.resize(width, 36);
+      expect(screen().every((line) => visibleWidth(line) <= width)).toBe(true);
+    }
+    terminal.input("\u0003");
+    await finished;
+  });
+
+  it("keeps prompt mouse placement correct inside shared screen gutters", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    for (const character of "hello") terminal.input(character);
+    app.tui.renderNow(true);
+    const lines = app.tui.getScreenLines().map(stripTerminalSequences);
+    const y = lines.findIndex((line) => line.includes("rook > hello"));
+    const x = lines[y]!.indexOf("hello") + 2;
+    terminal.input(`\x1b[<0;${x + 1};${y + 1}M`);
+    terminal.input(`\x1b[<0;${x + 1};${y + 1}m`);
+    terminal.input("!");
+    terminal.input("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(gateway.sentPrompts).toEqual(["he!llo"]);
+    terminal.input("\u0003");
+    await finished;
+  });
+
   it("renders the framed left-hand prompt and submits only editable text", async () => {
     const terminal = new FakeTerminal();
     const gateway = new EventGateway();
@@ -272,11 +340,11 @@ describe("Rook TUI shell", () => {
     for (const character of "hello") terminal.input(character);
     let lines = app.tui.render(100);
     const row = lines.findIndex((line) => line.includes("\u001b_pi:c"));
-    expect(stripTerminalSequences(lines[row - 1]!)).toMatch(/^  ╭━+╮  $/);
+    expect(stripTerminalSequences(lines[row - 1]!)).toMatch(/^  ╭─+╮  $/);
     expect(stripTerminalSequences(lines[row]!)).toMatch(
-      /^  ┃ rook > hello +┃  $/,
+      /^  │ rook > hello +│  $/,
     );
-    expect(stripTerminalSequences(lines[row + 1]!)).toMatch(/^  ╰━+╯  $/);
+    expect(stripTerminalSequences(lines[row + 1]!)).toMatch(/^  ╰─+╯  $/);
     terminal.resize(40, 36);
     lines = app.tui.render(40);
     expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
@@ -324,7 +392,7 @@ describe("Rook TUI shell", () => {
       "A coding agent that grows with your codebase.",
     );
     expect(terminal.writes.join("")).toContain(
-      "Think through a task before making changes",
+      "Think through a task before making",
     );
     expect(terminal.writes.join("")).toContain("View what Rook knows");
     const homeScreen = app.tui.getScreenLines().map(stripTerminalSequences);
@@ -635,6 +703,25 @@ describe("Rook TUI shell", () => {
     expect(screen).toContain("○ Review the result");
     expect(screen).not.toContain("Inspect the project");
     expect(screen).not.toContain("Implement the feature");
+
+    // Keep the existing terminal-width sidebar breakpoint with shared gutters.
+    for (const [width, sidebar] of [
+      [90, true],
+      [89, false],
+    ] as const) {
+      terminal.resize(width, 36);
+      app.tui.renderNow(true);
+      const lines = app.tui.getScreenLines().map(stripTerminalSequences);
+      const taskLine = lines.find((line) => line.includes("TASKS ·"))!;
+      expect(taskLine).toBeDefined();
+      expect(taskLine.indexOf("TASKS") > 45).toBe(sidebar);
+      expect(
+        lines.every(
+          (line) =>
+            !line.trim() || (line.startsWith("  ") && line.endsWith("  ")),
+        ),
+      ).toBe(true);
+    }
 
     terminal.resize(70, 36);
     gateway.updateChecklist([

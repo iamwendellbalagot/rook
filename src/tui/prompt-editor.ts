@@ -33,31 +33,30 @@ export class PromptEditor extends Editor {
     // Pi reserves a cursor column; a two-cell layout also accommodates wide
     // Unicode graphemes without its word wrapper recursing at width one.
     this.editorWidth = Math.max(3, width);
-    if (width < 11) {
+    if (width < 7) {
       return super
         .render(this.editorWidth)
         .map((line) => truncateToWidth(line, Math.max(0, width), ""));
     }
 
-    const margin = "  ";
-    const insideWidth = width - margin.length * 2 - 2;
+    const insideWidth = width - 2;
     const contentWidth = insideWidth - 2;
     const label = contentWidth >= 10 ? "rook > " : "";
     this.editorWidth = contentWidth - label.length;
-    this.editorX = margin.length + 2 + label.length;
+    this.editorX = 2 + label.length;
     const rows = super.render(this.editorWidth);
     const border = (top: boolean, hidden: number): string => {
       const indicator = hidden > 0 ? ` ${top ? "↑" : "↓"} ${hidden} ` : "";
       const text = truncateToWidth(indicator, insideWidth, "");
-      const edge = `${text}${"━".repeat(insideWidth - visibleWidth(text))}`;
-      return `${margin}${tone(`${top ? "╭" : "╰"}${edge}${top ? "╮" : "╯"}`, "border", true)}${margin}`;
+      const edge = `${text}${"─".repeat(insideWidth - visibleWidth(text))}`;
+      return tone(`${top ? "╭" : "╰"}${edge}${top ? "╮" : "╯"}`, "border");
     };
     return [
       border(true, this.hiddenAbove),
       ...rows.slice(1, -1).map((line, index) => {
         const prefix =
           index === 0 ? tone(label, "cyan", true) : " ".repeat(label.length);
-        return `${margin}${tone("┃", "border", true)} ${prefix}${line} ${tone("┃", "border", true)}${margin}`;
+        return `${tone("│", "border")} ${prefix}${line} ${tone("│", "border")}`;
       }),
       border(false, this.hiddenBelow),
     ];

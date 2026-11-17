@@ -43,6 +43,7 @@ import { PromptEditor } from "./prompt-editor.js";
 const CHECKLIST_SIDEBAR_MIN_WIDTH = 90;
 const CHECKLIST_SIDEBAR_WIDTH = 34;
 const MAX_PROMPT_HISTORY = 100;
+const SCREEN_GUTTER = 2;
 
 interface SlashCommandSuggestion {
   command: string;
@@ -632,11 +633,18 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     externalAccessPanel,
     footer,
   ]);
+  const screenContent = new VStack([
+    { component: header, basis: "auto", shrink: 0 },
+    { component: mainContent, basis: "auto", grow: 1, minSize: 1 },
+    { component: bottom, basis: "auto", shrink: 0, minSize: 3 },
+  ]);
+  // Native layout gutters preserve viewport sizing, scroll, and mouse routing.
+  // They can shrink away on extremely narrow terminals instead of clipping input.
   tui.setLayoutRoot(
-    new VStack([
-      { component: header, basis: "auto", shrink: 0 },
-      { component: mainContent, basis: "auto", grow: 1, minSize: 1 },
-      { component: bottom, basis: "auto", shrink: 0, minSize: 3 },
+    new HStack([
+      { component: new Text("", 0, 0), basis: SCREEN_GUTTER, minSize: 0 },
+      { component: screenContent, basis: 0, grow: 1, shrink: 0, minSize: 1 },
+      { component: new Text("", 0, 0), basis: SCREEN_GUTTER, minSize: 0 },
     ]),
   );
   tui.setFocus(editor);
@@ -1292,7 +1300,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       width: "84%",
       minWidth: 58,
       maxHeight: "90%",
-      margin: 1,
+      margin: SCREEN_GUTTER,
     });
     const handleModelPickerInput = (data: string): void =>
       list.handleInput(data);
@@ -1603,7 +1611,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       width: "72%",
       minWidth: 48,
       maxHeight: "85%",
-      margin: 1,
+      margin: SCREEN_GUTTER,
     });
     const handleSelectionInput = (data: string): void => list.handleInput(data);
     const hide = (): void => {
