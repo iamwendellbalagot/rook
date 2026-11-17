@@ -297,52 +297,202 @@ class SlashCommandSuggestionPanel implements Component {
 class SearchableModelList implements Component {
   readonly capturesViewportInput = true;
   private list: SelectList;
+  private items: {
+    value: string;
+    label: string;
+    provider: string;
+    description?: string;
+    current?: boolean;
+  }[];
+  private selectedIndex = 0;
+  private renderedRows: (number | undefined)[] = [];
 
   constructor(
-    items: { value: string; label: string; description?: string }[],
+    items: {
+      value: string;
+      label: string;
+      provider: string;
+      description?: string;
+      current?: boolean;
+    }[],
     private readonly onSelect: (value: string) => void,
     private readonly onCancel: () => void,
   ) {
+    this.items = items;
     this.list = this.createList(items);
   }
 
   setItems(
-    items: { value: string; label: string; description?: string }[],
+    items: {
+      value: string;
+      label: string;
+      provider: string;
+      description?: string;
+      current?: boolean;
+    }[],
   ): void {
     const currentValue = this.list.getSelectedItem()?.value;
+    this.items = items;
     this.list = this.createList(items);
     if (currentValue) {
       const selectedIndex = items.findIndex(
         (item) => item.value === currentValue,
       );
-      if (selectedIndex >= 0) this.list.setSelectedIndex(selectedIndex);
+      if (selectedIndex >= 0) {
+        this.selectedIndex = selectedIndex;
+        this.list.setSelectedIndex(selectedIndex);
+        return;
+      }
     }
+    this.selectedIndex = 0;
   }
 
   private createList(
-    items: { value: string; label: string; description?: string }[],
+    items: {
+      value: string;
+      label: string;
+      provider: string;
+      description?: string;
+      current?: boolean;
+    }[],
   ): SelectList {
-    const list = new SelectList(items, 10, selectListTheme);
+    const list = new SelectList(items, 5, selectListTheme);
     list.onSelect = (item) => this.onSelect(item.value);
     list.onCancel = this.onCancel;
     return list;
   }
 
   render(width: number): string[] {
-    return this.list.render(width);
+    const maxVisible = 5;
+    const start = Math.max(
+      0,
+      Math.min(
+        this.selectedIndex - Math.floor(maxVisible / 2),
+        this.items.length - maxVisible,
+      ),
+    );
+    const end = Math.min(start + maxVisible, this.items.length);
+    const rows: string[] = [];
+    this.renderedRows = [];
+    if (this.items.length === 0) {
+      rows.push(tone("  No matching models", "dim"));
+      this.renderedRows.push(undefined);
+      return rows;
+    }
+    if (start > 0) {
+      rows.push(tone(`  ↑ ${start} earlier models`, "dim"));
+      this.renderedRows.push(undefined);
+    }
+    let previousProvider: string | undefined;
+    for (let index = start; index < end; index++) {
+      const item = this.items[index]!;
+      if (item.provider !== previousProvider) {
+        const count = this.items.filter(
+          (candidate) => candidate.provider === item.provider,
+        ).length;
+        rows.push(
+          truncateToWidth(
+            tone(
+              `  ◆ ${item.provider}  ·  ${count} ${count === 1 ? "model" : "models"}`,
+              "blue",
+              true,
+            ),
+            width,
+          ),
+        );
+        this.renderedRows.push(undefined);
+        previousProvider = item.provider;
+      }
+      const selected = index === this.selectedIndex;
+      const prefix = selected ? "  › " : "    ";
+      const primary = selected
+        ? selectListTheme.selectedText(`${prefix}${item.label}`)
+        : `${prefix}${item.label}`;
+      const metadata = tone(item.description ?? "", "muted");
+      const current = item.current ? tone("  ·  current", "green", true) : "";
+      rows.push(truncateToWidth(`${primary}  ${metadata}${current}`, width));
+      this.renderedRows.push(index);
+    }
+    if (end < this.items.length) {
+      rows.push(tone(`  ↓ ${this.items.length - end} more models`, "dim"));
+      this.renderedRows.push(undefined);
+    }
+    return rows;
   }
 
   handleInput(data: string): void {
     this.list.handleInput(data);
+    const selectedValue = this.list.getSelectedItem()?.value;
+    const selectedIndex = this.items.findIndex(
+      (item) => item.value === selectedValue,
+    );
+    if (selectedIndex >= 0) this.selectedIndex = selectedIndex;
   }
 
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    return this.list.handleMouse(event);
+    if (event.type === "wheel") {
+      const result = this.list.handleMouse(event);
+      const selectedValue = this.list.getSelectedItem()?.value;
+      const selectedIndex = this.items.findIndex(
+        (item) => item.value === selectedValue,
+      );
+      if (selectedIndex >= 0) this.selectedIndex = selectedIndex;
+      return result;
+    }
+    const itemIndex = this.renderedRows[event.y];
+    if (itemIndex === undefined || event.button !== "left") return undefined;
+    this.selectedIndex = itemIndex;
+    this.list.setSelectedIndex(itemIndex);
+    if (event.type === "click") {
+      const item = this.items[itemIndex];
+      if (item) this.onSelect(item.value);
+      return { handled: true, render: true };
+    }
+    if (event.type === "press") {
+      return { handled: true, focus: true, render: true };
+    }
+    return undefined;
   }
 
   invalidate(): void {
     this.list.invalidate();
   }
+}
+
+class RoundedModal extends Container {
+  render(width: number): string[] {
+    const safeWidth = Math.max(2, width);
+    const insideWidth = safeWidth - 2;
+    const horizontal = "─".repeat(Math.max(0, safeWidth - 2));
+    const content = super.render(insideWidth).map((line) => {
+      const clipped = truncateToWidth(line, insideWidth);
+      return `${tone("│", "border")}${clipped}${" ".repeat(Math.max(0, insideWidth - visibleWidth(clipped)))}${tone("│", "border")}`;
+    });
+    return [
+      tone(`╭${horizontal}╮`, "border"),
+      ...content,
+      tone(`╰${horizontal}╯`, "border"),
+    ];
+  }
+
+  handleMouse(event: TuiMouseEvent): ReturnType<Container["handleMouse"]> {
+    if (event.y <= 0 || event.y >= event.height - 1) return undefined;
+    return super.handleMouse({
+      ...event,
+      x: event.x - 1,
+      y: event.y - 1,
+      width: Math.max(1, event.width - 2),
+      height: Math.max(1, event.height - 2),
+    });
+  }
+}
+
+class ModalSeparator implements Component {
+  render(width: number): string[] {
+    return [tone("─".repeat(width), "border")];
+  }
+
+  invalidate(): void {}
 }
 
 function createHome(
@@ -1060,7 +1210,13 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         .map((model) => ({
           value: `${model.provider}/${model.id}`,
           label: model.name,
-          description: `${model.provider} · ${model.id}${currentModel && model.provider === currentModel.provider && model.id === currentModel.id ? " · current" : ""}`,
+          provider: model.provider,
+          description: model.id,
+          current: Boolean(
+            currentModel &&
+              model.provider === currentModel.provider &&
+              model.id === currentModel.id,
+          ),
         }));
     };
     const searchEditor = new Editor(tui, editorTheme, { paddingX: 1 });
@@ -1077,21 +1233,44 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       () => hideOverlay(),
     );
     modelPickerList = list;
+    const modelSummary = new Text(
+      tone(
+        `${models.length.toLocaleString()} models · grouped by provider`,
+        "muted",
+      ),
+      1,
+      0,
+    );
     searchEditor.onChange = (query) => {
-      list.setItems(itemsFor(query));
+      const matches = itemsFor(query);
+      list.setItems(matches);
+      modelSummary.setText(
+        tone(
+          query.trim()
+            ? `${matches.length.toLocaleString()} matches · grouped by provider`
+            : `${models.length.toLocaleString()} models · grouped by provider`,
+          "muted",
+        ),
+      );
       tui.requestRender();
     };
-    const panel = new VStack([
-      new Text(tone("Select a model", "text", true), 1, 0),
-      new Text(tone("Search by model, provider, or ID", "muted"), 1, 0),
+    const content = new VStack([
+      new Text(tone("Choose a model", "text", true), 1, 0),
+      modelSummary,
+      new Text(tone("⌕  Search by name, provider, or model ID", "dim"), 1, 0),
       searchEditor,
+      new ModalSeparator(),
       list,
-      new Text(tone("↑/↓ navigate · Enter select · Esc close", "dim"), 1, 0),
+      new ModalSeparator(),
+      new Text(tone("↑/↓ navigate   Enter select   Esc close", "dim"), 1, 0),
     ]);
+    const panel = new RoundedModal();
+    panel.addChild(content);
     const overlay = tui.showOverlay(panel, {
       anchor: "center",
-      width: "72%",
-      maxHeight: "75%",
+      width: "84%",
+      minWidth: 58,
+      maxHeight: "90%",
       margin: 1,
     });
     hideOverlay = () => {

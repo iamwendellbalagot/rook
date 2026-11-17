@@ -464,18 +464,36 @@ describe("Rook TUI shell", () => {
         .replace(/\x1B(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g, "");
     };
     let screen = plainScreen();
-    expect(screen).toContain("Select a model");
-    expect(screen).toContain("Search by model");
+    expect(screen).toContain("Choose a model");
+    expect(screen).toContain("Search by name");
+    expect(screen).toContain("◆ anthropic");
+    expect(screen).toContain("◆ openai");
+    expect(screen).toContain("╭");
+    expect(screen).toContain("╰");
     const titleRow = screen
       .split("\n")
-      .findIndex((line) => line.includes("Select a model"));
+      .findIndex((line) => line.includes("Choose a model"));
     expect(titleRow).toBeGreaterThan(2);
     expect(titleRow).toBeLessThan(terminal.rows - 4);
 
-    for (const character of "claude") terminal.input(character);
-    const filtered = plainScreen();
+    for (const character of "anthropic") terminal.input(character);
+    let filtered = plainScreen();
     expect(filtered).toContain("Claude Sonnet 4");
     expect(filtered).not.toContain("GPT-4.1");
+    for (let index = 0; index < "anthropic".length; index++) {
+      terminal.input("\x7f");
+    }
+
+    for (const character of "claude") terminal.input(character);
+    filtered = plainScreen();
+    expect(filtered).toContain("Claude Sonnet 4");
+    expect(filtered).not.toContain("GPT-4.1");
+    for (let index = 0; index < "claude".length; index++) {
+      terminal.input("\x7f");
+    }
+
+    for (const character of "claude-sonnet-4") terminal.input(character);
+    expect(plainScreen()).toContain("Claude Sonnet 4");
 
     terminal.input("\r");
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -484,12 +502,12 @@ describe("Rook TUI shell", () => {
       id: "claude-sonnet-4",
       name: "Claude Sonnet 4",
     });
-    expect(plainScreen()).not.toContain("Search by model");
+    expect(plainScreen()).not.toContain("Search by name");
 
     await app.submit("/model");
     expect(plainScreen()).toContain("current");
     terminal.input("\u001b");
-    expect(plainScreen()).not.toContain("Search by model");
+    expect(plainScreen()).not.toContain("Search by name");
 
     terminal.input("\u0003");
     await finished;
