@@ -9,7 +9,15 @@
   "bin": {
     "rook": "./bin/rook.mjs"
   },
+  "files": [
+    "bin/",
+    "dist/",
+    "docs/",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
   "scripts": {
+    "prepack": "npm run build",
     "dev": "tsx src/cli.ts",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
@@ -19,6 +27,7 @@
     "test:integration": "vitest run tests/integration",
     "test:pty": "vitest run tests/pty",
     "benchmark:memory": "tsx scripts/memory-benchmark.ts",
+    "benchmark:fts": "tsx scripts/fts-benchmark.ts",
     "smoke": "node bin/rook.mjs --smoke"
   },
   "dependencies": {

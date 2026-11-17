@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +14,7 @@ import type {
   GitSnapshot,
   RepositoryIdentity,
 } from "../../src/repo/workspace.js";
+import { captureWorkspaceSnapshot } from "../../src/repo/workspace.js";
 
 const directories: string[] = [];
 
@@ -66,6 +68,64 @@ async function setup(): Promise<{
     ],
   });
   return { root, store, repository, snapshot, memoryId: recorded.memory.id };
+}
+
+async function setupGit(): Promise<{
+  root: string;
+  store: RookStore;
+  repository: RepositoryIdentity;
+  memoryId: string;
+}> {
+  const directory = await mkdtemp(join(tmpdir(), "rook-impact-git-"));
+  directories.push(directory);
+  const root = join(directory, "repo");
+  await mkdir(join(root, "src"), { recursive: true });
+  const source = "export const AUTH_MODE = 'strict';\n";
+  await writeFile(join(root, "src", "auth.ts"), source);
+  await writeFile(join(root, "README.md"), "repo fixture\n");
+  git(root, "init", "-b", "main");
+  git(root, "config", "user.name", "Rook Test");
+  git(root, "config", "user.email", "rook@example.test");
+  git(root, "add", "src/auth.ts", "README.md");
+  git(root, "commit", "-m", "initial");
+  const repository: RepositoryIdentity = {
+    id: `git-${createHash("sha1").update(directory).digest("hex").slice(0, 8)}`,
+    logicalId: "impact-git",
+    kind: "git",
+    root,
+    displayName: "repo",
+    remoteFingerprint: null,
+  };
+  const snapshot = await captureWorkspaceSnapshot(repository);
+  const store = await RookStore.open(join(directory, "state.sqlite"));
+  store.saveWorkspace(repository, snapshot);
+  const recorded = store.recordMemory({
+    repoId: repository.id,
+    kind: "architecture",
+    title: "Auth mode is strict",
+    body: "The authentication module uses strict mode.",
+    status: "verified",
+    confidence: 0.95,
+    sourceClass: "code",
+    ...(snapshot?.headCommit ? { validAtCommit: snapshot.headCommit } : {}),
+    evidence: [
+      {
+        path: "src/auth.ts",
+        contentSha256: createHash("sha256").update(source).digest("hex"),
+        commitSha: snapshot?.headCommit ?? null,
+        sourceType: "code",
+      },
+    ],
+  });
+  return { root, store, repository, memoryId: recorded.memory.id };
+}
+
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
 }
 
 afterEach(async () => {
@@ -148,6 +208,60 @@ describe("Git-aware memory evidence", () => {
     store.close();
   });
 
+  it("invalidates changed evidence on a real branch switch and dirty edit", async () => {
+    const { root, store, repository, memoryId } = await setupGit();
+    git(root, "switch", "-c", "feature");
+    await writeFile(
+      join(root, "src", "auth.ts"),
+      "export const AUTH_MODE = 'permissive';\n",
+    );
+    git(root, "add", "src/auth.ts");
+    git(root, "commit", "-m", "change auth mode");
+    const branchSnapshot = await captureWorkspaceSnapshot(repository);
+    expect(branchSnapshot?.branch).toBe("feature");
+    await reconcileMemoryEvidence(store, repository, branchSnapshot);
+    expect(store.getMemory(memoryId)?.status).toBe("stale");
+
+    const second = store.recordMemory({
+      repoId: repository.id,
+      kind: "convention",
+      title: "Permissive auth mode",
+      body: "The auth module is permissive on this branch.",
+      status: "verified",
+      confidence: 0.9,
+      sourceClass: "code",
+      evidence: [
+        {
+          path: "src/auth.ts",
+          contentSha256: createHash("sha256")
+            .update("export const AUTH_MODE = 'permissive';\n")
+            .digest("hex"),
+          commitSha: branchSnapshot?.headCommit ?? null,
+          sourceType: "code",
+        },
+      ],
+    }).memory;
+    await writeFile(
+      join(root, "src", "auth.ts"),
+      "export const AUTH_MODE = 'local-edit';\n",
+    );
+    const dirtySnapshot = await captureWorkspaceSnapshot(repository);
+    expect(dirtySnapshot?.dirtyFingerprint).not.toBeNull();
+    await reconcileMemoryEvidence(store, repository, dirtySnapshot);
+    expect(store.getMemory(second.id)?.status).toBe("stale");
+    store.close();
+  });
+
+  it("marks renamed Git evidence stale when no safe path re-link is available", async () => {
+    const { root, store, repository, memoryId } = await setupGit();
+    git(root, "mv", "src/auth.ts", "src/authentication.ts");
+    git(root, "commit", "-m", "rename auth evidence");
+    const snapshot = await captureWorkspaceSnapshot(repository);
+    await reconcileMemoryEvidence(store, repository, snapshot);
+    expect(store.getMemory(memoryId)?.status).toBe("stale");
+    store.close();
+  });
+
   it("allows explicit user review to re-verify stale evidence with a revision", async () => {
     const { root, store, repository, snapshot, memoryId } = await setup();
     await writeFile(
@@ -162,6 +276,50 @@ describe("Git-aware memory evidence", () => {
     expect(verified.verified).toBe(true);
     expect(store.getMemory(memoryId)?.status).toBe("verified");
     expect(store.listMemoryRevisions(memoryId).at(-1)?.actor).toBe("user");
+    store.close();
+  });
+
+  it("preserves user-confirmed decisions while invalidating implementation details", async () => {
+    const { root, store, repository, snapshot } = await setup();
+    const decision = store.recordMemory({
+      repoId: repository.id,
+      kind: "decision",
+      title: "We chose strict authentication",
+      body: "The user confirmed strict authentication as a project decision.",
+      status: "verified",
+      confidence: 1,
+      sourceClass: "user_explicit",
+      evidence: [{ sourceType: "user_explicit" }],
+    }).memory;
+    const implementation = store.recordMemory({
+      repoId: repository.id,
+      kind: "architecture",
+      title: "Auth mode is strict",
+      body: "The implementation uses strict authentication mode.",
+      status: "verified",
+      confidence: 0.9,
+      sourceClass: "code",
+      evidence: [
+        {
+          path: "src/auth.ts",
+          contentSha256: createHash("sha256")
+            .update("export const AUTH_MODE = 'strict';\n")
+            .digest("hex"),
+          commitSha: snapshot.headCommit,
+          sourceType: "code",
+        },
+      ],
+    }).memory;
+    await writeFile(
+      join(root, "src", "auth.ts"),
+      "export const AUTH_MODE = 'changed';\n",
+    );
+    await reconcileMemoryEvidence(store, repository, snapshot);
+    expect(store.getMemory(decision.id)?.status).toBe("verified");
+    expect(store.getMemory(implementation.id)?.status).toBe("stale");
+    expect(store.listMemoryRevisions(implementation.id).at(-1)?.actor).toBe(
+      "git-reconciliation",
+    );
     store.close();
   });
 

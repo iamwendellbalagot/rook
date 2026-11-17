@@ -6,24 +6,29 @@ This is a deterministic offline retrieval benchmark, not a model-task success st
 
 ## Fixture and cases
 
-Three isolated fixtures: `repo-a` contains an AuthService decision, a bounded retry convention, and stale CookieSession evidence; `repo-b` contains conflicting AuthService/cookie claims; `repo-c` contains an unrelated LedgerRouter architecture. Thirty-five prompts cover fresh architecture, convention, decision recall, stale architecture, after-fix behavior, off-topic abstention, and cross-repository/security-injection queries.
+Three isolated fixtures: `repo-a` contains an AuthService decision, a bounded retry convention, and stale CookieSession evidence; `repo-b` contains conflicting AuthService/cookie claims; `repo-c` contains an unrelated LedgerRouter architecture. Thirty-seven prompts cover fresh architecture, convention, decision recall, stale architecture, after-fix behavior, off-topic and ambiguous-term abstention, and cross-repository/security-injection queries.
 
 | Group                          | Prompts | Baseline retrieved | Memory expected hits | Memory false retrievals | Memory tokens |
 | ------------------------------ | ------: | -----------------: | -------------------: | ----------------------: | ------------: |
-| fresh architecture             |       5 |                  0 |                    5 |                       1 |           822 |
-| convention recall              |       5 |                  0 |                    5 |                       1 |           842 |
+| fresh architecture             |       5 |                  0 |                    5 |                       0 |           720 |
+| convention recall              |       5 |                  0 |                    5 |                       0 |           745 |
 | decision recall                |       5 |                  0 |                    5 |                       0 |           720 |
-| stale architecture             |       5 |                  0 |                    0 |                       4 |           576 |
+| stale architecture             |       5 |                  0 |                    0 |                       0 |             0 |
 | after-fix behavior             |       5 |                  0 |                    5 |                       0 |           720 |
 | off-topic abstention           |       5 |                  0 |                    0 |                       0 |             0 |
-| cross-repository and injection |       5 |                  0 |                    0 |                       5 |           678 |
+| ambiguous term abstention      |       2 |                  0 |                    0 |                       0 |             0 |
+| cross-repository and injection |       5 |                  0 |                    0 |                       0 |             0 |
 
 ## Comparison
 
 | Mode            | Precision@K | Recall@K | False retrieved memories | Estimated context tokens |
 | --------------- | ----------: | -------: | -----------------------: | -----------------------: |
 | Memory disabled |           — |     0.0% |                        0 |                        0 |
-| Memory enabled  |       64.5% |   100.0% |                       11 |                     4358 |
+| Memory enabled  |      100.0% |   100.0% |                        0 |                     2905 |
+
+## Cases needing review
+
+All labeled cases matched their expected memory IDs.
 
 ## Limitations
 

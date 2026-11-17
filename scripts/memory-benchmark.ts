@@ -207,6 +207,11 @@ try {
         expected: [],
       },
       {
+        name: "ambiguous term abstention",
+        queries: ["session", "service"],
+        expected: [],
+      },
+      {
         name: "cross-repository and injection",
         queries: [
           "In repo-b, how does AuthService store signed cookies?",
@@ -238,7 +243,7 @@ try {
       repository.id,
       item.query,
       snapshot,
-      { now },
+      { now, repositoryName: repository.displayName },
     );
     return {
       ...item,
@@ -248,6 +253,17 @@ try {
   });
   const baselineMetrics = score(baseline);
   const enabledMetrics = score(enabled);
+  const labelIds = (memoryIds: string[]) =>
+    memoryIds.map(
+      (id) =>
+        [...ids.entries()].find(([, memoryId]) => memoryId === id)?.[0] ??
+        "unknown",
+    );
+  const incorrect = enabled.filter(
+    (item) =>
+      item.actual.some((id) => !item.expected.includes(id)) ||
+      item.expected.some((id) => !item.actual.includes(id)),
+  );
   const report = [
     "# Memory Retrieval Benchmark",
     "",
@@ -257,7 +273,7 @@ try {
     "",
     "## Fixture and cases",
     "",
-    "Three isolated fixtures: `repo-a` contains an AuthService decision, a bounded retry convention, and stale CookieSession evidence; `repo-b` contains conflicting AuthService/cookie claims; `repo-c` contains an unrelated LedgerRouter architecture. Thirty-five prompts cover fresh architecture, convention, decision recall, stale architecture, after-fix behavior, off-topic abstention, and cross-repository/security-injection queries.",
+    "Three isolated fixtures: `repo-a` contains an AuthService decision, a bounded retry convention, and stale CookieSession evidence; `repo-b` contains conflicting AuthService/cookie claims; `repo-c` contains an unrelated LedgerRouter architecture. Thirty-seven prompts cover fresh architecture, convention, decision recall, stale architecture, after-fix behavior, off-topic and ambiguous-term abstention, and cross-repository/security-injection queries.",
     "",
     "| Group | Prompts | Baseline retrieved | Memory expected hits | Memory false retrievals | Memory tokens |",
     "|---|---:|---:|---:|---:|---:|",
@@ -273,6 +289,19 @@ try {
     "|---|---:|---:|---:|---:|",
     `| Memory disabled | ${baselineMetrics.precision === null ? "—" : percent(baselineMetrics.precision)} | ${percent(baselineMetrics.recall)} | ${baselineMetrics.falsePositives} | 0 |`,
     `| Memory enabled | ${percent(enabledMetrics.precision)} | ${percent(enabledMetrics.recall)} | ${enabledMetrics.falsePositives} | ${enabled.reduce((sum, item) => sum + item.tokens, 0)} |`,
+    "",
+    "## Cases needing review",
+    "",
+    ...(incorrect.length
+      ? [
+          "| Group | Prompt | Expected | Retrieved |",
+          "|---|---|---|---|",
+          ...incorrect.map(
+            (item) =>
+              `| ${item.group} | ${item.query.replaceAll("|", "\\|")} | ${labelIds(item.expected).join(", ") || "abstain"} | ${labelIds(item.actual).join(", ") || "abstain"} |`,
+          ),
+        ]
+      : ["All labeled cases matched their expected memory IDs."]),
     "",
     "## Limitations",
     "",

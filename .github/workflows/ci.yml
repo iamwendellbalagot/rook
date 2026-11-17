@@ -4,9 +4,16 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -14,8 +21,13 @@ jobs:
           node-version: 22.19.0
           cache: npm
       - run: npm ci
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm test
       - run: npm run test:pty
+      - run: npm run test:integration
       - run: npm run build
       - run: npm run smoke
+      - run: npm run benchmark:memory
+      - run: npm run benchmark:fts
+      - run: npm pack --dry-run

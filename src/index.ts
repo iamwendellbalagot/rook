@@ -62,6 +62,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
               workspace.repository.id,
               userPrompt,
               memoryCapture?.currentSnapshot() ?? workspace.snapshot,
+              { repositoryName: workspace.repository.displayName },
             );
           }
         : undefined;

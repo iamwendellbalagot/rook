@@ -2,23 +2,44 @@
 
 **A coding agent that grows with your codebase.**
 
-Rook is in early development. Its current full-screen TUI is a minimal shell; tool execution is deliberately disabled until the permission policy is implemented. It is not yet the full interactive coding agent described in the implementation plan.
+Rook is in early development. Its full-screen TUI integrates Pi with repository-scoped memory and a host-side plan/build tool policy. This policy is not an OS sandbox; use an isolated container or VM for untrusted repositories. See the progress and benchmark documents for current limitations and measured retrieval behavior.
 
 ## Requirements
 
 - Node.js 22.19 or newer
 - npm
 
+## Install from a source checkout
+
+These commands work in macOS/Linux shells and Windows PowerShell or Command Prompt. Use Node.js 22.19.0 or newer and a recent Git installation.
+
+```sh
+git clone <repository-url> rook
+cd rook
+npm ci
+npm run build
+node bin/rook.mjs --mock
+```
+
+The project is still in early development and is not yet published as an npm release. For provider-backed use, configure Pi using its own documented authentication flow; never put provider secrets in the repository or command history.
+
 ## Development
 
 ```sh
 npm ci
+npm run lint
 npm run typecheck
 npm test
+npm run test:pty
+npm run test:integration
 npm run build
 npm run smoke
+npm run benchmark:memory
+npm run benchmark:fts
 ```
 
-To inspect the TUI without credentials, build and run `node bin/rook.mjs --mock`. Submit a prompt; use `/help` and `/exit`, or press Ctrl+C to leave. To use Pi's configured provider, run `node bin/rook.mjs`; interactive TUI mode has tools disabled for safety at this stage. A one-shot headless prompt is also available with `node bin/rook.mjs "Summarize this repository"`. Pi provider authentication and model configuration are inherited from Pi; Rook does not collect credentials itself. `npm run smoke` exercises the credential-free mock gateway.
+To inspect the TUI without credentials, run `node bin/rook.mjs --mock`. Submit a prompt; use `/help` and `/exit`, or press Ctrl+C to leave. To use Pi's configured provider, run `node bin/rook.mjs`; Pi provider authentication and model configuration are inherited, and Rook does not collect credentials. The TUI starts in plan mode; `/build` enables policy-gated workspace edits. A one-shot headless prompt is also available with `node bin/rook.mjs "Summarize this repository"`. `npm run smoke` exercises the credential-free mock gateway. The memory benchmark is deterministic and offline; it measures retrieval, not model-task success.
 
 The TUI uses the visual references in [`tui_references/`](tui_references/README.md). See [`docs/PROGRESS.md`](docs/PROGRESS.md), [`docs/PI_PARITY.md`](docs/PI_PARITY.md), and [`plan.md`](plan.md).
+
+Pi SDK/TUI attribution and license notices are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

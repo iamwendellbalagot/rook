@@ -22,6 +22,10 @@ export async function reconcileMemoryEvidence(
     invalidated: 0,
     skipped: 0,
   };
+  const fileHashes = new Map<
+    string,
+    ReturnType<typeof hashSafeWorkspaceFile>
+  >();
   for (const memory of store.listMemories(repository.id)) {
     const latestByPath = new Map<string, (typeof memory.evidence)[number]>();
     for (const evidence of memory.evidence) {
@@ -65,10 +69,12 @@ export async function reconcileMemoryEvidence(
     let evidenceChanged = false;
     for (const evidence of fileEvidence) {
       result.checked += 1;
-      const current = await hashSafeWorkspaceFile(
-        repository.root,
-        evidence.path!,
-      );
+      let hashPromise = fileHashes.get(evidence.path!);
+      if (!hashPromise) {
+        hashPromise = hashSafeWorkspaceFile(repository.root, evidence.path!);
+        fileHashes.set(evidence.path!, hashPromise);
+      }
+      const current = await hashPromise;
       if (!current) {
         evidenceChanged = true;
         break;

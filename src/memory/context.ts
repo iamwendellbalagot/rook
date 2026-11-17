@@ -6,6 +6,7 @@ export interface MemoryContextOptions {
   limit?: number;
   tokenBudget?: number;
   now?: Date;
+  repositoryName?: string;
 }
 
 export interface RetrievedMemoryContext {
@@ -55,6 +56,10 @@ export function retrieveMemoryContext(
     store.recordMemoryRetrieval(repoId, [], 0, tokenBudget);
     return { content: "", memoryIds: [], estimatedTokens: 0, tokenBudget };
   }
+  if (targetsAnotherRepository(query, options.repositoryName)) {
+    store.recordMemoryRetrieval(repoId, [], 0, tokenBudget);
+    return { content: "", memoryIds: [], estimatedTokens: 0, tokenBudget };
+  }
   const tokens = queryTokens(query);
   if (tokens.length === 0) {
     store.recordMemoryRetrieval(repoId, [], 0, tokenBudget);
@@ -75,9 +80,11 @@ export function retrieveMemoryContext(
     ftsResults.map((result) => [result.memoryId, result.rank]),
   );
   const paths = extractPaths(query);
+  const historicalQuery = asksAboutHistoricalBehavior(query);
   const candidates = store.listMemories(repoId) as MemoryCandidate[];
   const ranked = candidates
     .filter(isRetrievable)
+    .filter((memory) => !historicalQuery || memory.status === "possibly_stale")
     .map((memory) => ({
       memory,
       score: scoreMemory(memory, tokens, paths, ftsRank, snapshot, now),
@@ -181,18 +188,31 @@ function scoreMemory(
   const kind = memory.kind.toLocaleLowerCase();
   const evidence = memory.evidence;
   let lexical = 0;
+  const matchedTokens = new Set<string>();
+  const distinctiveMatches = new Set<string>();
+  const titleWords = normalizedWords(title);
+  const bodyWords = normalizedWords(body);
+  const kindWords = normalizedWords(kind);
+  const evidenceWords = normalizedWords(
+    evidence.map((item) => `${item.path ?? ""} ${item.symbol ?? ""}`).join(" "),
+  );
   for (const token of tokens) {
-    if (title.includes(token)) lexical += 3;
-    if (body.includes(token)) lexical += 1.2;
-    if (kind.includes(token)) lexical += 0.4;
-    if (
-      evidence.some(
-        (item) =>
-          item.path?.toLocaleLowerCase().includes(token) ||
-          item.symbol?.toLocaleLowerCase().includes(token),
-      )
-    ) {
+    const normalized = normalizeWord(token);
+    const titleMatch = titleWords.has(normalized);
+    const bodyMatch = bodyWords.has(normalized);
+    const kindMatch = kindWords.has(normalized);
+    const evidenceMatch = evidenceWords.has(normalized);
+    if (titleMatch) lexical += 3;
+    if (bodyMatch) lexical += 1.2;
+    if (kindMatch) lexical += 0.4;
+    if (evidenceMatch) {
       lexical += 1.5;
+    }
+    if (titleMatch || bodyMatch || kindMatch || evidenceMatch) {
+      matchedTokens.add(normalized);
+      if ((titleMatch || evidenceMatch) && normalized.length >= 6) {
+        distinctiveMatches.add(normalized);
+      }
     }
   }
   const pathOverlap = paths.reduce(
@@ -205,7 +225,13 @@ function scoreMemory(
         : 0),
     0,
   );
-  if (lexical === 0 && pathOverlap === 0) return 0;
+  if (
+    pathOverlap === 0 &&
+    (matchedTokens.size === 0 ||
+      (matchedTokens.size < 2 && distinctiveMatches.size === 0))
+  ) {
+    return 0;
+  }
 
   const fts = ftsRank.get(memory.id);
   const ftsBoost = fts === undefined ? 0 : 1 / (1 + Math.abs(fts) * 100);
@@ -269,10 +295,49 @@ function queryTokens(query: string): string[] {
   return [
     ...new Set(
       (query.toLocaleLowerCase().match(/[\p{L}\p{N}_-]{2,}/gu) ?? []).filter(
-        (token) => !STOP_WORDS.has(token),
+        (token) => !STOP_WORDS.has(normalizeWord(token)),
       ),
     ),
   ].slice(0, 32);
+}
+
+function normalizedWords(value: string): Set<string> {
+  return new Set(
+    (value.toLocaleLowerCase().match(/[\p{L}\p{N}_-]{2,}/gu) ?? []).map(
+      normalizeWord,
+    ),
+  );
+}
+
+function normalizeWord(word: string): string {
+  if (word.length > 4 && word.endsWith("ies")) return `${word.slice(0, -3)}y`;
+  if (word.length > 4 && word.endsWith("s") && !word.endsWith("ss")) {
+    return word.slice(0, -1);
+  }
+  return word;
+}
+
+function targetsAnotherRepository(
+  query: string,
+  repositoryName?: string,
+): boolean {
+  if (
+    /\b(?:another|other|different|unrelated)\s+(?:repo|repository|project)\b/i.test(
+      query,
+    )
+  ) {
+    return true;
+  }
+  const explicitNames = query.match(/\brepo-[\p{L}\p{N}_-]+\b/giu) ?? [];
+  if (explicitNames.length === 0) return false;
+  const currentName = repositoryName?.toLocaleLowerCase();
+  return explicitNames.some((name) => name.toLocaleLowerCase() !== currentName);
+}
+
+function asksAboutHistoricalBehavior(query: string): boolean {
+  return /\b(?:old|legacy|historical|obsolete|previous|formerly|former|replaced)\b/i.test(
+    query,
+  );
 }
 
 const STOP_WORDS = new Set([
@@ -282,6 +347,7 @@ const STOP_WORDS = new Set([
   "at",
   "about",
   "after",
+  "before",
   "and",
   "are",
   "be",
@@ -304,6 +370,23 @@ const STOP_WORDS = new Set([
   "of",
   "on",
   "or",
+  "use",
+  "used",
+  "uses",
+  "using",
+  "project",
+  "repository",
+  "repo",
+  "other",
+  "another",
+  "different",
+  "unrelated",
+  "old",
+  "legacy",
+  "historical",
+  "obsolete",
+  "previous",
+  "former",
   "to",
   "was",
   "we",
