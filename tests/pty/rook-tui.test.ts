@@ -251,9 +251,11 @@ describe("Rook TUI shell", () => {
     });
     expect(accessRequest).toBeDefined();
     app.tui.renderNow(true);
-    expect(terminal.writes.join(" ")).toContain(
-      "External read access requested",
-    );
+    expect(terminal.writes.join(" ")).toContain("External read access · read");
+    const accessScreen = app.tui.render(100).join("\n");
+    expect(
+      accessScreen.indexOf("/Users/test/Downloads/notes.txt"),
+    ).toBeLessThan(accessScreen.indexOf("Ctrl+C exit"));
     terminal.input("\u001b[B");
     terminal.input("\r");
     await expect(accessRequest).resolves.toBe("once");

@@ -89,6 +89,95 @@ function compactPath(path: string, maxWidth: number): string {
   return truncateToWidth(tail, maxWidth, "…");
 }
 
+class ExternalAccessPromptPanel implements Component {
+  private request: ExternalAccessRequest | undefined;
+  private selected = 0;
+  private onChoose: ((choice: ExternalAccessChoice) => void) | undefined;
+
+  show(
+    request: ExternalAccessRequest,
+    onChoose: (choice: ExternalAccessChoice) => void,
+  ): void {
+    this.request = request;
+    this.selected = 0;
+    this.onChoose = onChoose;
+  }
+
+  clear(): void {
+    this.request = undefined;
+    this.onChoose = undefined;
+  }
+
+  render(width: number): string[] {
+    if (!this.request || width <= 0) return [];
+    const operation = this.request.access;
+    const options: { choice: ExternalAccessChoice; label: string }[] = [
+      { choice: "deny", label: "Deny" },
+      { choice: "once", label: `Allow ${operation} once` },
+      {
+        choice: "session",
+        label: `Allow ${operation} in folder for this session`,
+      },
+    ];
+    const lines = [
+      tone(
+        `External ${operation} access · ${safeTerminalText(this.request.toolName)}`,
+        "amber",
+        true,
+      ),
+      `${tone("Path:", "muted")} ${compactPath(
+        safeTerminalText(this.request.path),
+        Math.max(1, width - visibleWidth("Path: ")),
+      )}`,
+      `${tone("Folder:", "muted")} ${compactPath(
+        safeTerminalText(this.request.folderPath),
+        Math.max(1, width - visibleWidth("Folder: ")),
+      )}`,
+      ...options.map((option, index) => {
+        const label =
+          index === this.selected ? `[${option.label}]` : option.label;
+        return tone(
+          `${index === this.selected ? "›" : " "} ${index + 1}. ${label}`,
+          index === this.selected ? "text" : "muted",
+          index === this.selected,
+        );
+      }),
+      tone("↑/↓ choose · Enter confirm · Esc deny", "dim"),
+    ];
+    return lines.map((line) => truncateToWidth(line, width));
+  }
+
+  handleInput(data: string): void {
+    if (!this.request || !this.onChoose) return;
+    if (matchesKey(data, "escape")) {
+      this.onChoose("deny");
+      return;
+    }
+    if (matchesKey(data, "up")) {
+      this.selected = (this.selected + 2) % 3;
+      return;
+    }
+    if (matchesKey(data, "down")) {
+      this.selected = (this.selected + 1) % 3;
+      return;
+    }
+    if (matchesKey(data, "enter")) {
+      this.onChoose(
+        (["deny", "once", "session"] as const)[this.selected] ?? "deny",
+      );
+      return;
+    }
+    const shortcut = Number(data);
+    if (shortcut >= 1 && shortcut <= 3) {
+      this.onChoose(
+        (["deny", "once", "session"] as const)[shortcut - 1] ?? "deny",
+      );
+    }
+  }
+
+  invalidate(): void {}
+}
+
 function safeTerminalText(value: string): string {
   return value
     .replace(/\x1B(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g, "")
@@ -166,8 +255,9 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     overscroll: "chain",
   });
   const editor = new Editor(tui, editorTheme, { paddingX: 1 });
+  const externalAccessPanel = new ExternalAccessPromptPanel();
   const footer = new Text("", 1, 0);
-  const bottom = new VStack([editor, footer]);
+  const bottom = new VStack([editor, externalAccessPanel, footer]);
   tui.setLayoutRoot(
     new VStack([
       { component: header, basis: "auto", shrink: 0 },
@@ -198,7 +288,6 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   let activePermissionPrompt:
     | {
         resolve: (choice: ExternalAccessChoice) => void;
-        hide: () => void;
       }
     | undefined;
   const finished = new Promise<void>((resolvePromise) => {
@@ -718,36 +807,15 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     const operation = pending.request.access === "read" ? "read" : "write";
     const finish = (choice: ExternalAccessChoice): void => {
       if (activePermissionPrompt?.resolve !== pending.resolve) return;
-      const active = activePermissionPrompt;
       activePermissionPrompt = undefined;
-      active.hide();
+      externalAccessPanel.clear();
+      tui.requestRender();
       pending.resolve(choice);
       showNextPermissionPrompt();
     };
-    const hide = showSelection(
-      `External ${operation} access requested`,
-      [
-        {
-          value: "deny",
-          label: "Deny",
-          description: "Block this tool operation",
-        },
-        {
-          value: "once",
-          label: `Allow ${operation} once`,
-          description: safeTerminalText(pending.request.path),
-        },
-        {
-          value: "session",
-          label: `Allow ${operation} in this folder for this session`,
-          description: safeTerminalText(pending.request.folderPath),
-        },
-      ],
-      (value) =>
-        finish(value === "once" || value === "session" ? value : "deny"),
-      () => finish("deny"),
-    );
-    activePermissionPrompt = { resolve: pending.resolve, hide };
+    activePermissionPrompt = { resolve: pending.resolve };
+    externalAccessPanel.show(pending.request, finish);
+    tui.requestRender();
     appendText(
       `${pending.request.toolName} requests ${operation} access to ${safeTerminalText(pending.request.path)}.`,
       "muted",
@@ -757,7 +825,8 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   function denyPendingPermissionPrompts(): void {
     const active = activePermissionPrompt;
     activePermissionPrompt = undefined;
-    active?.hide();
+    externalAccessPanel.clear();
+    tui.requestRender();
     active?.resolve("deny");
     for (const pending of permissionQueue.splice(0)) pending.resolve("deny");
   }
@@ -889,6 +958,15 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   };
 
   tui.addInputListener((data) => {
+    if (activePermissionPrompt) {
+      if (matchesKey(data, "ctrl+c")) {
+        denyPendingPermissionPrompts();
+        void options.gateway.cancel().catch(() => undefined);
+      } else {
+        externalAccessPanel.handleInput(data);
+      }
+      return { consume: true };
+    }
     if (matchesKey(data, "ctrl+c") || matchesKey(data, "escape")) {
       if (state.runState === "running") {
         denyPendingPermissionPrompts();
