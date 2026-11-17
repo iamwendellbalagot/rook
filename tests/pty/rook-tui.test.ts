@@ -466,8 +466,9 @@ describe("Rook TUI shell", () => {
     let screen = plainScreen();
     expect(screen).toContain("Choose a model");
     expect(screen).toContain("Search by name");
-    expect(screen).toContain("◆ anthropic");
-    expect(screen).toContain("◆ openai");
+    expect(screen).toContain("anthropic/");
+    expect(screen).toContain("openai/");
+    expect(screen).toContain("Claude Sonnet 4");
     expect(screen).toContain("╭");
     expect(screen).toContain("╰");
     const titleRow = screen
@@ -475,6 +476,11 @@ describe("Rook TUI shell", () => {
       .findIndex((line) => line.includes("Choose a model"));
     expect(titleRow).toBeGreaterThan(2);
     expect(titleRow).toBeLessThan(terminal.rows - 4);
+
+    terminal.input("\r");
+    expect(plainScreen()).not.toContain("Claude Sonnet 4");
+    terminal.input("\r");
+    expect(plainScreen()).toContain("Claude Sonnet 4");
 
     for (const character of "anthropic") terminal.input(character);
     let filtered = plainScreen();

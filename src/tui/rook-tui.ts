@@ -294,169 +294,213 @@ class SlashCommandSuggestionPanel implements Component {
   invalidate(): void {}
 }
 
+interface ModelPickerItem {
+  value: string;
+  label: string;
+  provider: string;
+  description?: string;
+  current?: boolean;
+}
+
+interface ModelProviderFolder {
+  provider: string;
+  models: ModelPickerItem[];
+}
+
+type ModelPickerRow =
+  | { kind: "provider"; provider: string }
+  | { kind: "model"; provider: string; model: ModelPickerItem };
+
 class SearchableModelList implements Component {
   readonly capturesViewportInput = true;
-  private list: SelectList;
-  private items: {
-    value: string;
-    label: string;
-    provider: string;
-    description?: string;
-    current?: boolean;
-  }[];
+  private folders: ModelProviderFolder[];
+  private expandedProviders: Set<string>;
+  private rows: ModelPickerRow[] = [];
+  private renderedRows: (ModelPickerRow | undefined)[] = [];
   private selectedIndex = 0;
-  private renderedRows: (number | undefined)[] = [];
+  private readonly initialProvider: string;
 
   constructor(
-    items: {
-      value: string;
-      label: string;
-      provider: string;
-      description?: string;
-      current?: boolean;
-    }[],
+    folders: ModelProviderFolder[],
+    initialProvider: string,
     private readonly onSelect: (value: string) => void,
     private readonly onCancel: () => void,
   ) {
-    this.items = items;
-    this.list = this.createList(items);
+    this.folders = folders;
+    this.initialProvider = initialProvider;
+    this.expandedProviders = new Set([initialProvider]);
+    this.rebuildRows();
+    const currentModelIndex = this.rows.findIndex(
+      (row) => row.kind === "model" && row.model.current,
+    );
+    if (currentModelIndex >= 0) this.selectedIndex = currentModelIndex;
   }
 
-  setItems(
-    items: {
-      value: string;
-      label: string;
-      provider: string;
-      description?: string;
-      current?: boolean;
-    }[],
-  ): void {
-    const currentValue = this.list.getSelectedItem()?.value;
-    this.items = items;
-    this.list = this.createList(items);
-    if (currentValue) {
-      const selectedIndex = items.findIndex(
-        (item) => item.value === currentValue,
-      );
-      if (selectedIndex >= 0) {
-        this.selectedIndex = selectedIndex;
-        this.list.setSelectedIndex(selectedIndex);
-        return;
+  setFolders(folders: ModelProviderFolder[], query: string): void {
+    this.folders = folders;
+    this.expandedProviders = query.trim()
+      ? new Set(folders.map((folder) => folder.provider))
+      : new Set([this.initialProvider]);
+    this.rebuildRows();
+    const firstModel = query.trim()
+      ? this.rows.findIndex((row) => row.kind === "model")
+      : -1;
+    this.selectedIndex = firstModel >= 0 ? firstModel : 0;
+  }
+
+  private rebuildRows(): void {
+    this.rows = [];
+    for (const folder of this.folders) {
+      this.rows.push({ kind: "provider", provider: folder.provider });
+      if (this.expandedProviders.has(folder.provider)) {
+        this.rows.push(
+          ...folder.models.map((model) => ({
+            kind: "model" as const,
+            provider: folder.provider,
+            model,
+          })),
+        );
       }
     }
-    this.selectedIndex = 0;
+    this.selectedIndex = Math.max(
+      0,
+      Math.min(this.selectedIndex, this.rows.length - 1),
+    );
   }
 
-  private createList(
-    items: {
-      value: string;
-      label: string;
-      provider: string;
-      description?: string;
-      current?: boolean;
-    }[],
-  ): SelectList {
-    const list = new SelectList(items, 5, selectListTheme);
-    list.onSelect = (item) => this.onSelect(item.value);
-    list.onCancel = this.onCancel;
-    return list;
+  private rowKey(row: ModelPickerRow | undefined): string | undefined {
+    if (!row) return undefined;
+    return row.kind === "provider"
+      ? `provider:${row.provider}`
+      : `model:${row.model.value}`;
+  }
+
+  private toggleFolder(provider: string): void {
+    const selectedKey = this.rowKey(this.rows[this.selectedIndex]);
+    if (this.expandedProviders.has(provider)) {
+      this.expandedProviders.delete(provider);
+    } else {
+      this.expandedProviders.add(provider);
+    }
+    this.rebuildRows();
+    const preservedIndex = this.rows.findIndex(
+      (row) => this.rowKey(row) === selectedKey,
+    );
+    const folderIndex = this.rows.findIndex(
+      (row) => row.kind === "provider" && row.provider === provider,
+    );
+    this.selectedIndex = preservedIndex >= 0 ? preservedIndex : folderIndex;
+  }
+
+  private moveSelection(delta: number): void {
+    if (this.rows.length === 0) return;
+    this.selectedIndex =
+      (this.selectedIndex + delta + this.rows.length) % this.rows.length;
+  }
+
+  private activateSelection(): void {
+    const row = this.rows[this.selectedIndex];
+    if (row?.kind === "provider") {
+      this.toggleFolder(row.provider);
+    } else if (row?.kind === "model") {
+      this.onSelect(row.model.value);
+    }
   }
 
   render(width: number): string[] {
-    const maxVisible = 5;
+    const maxVisible = 10;
     const start = Math.max(
       0,
       Math.min(
         this.selectedIndex - Math.floor(maxVisible / 2),
-        this.items.length - maxVisible,
+        this.rows.length - maxVisible,
       ),
     );
-    const end = Math.min(start + maxVisible, this.items.length);
-    const rows: string[] = [];
+    const end = Math.min(start + maxVisible, this.rows.length);
+    const visibleRows = this.rows.slice(start, end);
+    const lines: string[] = [];
     this.renderedRows = [];
-    if (this.items.length === 0) {
-      rows.push(tone("  No matching models", "dim"));
+    if (this.rows.length === 0) {
+      lines.push(tone("  No matching providers or models", "dim"));
       this.renderedRows.push(undefined);
-      return rows;
+      return lines;
     }
     if (start > 0) {
-      rows.push(tone(`  ↑ ${start} earlier models`, "dim"));
+      lines.push(tone(`  ↑ ${start} earlier rows`, "dim"));
       this.renderedRows.push(undefined);
     }
-    let previousProvider: string | undefined;
-    for (let index = start; index < end; index++) {
-      const item = this.items[index]!;
-      if (item.provider !== previousProvider) {
-        const count = this.items.filter(
-          (candidate) => candidate.provider === item.provider,
-        ).length;
-        rows.push(
-          truncateToWidth(
-            tone(
-              `  ◆ ${item.provider}  ·  ${count} ${count === 1 ? "model" : "models"}`,
-              "blue",
-              true,
-            ),
-            width,
-          ),
+    for (const [offset, row] of visibleRows.entries()) {
+      const selected = start + offset === this.selectedIndex;
+      if (row.kind === "provider") {
+        const folder = this.folders.find(
+          (candidate) => candidate.provider === row.provider,
         );
-        this.renderedRows.push(undefined);
-        previousProvider = item.provider;
+        const expanded = this.expandedProviders.has(row.provider);
+        const icon = expanded ? "▾" : "▸";
+        const label = `  ${selected ? "›" : " "} ${icon}  ${row.provider}/`;
+        const count = tone(
+          `${folder?.models.length ?? 0} ${(folder?.models.length ?? 0) === 1 ? "model" : "models"}`,
+          "muted",
+        );
+        const line = `${selected ? selectListTheme.selectedText(label) : tone(label, "blue", true)}  ${count}`;
+        lines.push(truncateToWidth(line, width));
+      } else {
+        const folder = this.folders.find(
+          (candidate) => candidate.provider === row.provider,
+        );
+        const isLast = folder?.models.at(-1)?.value === row.model.value;
+        const prefix = `      ${isLast ? "└─" : "├─"} `;
+        const label = selected
+          ? selectListTheme.selectedText(`${prefix}${row.model.label}`)
+          : `${prefix}${row.model.label}`;
+        const metadata = tone(row.model.description ?? "", "muted");
+        const current = row.model.current
+          ? tone("  ·  current", "green", true)
+          : "";
+        lines.push(truncateToWidth(`${label}  ${metadata}${current}`, width));
       }
-      const selected = index === this.selectedIndex;
-      const prefix = selected ? "  › " : "    ";
-      const primary = selected
-        ? selectListTheme.selectedText(`${prefix}${item.label}`)
-        : `${prefix}${item.label}`;
-      const metadata = tone(item.description ?? "", "muted");
-      const current = item.current ? tone("  ·  current", "green", true) : "";
-      rows.push(truncateToWidth(`${primary}  ${metadata}${current}`, width));
-      this.renderedRows.push(index);
+      this.renderedRows.push(row);
     }
-    if (end < this.items.length) {
-      rows.push(tone(`  ↓ ${this.items.length - end} more models`, "dim"));
+    if (end < this.rows.length) {
+      lines.push(tone(`  ↓ ${this.rows.length - end} more rows`, "dim"));
       this.renderedRows.push(undefined);
     }
-    return rows;
+    return lines;
   }
 
   handleInput(data: string): void {
-    this.list.handleInput(data);
-    const selectedValue = this.list.getSelectedItem()?.value;
-    const selectedIndex = this.items.findIndex(
-      (item) => item.value === selectedValue,
-    );
-    if (selectedIndex >= 0) this.selectedIndex = selectedIndex;
+    if (matchesKey(data, "up")) this.moveSelection(-1);
+    else if (matchesKey(data, "down")) this.moveSelection(1);
+    else if (matchesKey(data, "pageUp")) this.moveSelection(-10);
+    else if (matchesKey(data, "pageDown")) this.moveSelection(10);
+    else if (matchesKey(data, "enter")) this.activateSelection();
   }
 
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
     if (event.type === "wheel") {
-      const result = this.list.handleMouse(event);
-      const selectedValue = this.list.getSelectedItem()?.value;
-      const selectedIndex = this.items.findIndex(
-        (item) => item.value === selectedValue,
-      );
-      if (selectedIndex >= 0) this.selectedIndex = selectedIndex;
-      return result;
+      const previous = this.selectedIndex;
+      this.moveSelection(event.wheelDelta && event.wheelDelta < 0 ? 1 : -1);
+      return { handled: true, render: previous !== this.selectedIndex };
     }
-    const itemIndex = this.renderedRows[event.y];
-    if (itemIndex === undefined || event.button !== "left") return undefined;
-    this.selectedIndex = itemIndex;
-    this.list.setSelectedIndex(itemIndex);
-    if (event.type === "click") {
-      const item = this.items[itemIndex];
-      if (item) this.onSelect(item.value);
-      return { handled: true, render: true };
-    }
+    const row = this.renderedRows[event.y];
+    if (!row || event.button !== "left") return undefined;
+    const rowIndex = this.rows.findIndex(
+      (candidate) => this.rowKey(candidate) === this.rowKey(row),
+    );
+    if (rowIndex < 0) return undefined;
+    this.selectedIndex = rowIndex;
     if (event.type === "press") {
       return { handled: true, focus: true, render: true };
+    }
+    if (event.type === "click") {
+      if (row.kind === "provider") this.toggleFolder(row.provider);
+      else this.onSelect(row.model.value);
+      return { handled: true, render: true };
     }
     return undefined;
   }
 
-  invalidate(): void {
-    this.list.invalidate();
-  }
+  invalidate(): void {}
 }
 
 class RoundedModal extends Container {
@@ -1198,9 +1242,9 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         left.name.localeCompare(right.name) ||
         left.id.localeCompare(right.id),
     );
-    const itemsFor = (query: string) => {
+    const foldersFor = (query: string): ModelProviderFolder[] => {
       const normalizedQuery = query.trim().toLocaleLowerCase();
-      return sortedModels
+      const matches = sortedModels
         .filter((model) =>
           [model.name, model.provider, model.id]
             .join(" ")
@@ -1218,11 +1262,19 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
               model.id === currentModel.id,
           ),
         }));
+      const providers = [...new Set(matches.map((model) => model.provider))];
+      return providers.map((provider) => ({
+        provider,
+        models: matches.filter((model) => model.provider === provider),
+      }));
     };
     const searchEditor = new Editor(tui, editorTheme, { paddingX: 1 });
     let hideOverlay = (): void => {};
+    const initialProvider =
+      currentModel?.provider ?? sortedModels[0]?.provider ?? "";
     const list = new SearchableModelList(
-      itemsFor(""),
+      foldersFor(""),
+      initialProvider,
       (value) => {
         hideOverlay();
         const model = sortedModels.find(
@@ -1233,22 +1285,28 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       () => hideOverlay(),
     );
     modelPickerList = list;
+    const providerCount = new Set(sortedModels.map((model) => model.provider))
+      .size;
     const modelSummary = new Text(
       tone(
-        `${models.length.toLocaleString()} models · grouped by provider`,
+        `${models.length.toLocaleString()} models · ${providerCount} provider folders`,
         "muted",
       ),
       1,
       0,
     );
     searchEditor.onChange = (query) => {
-      const matches = itemsFor(query);
-      list.setItems(matches);
+      const matches = foldersFor(query);
+      list.setFolders(matches, query);
+      const matchCount = matches.reduce(
+        (total, folder) => total + folder.models.length,
+        0,
+      );
       modelSummary.setText(
         tone(
           query.trim()
-            ? `${matches.length.toLocaleString()} matches · grouped by provider`
-            : `${models.length.toLocaleString()} models · grouped by provider`,
+            ? `${matchCount.toLocaleString()} matches · ${matches.length} provider folders`
+            : `${models.length.toLocaleString()} models · ${providerCount} provider folders`,
           "muted",
         ),
       );
@@ -1262,7 +1320,11 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       new ModalSeparator(),
       list,
       new ModalSeparator(),
-      new Text(tone("↑/↓ navigate   Enter select   Esc close", "dim"), 1, 0),
+      new Text(
+        tone("↑/↓ navigate   Enter open/select   Esc close", "dim"),
+        1,
+        0,
+      ),
     ]);
     const panel = new RoundedModal();
     panel.addChild(content);
