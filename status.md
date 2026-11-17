@@ -24,10 +24,10 @@
 - Validation for external access approval and prompt layout: typecheck, 62 tests, PTY tests (including visible arrow-key selection), integration tests, build, mock smoke, lint, and `git diff --check` passed.
 - Hosted CI matrix has been configured but requires a push/hosted run. Live-provider inference is verified with the user's existing Pi login.
 - Follow-up Pi parity work verified live provider inference with the user's existing Pi login. Fixed one-shot startup by capturing CLI args before importing Pi (which mutates `process.argv` during module initialization); the corrected single-argument provider smoke passes. The gateway now loads declarative Pi skills/prompt templates, exposes native skill/template commands, and implements session fork, compaction, steer, and follow-up workflows. Executable third-party extensions, codemode, and MCP remain disabled to preserve Rook's policy boundary. The pinned Pi runtime forks before the selected user message (matching Pi's edit/retry semantics); focused integration/PTy coverage reflects this.
-- Full local validation passed: 66 tests, typecheck, build, and lint. Commit remains pending.
+- Full local validation passed: 66 tests, typecheck, build, and lint. Implementation committed as `a520370` (`Add safe Pi session workflows`).
 - The permission policy is a host-side guard, not an OS/container sandbox; filesystem checks cannot eliminate hostile concurrent-process races. Executable third-party Pi extensions remain disabled in the policy-controlled runtime; declarative skills and prompt templates are enabled without adding tools.
 - Automatic LLM memory extraction is not implemented; capture is deterministic and run-settled. Retrieval context injection is active for real workspaces. Project opt-out disables both. The JSON registry remains the stable local identity resolver; SQLite mirrors repository metadata and stores snapshots, controls, and memory records.
 
 ## Pending
 
-- Pending: commit this parity work; run the hosted Ubuntu/macOS/Windows CI matrix when available.
+- Pending: run the hosted Ubuntu/macOS/Windows CI matrix when available.
