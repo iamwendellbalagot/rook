@@ -34,6 +34,108 @@ afterEach(async () => {
 });
 
 describe("ToolPolicy", () => {
+  it("requires build mode and explicit one-time approval for every shell command", async () => {
+    const policy = new ToolPolicy(await workspace());
+    let prompts = 0;
+    policy.setExternalAccessPrompt(async (request) => {
+      prompts++;
+      expect(request).toMatchObject({
+        access: "execute",
+        command: "npm test",
+        timeoutSeconds: 120,
+      });
+      return "once";
+    });
+    expect(
+      (await policy.check("bash", { command: "npm test" }, "plan")).allowed,
+    ).toBe(false);
+    expect(prompts).toBe(0);
+    policy.setMode("build");
+    expect(
+      (await policy.check("bash", { command: "npm test" }, "shell1")).allowed,
+    ).toBe(true);
+    expect(
+      (await policy.check("write", { path: "src/main.ts" }, "edit")).allowed,
+    ).toBe(false);
+    expect(
+      (await policy.check("bash", { command: "npm test" }, "parallel")).allowed,
+    ).toBe(false);
+    policy.finish("shell1");
+    expect(
+      (await policy.check("bash", { command: "npm test" }, "shell2")).allowed,
+    ).toBe(true);
+    policy.finish("shell2");
+    expect(prompts).toBe(2);
+    expect(policy.getExternalAccessGrants()).toEqual([]);
+  });
+
+  it("denies shell execution without an approval UI, after denial, or with a session grant", async () => {
+    const policy = new ToolPolicy(await workspace());
+    policy.setMode("build");
+    expect(
+      (await policy.check("bash", { command: "npm test" }, "no-ui")).allowed,
+    ).toBe(false);
+    for (const choice of ["deny", "session"] as const) {
+      policy.setExternalAccessPrompt(async () => choice);
+      expect(
+        (await policy.check("bash", { command: "npm test" }, choice)).allowed,
+      ).toBe(false);
+    }
+    policy.setExternalAccessPrompt(async () => {
+      throw new Error("UI closed");
+    });
+    expect(
+      (await policy.check("bash", { command: "npm test" }, "closed")).allowed,
+    ).toBe(false);
+    policy.setExternalAccessPrompt(async () => "once");
+    expect(
+      (await policy.check("bash", { command: "npm test" }, "retry")).allowed,
+    ).toBe(true);
+  });
+
+  it("rejects invalid commands and timeouts before requesting approval", async () => {
+    const policy = new ToolPolicy(await workspace());
+    policy.setMode("build");
+    let prompts = 0;
+    policy.setExternalAccessPrompt(async () => {
+      prompts++;
+      return "once";
+    });
+    for (const command of ["", " ", "a".repeat(4097), "echo \x1b[31m"]) {
+      expect((await policy.check("bash", { command }, command)).allowed).toBe(
+        false,
+      );
+    }
+    for (const timeout of [0, -1, Infinity, NaN, 301, "120"]) {
+      expect(
+        (
+          await policy.check(
+            "bash",
+            { command: "npm test", timeout },
+            String(timeout),
+          )
+        ).allowed,
+      ).toBe(false);
+    }
+    expect(prompts).toBe(0);
+  });
+
+  it("expires pending shell approval when switching to plan mode", async () => {
+    const policy = new ToolPolicy(await workspace());
+    policy.setMode("build");
+    policy.setExternalAccessPrompt(async () => {
+      policy.setMode("plan");
+      return "once";
+    });
+    expect(
+      (await policy.check("bash", { command: "npm test" }, "expired")).allowed,
+    ).toBe(false);
+    policy.setMode("build");
+    expect(
+      (await policy.check("write", { path: "src/main.ts" }, "retry")).allowed,
+    ).toBe(true);
+  });
+
   it("allows workspace reads in plan mode and blocks mutation and shell tools", async () => {
     const root = await workspace();
     const policy = new ToolPolicy(root);
@@ -77,6 +179,20 @@ describe("ToolPolicy", () => {
       toolName: "write",
       allowed: false,
     });
+    policy.setMode("build");
+    policy.setExternalAccessPrompt(async () => "once");
+    expect(
+      await handlers.get("tool_call")?.({
+        toolName: "bash",
+        toolCallId: "bash-hook",
+        input: { command: "npm test" },
+      }),
+    ).toBeUndefined();
+    handlers.get("tool_execution_end")?.({ toolCallId: "bash-hook" });
+    expect(
+      (await policy.check("write", { path: "src/main.ts" }, "after-shell"))
+        .allowed,
+    ).toBe(true);
   });
 
   it("allows build edits only for ordinary workspace files", async () => {

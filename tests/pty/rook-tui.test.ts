@@ -197,7 +197,7 @@ class EventGateway implements AgentGateway {
   }
 
   getActiveTools(): string[] {
-    return this.mode === "build" ? ["read", "edit", "write"] : ["read"];
+    return this.mode === "build" ? ["read", "edit", "write", "bash"] : ["read"];
   }
 
   subscribe(handler: (event: AgentEvent) => void): () => void {
@@ -261,6 +261,59 @@ class FakeTerminal implements Terminal {
 
 describe("Rook TUI shell", () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it("shows shell commands and host warnings, defaults to deny, and only permits one-time execution", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    await app.submit("/build");
+    const request: ExternalAccessRequest = {
+      toolName: "bash",
+      path: "/workspace/sample-project",
+      folderPath: "/workspace/sample-project",
+      access: "execute",
+      command: "node --version",
+      timeoutSeconds: 120,
+    };
+    const denied = gateway.externalAccessPrompt!(request);
+    app.tui.renderNow(true);
+    const screen = app.tui
+      .getScreenLines()
+      .map(stripTerminalSequences)
+      .join("\n");
+    expect(screen).toContain('Command: "node --version"');
+    expect(screen).toContain("NOT sandboxed");
+    expect(screen).toContain("Timeout: 120s");
+    expect(screen).toContain("[Deny]");
+    expect(screen).not.toContain("for this session");
+    terminal.input("\r");
+    expect(await denied).toBe("deny");
+    const approved = gateway.externalAccessPrompt!(request);
+    terminal.input("\x1b[B");
+    terminal.input("\r");
+    expect(await approved).toBe("once");
+    const oversized = gateway.externalAccessPrompt!({
+      ...request,
+      command: "echo " + "x".repeat(4000),
+    });
+    app.tui.renderNow(true);
+    expect(
+      app.tui.getScreenLines().map(stripTerminalSequences).join("\n"),
+    ).toContain("cannot be fully reviewed");
+    terminal.input("2");
+    terminal.input("\x1b");
+    expect(await oversized).toBe("deny");
+    const cancelled = gateway.externalAccessPrompt!(request);
+    terminal.input("\u0003");
+    expect(await cancelled).toBe("deny");
+    app.stop();
+    await finished;
+  });
 
   it("places per-prompt token totals, rate, and elapsed time below the final result", async () => {
     let now = 1000;
@@ -593,7 +646,7 @@ describe("Rook TUI shell", () => {
     await app.submit("/build");
     app.tui.renderNow(true);
     expect(app.tui.render(100).join("\n")).toContain("BUILD");
-    expect(app.tui.render(100).join("\n")).toContain("workspace edits enabled");
+    expect(app.tui.render(100).join("\n")).toContain("edits + approved shell");
     await app.submit("/plan");
     app.tui.renderNow(true);
     expect(app.tui.render(100).join("\n")).toContain("PLAN");

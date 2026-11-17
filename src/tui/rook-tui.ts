@@ -12,6 +12,7 @@ import {
   matchesKey,
   truncateToWidth,
   visibleWidth,
+  wrapTextWithAnsi,
   type Component,
   type TuiMouseEvent,
   type TuiMouseEventResult,
@@ -134,9 +135,32 @@ function compactPath(path: string, maxWidth: number): string {
 class ExternalAccessPromptPanel implements Component {
   private request: ExternalAccessRequest | undefined;
   private selected = 0;
+  private canApproveShell = false;
   private onChoose: ((choice: ExternalAccessChoice) => void) | undefined;
 
-  constructor(private readonly onChange: () => void) {}
+  constructor(
+    private readonly onChange: () => void,
+    private readonly availableRows: () => number,
+  ) {}
+
+  private choices(): { choice: ExternalAccessChoice; label: string }[] {
+    if (this.request?.access === "execute") {
+      return [
+        { choice: "deny", label: "Deny" },
+        ...(this.canApproveShell
+          ? [{ choice: "once" as const, label: "Run command once" }]
+          : []),
+      ];
+    }
+    return [
+      { choice: "deny", label: "Deny" },
+      { choice: "once", label: `Allow ${this.request?.access} once` },
+      {
+        choice: "session",
+        label: `Allow ${this.request?.access} in folder for this session`,
+      },
+    ];
+  }
 
   show(
     request: ExternalAccessRequest,
@@ -155,28 +179,52 @@ class ExternalAccessPromptPanel implements Component {
   render(width: number): string[] {
     if (!this.request || width <= 0) return [];
     const operation = this.request.access;
-    const options: { choice: ExternalAccessChoice; label: string }[] = [
-      { choice: "deny", label: "Deny" },
-      { choice: "once", label: `Allow ${operation} once` },
-      {
-        choice: "session",
-        label: `Allow ${operation} in folder for this session`,
-      },
-    ];
+    let body =
+      this.request.access === "execute"
+        ? [
+            tone("Run terminal command · bash", "amber", true),
+            ...wrapTextWithAnsi(
+              tone(
+                "Runs on your host, NOT sandboxed: can access files outside the project, credentials, and network.",
+                "amber",
+              ),
+              width,
+            ),
+            ...wrapTextWithAnsi(
+              `Command: ${JSON.stringify(this.request.command)}`,
+              width,
+            ),
+            ...wrapTextWithAnsi(
+              `Cwd: ${JSON.stringify(this.request.path)}`,
+              width,
+            ),
+            `Timeout: ${this.request.timeoutSeconds}s · output: 2000 lines / 50 KiB to model`,
+          ]
+        : [
+            tone(
+              `External ${operation} access · ${safeTerminalText(this.request.toolName)}`,
+              "amber",
+              true,
+            ),
+            `${tone("Path:", "muted")} ${compactPath(
+              safeTerminalText(this.request.path),
+              Math.max(1, width - visibleWidth("Path: ")),
+            )}`,
+            `${tone("Folder:", "muted")} ${compactPath(
+              safeTerminalText(this.request.folderPath),
+              Math.max(1, width - visibleWidth("Folder: ")),
+            )}`,
+          ];
+    this.canApproveShell = body.length + 3 <= this.availableRows();
+    if (this.request.access === "execute" && !this.canApproveShell) {
+      body = wrapTextWithAnsi(
+        "Command cannot be fully reviewed at this terminal size. Enlarge the terminal or deny and request a shorter command.",
+        width,
+      );
+    }
+    const options = this.choices();
     const lines = [
-      tone(
-        `External ${operation} access · ${safeTerminalText(this.request.toolName)}`,
-        "amber",
-        true,
-      ),
-      `${tone("Path:", "muted")} ${compactPath(
-        safeTerminalText(this.request.path),
-        Math.max(1, width - visibleWidth("Path: ")),
-      )}`,
-      `${tone("Folder:", "muted")} ${compactPath(
-        safeTerminalText(this.request.folderPath),
-        Math.max(1, width - visibleWidth("Folder: ")),
-      )}`,
+      ...body,
       ...options.map((option, index) => {
         const label =
           index === this.selected ? `[${option.label}]` : option.label;
@@ -193,31 +241,32 @@ class ExternalAccessPromptPanel implements Component {
 
   handleInput(data: string): void {
     if (!this.request || !this.onChoose) return;
+    const options = this.choices();
     if (matchesKey(data, "escape")) {
       this.onChoose("deny");
       return;
     }
     if (matchesKey(data, "up")) {
-      this.selected = (this.selected + 2) % 3;
+      this.selected = (this.selected + options.length - 1) % options.length;
       this.onChange();
       return;
     }
     if (matchesKey(data, "down")) {
-      this.selected = (this.selected + 1) % 3;
+      this.selected = (this.selected + 1) % options.length;
       this.onChange();
       return;
     }
     if (matchesKey(data, "enter")) {
-      this.onChoose(
-        (["deny", "once", "session"] as const)[this.selected] ?? "deny",
-      );
+      this.onChoose(options[this.selected]?.choice ?? "deny");
       return;
     }
     const shortcut = Number(data);
-    if (shortcut >= 1 && shortcut <= 3) {
-      this.onChoose(
-        (["deny", "once", "session"] as const)[shortcut - 1] ?? "deny",
-      );
+    if (
+      Number.isInteger(shortcut) &&
+      shortcut >= 1 &&
+      shortcut <= options.length
+    ) {
+      this.onChoose(options[shortcut - 1]!.choice);
     }
   }
 
@@ -616,8 +665,23 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     );
   };
 
-  const externalAccessPanel = new ExternalAccessPromptPanel(() =>
-    tui.requestRender(),
+  const externalAccessPanel = new ExternalAccessPromptPanel(
+    () => tui.requestRender(),
+    () => {
+      const width = Math.max(1, terminal.columns - SCREEN_GUTTER * 2);
+      return (
+        terminal.rows -
+        1 -
+        header.render(width).length -
+        editor.render(width).length -
+        loadingIndicator.render(width).length -
+        footer.render(width).length -
+        slashSuggestions.render(width).length -
+        (terminal.columns < CHECKLIST_SIDEBAR_MIN_WIDTH
+          ? compactChecklist.render(width).length
+          : 0)
+      );
+    },
   );
   const loadingIndicator = new Text("", 1, 0);
   const footer = new Text("", 1, 0);
@@ -699,7 +763,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       : "";
     footer.setText(
       truncateToWidth(
-        `${tone(modelLabel, "muted")} · ${tone(`S:${sessionLabel}`, "dim")}${repositoryLabel ? ` · ${tone(`R:${repositoryLabel}`, "dim")}` : ""} · ${tone(state.mode.toUpperCase(), state.mode === "plan" ? "blue" : "amber", true)} · ${state.mode === "plan" ? "read-only tools" : "workspace edits enabled"}${usage}${status} · Ctrl+C exit`,
+        `${tone(modelLabel, "muted")} · ${tone(`S:${sessionLabel}`, "dim")}${repositoryLabel ? ` · ${tone(`R:${repositoryLabel}`, "dim")}` : ""} · ${tone(state.mode.toUpperCase(), state.mode === "plan" ? "blue" : "amber", true)} · ${state.mode === "plan" ? "read-only tools" : "edits + approved shell"}${usage}${status} · Ctrl+C exit`,
         Math.max(1, terminal.columns),
       ),
     );
@@ -999,7 +1063,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           options.gateway.setMode("build");
           removeHome();
           appendText(
-            "Build mode enabled: workspace edits are allowed; outside-folder access requires separate approval; shell, content grep, sensitive paths, links, and unknown tools remain blocked.",
+            "Build mode enabled: workspace edits are allowed; terminal commands require one-time approval and run on your host, not in a sandbox. Outside-folder file tools require separate approval; sensitive paths, links, and unknown tools remain blocked for file tools.",
             "muted",
           );
           updateFooter();
@@ -1495,6 +1559,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   function requestExternalAccess(
     request: ExternalAccessRequest,
   ): Promise<ExternalAccessChoice> {
+    if (settled) return Promise.resolve("deny");
     return new Promise((resolveChoice) => {
       permissionQueue.push({ request, resolve: resolveChoice });
       showNextPermissionPrompt();
@@ -1505,7 +1570,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     if (activePermissionPrompt || settled) return;
     const pending = permissionQueue.shift();
     if (!pending) return;
-    const operation = pending.request.access === "read" ? "read" : "write";
+    const operation = pending.request.access;
     const finish = (choice: ExternalAccessChoice): void => {
       if (activePermissionPrompt?.resolve !== pending.resolve) return;
       activePermissionPrompt = undefined;
@@ -1518,7 +1583,9 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     externalAccessPanel.show(pending.request, finish);
     tui.requestRender();
     appendText(
-      `${pending.request.toolName} requests ${operation} access to ${safeTerminalText(pending.request.path)}.`,
+      operation === "execute"
+        ? "bash requests approval to run a terminal command on your host."
+        : `${pending.request.toolName} requests ${operation} access to ${safeTerminalText(pending.request.path)}.`,
       "muted",
     );
   }
@@ -1746,6 +1813,9 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         denyPendingPermissionPrompts();
         void options.gateway.cancel().catch(() => undefined);
       } else {
+        externalAccessPanel.render(
+          Math.max(1, terminal.columns - SCREEN_GUTTER * 2),
+        );
         externalAccessPanel.handleInput(data);
       }
       return { consume: true };

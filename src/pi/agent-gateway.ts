@@ -51,12 +51,21 @@ export interface PermissionDecision {
   timestamp: Date;
 }
 
-export interface ExternalAccessRequest {
-  toolName: string;
-  path: string;
-  folderPath: string;
-  access: "read" | "write";
-}
+export type ExternalAccessRequest =
+  | {
+      toolName: string;
+      path: string;
+      folderPath: string;
+      access: "read" | "write";
+    }
+  | {
+      toolName: "bash";
+      path: string;
+      folderPath: string;
+      access: "execute";
+      command: string;
+      timeoutSeconds: number;
+    };
 
 export type ExternalAccessChoice = "once" | "session" | "deny";
 

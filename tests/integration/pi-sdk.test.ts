@@ -38,9 +38,10 @@ describe("Pi SDK compatibility", () => {
       gateway.setMode("build");
       expect(gateway.getActiveTools()).toContain("write");
       expect(gateway.getActiveTools()).toContain("rook_todo");
-      expect(gateway.getActiveTools()).not.toContain("bash");
+      expect(gateway.getActiveTools()).toContain("bash");
       gateway.setMode("plan");
       expect(gateway.getActiveTools()).not.toContain("write");
+      expect(gateway.getActiveTools()).not.toContain("bash");
       expect(gateway.getActiveTools()).toContain("rook_todo");
     } finally {
       await gateway.dispose();
@@ -111,7 +112,9 @@ describe("Pi SDK compatibility", () => {
       expect(gateway.currentSession().id).not.toBe(previousSessionId);
 
       const previousId = gateway.currentSession().id;
+      gateway.setMode("build");
       await gateway.newSession();
+      expect(gateway.getActiveTools()).toContain("bash");
       expect(gateway.currentSession().id).not.toBe(previousId);
       expect(gateway.sessionHistory()).toEqual([]);
     } finally {

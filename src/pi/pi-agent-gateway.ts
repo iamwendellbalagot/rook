@@ -24,6 +24,7 @@ import type {
   ThinkingInfo,
 } from "./agent-gateway.js";
 import { adaptPiEvent } from "./event-adapter.js";
+import { createRookBashTool } from "./bash-tool.js";
 import {
   createToolPolicyExtension,
   ToolPolicy,
@@ -42,13 +43,15 @@ import {
   isWithinRookSkillDirectories,
 } from "../skills/manager.js";
 
-const AVAILABLE_TOOLS = ["read", "find", "ls", "edit", "write"];
+const AVAILABLE_TOOLS = ["read", "find", "ls", "edit", "write", "bash"];
 
 function activeToolsFor(mode: PermissionMode): string[] {
   return [
     ...(mode === "build"
       ? AVAILABLE_TOOLS
-      : AVAILABLE_TOOLS.filter((name) => name !== "edit" && name !== "write")),
+      : AVAILABLE_TOOLS.filter(
+          (name) => name !== "edit" && name !== "write" && name !== "bash",
+        )),
     TASK_CHECKLIST_TOOL_NAME,
   ];
 }
@@ -117,7 +120,7 @@ export async function createPiAgentGateway(
           sessionManager,
           ...(sessionStartEvent ? { sessionStartEvent } : {}),
           tools: [...AVAILABLE_TOOLS, TASK_CHECKLIST_TOOL_NAME],
-          customTools: [taskChecklistTool],
+          customTools: [taskChecklistTool, createRookBashTool(sessionCwd)],
         })),
         services,
         diagnostics: services.diagnostics,

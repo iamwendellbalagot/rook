@@ -14,6 +14,7 @@ import type {
   ExternalAccessRequest,
 } from "../pi/agent-gateway.js";
 import { TASK_CHECKLIST_TOOL_NAME } from "../pi/task-checklist.js";
+import { MAX_SHELL_COMMAND_LENGTH, shellTimeout } from "./shell-limits.js";
 
 const READ_TOOLS = new Set(["read", "find", "ls"]);
 const MUTATING_TOOLS = new Set(["edit", "write"]);
@@ -89,7 +90,7 @@ export class ToolPolicy {
           "Plan mode blocks file mutations; switch to build mode to edit workspace files.";
       } else if (this.activeMutations.size > 0) {
         reason =
-          "Another file mutation is active; concurrent mutations are denied.";
+          "Another file mutation or shell command is active; concurrent mutations are denied.";
       } else {
         const path = typeof input.path === "string" ? input.path : "";
         this.activeMutations.add(toolCallId);
@@ -99,9 +100,12 @@ export class ToolPolicy {
         allowed = reason.startsWith("Allowed ");
         if (!allowed) this.activeMutations.delete(toolCallId);
       }
-    } else if (toolName === "bash" || toolName === "powershell") {
+    } else if (toolName === "bash") {
+      reason = await this.checkShell(input, toolCallId);
+      allowed = reason.startsWith("Allowed ");
+    } else if (toolName === "powershell") {
       reason =
-        "Shell execution is disabled in Rook's current permission policy.";
+        "PowerShell is not enabled; use the approved bash tool in /build mode.";
     } else {
       reason = "This tool is not classified by Rook and is denied by default.";
     }
@@ -114,6 +118,54 @@ export class ToolPolicy {
 
   finish(toolCallId: string): void {
     this.activeMutations.delete(toolCallId);
+  }
+
+  private async checkShell(
+    input: Record<string, unknown>,
+    toolCallId: string,
+  ): Promise<string> {
+    if (this.mode !== "build")
+      return "Plan mode blocks shell execution; switch to /build to run terminal commands.";
+    if (this.activeMutations.size > 0)
+      return "Another file mutation or shell command is active; concurrent execution is denied.";
+    const command = input.command;
+    if (
+      typeof command !== "string" ||
+      !command.trim() ||
+      command.length > MAX_SHELL_COMMAND_LENGTH ||
+      /[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/.test(command)
+    ) {
+      return `A nonempty shell command of at most ${MAX_SHELL_COMMAND_LENGTH} characters without control codes is required.`;
+    }
+    const prompt = this.externalAccessPrompt;
+    if (!prompt)
+      return "Shell execution requires interactive command approval; no approval handler is available.";
+    this.activeMutations.add(toolCallId);
+    let allowed = false;
+    try {
+      const timeoutSeconds = shellTimeout(input.timeout);
+      const root = await (this.workspaceRoot ??= realpath(this.cwd));
+      const choice = await prompt({
+        toolName: "bash",
+        path: root,
+        folderPath: root,
+        access: "execute",
+        command,
+        timeoutSeconds,
+      });
+      if (choice !== "once")
+        return "Shell command execution was denied; each command requires one-time approval.";
+      if (this.mode !== "build" || this.externalAccessPrompt !== prompt)
+        return "Shell approval expired after a mode or approval-handler change.";
+      allowed = true;
+      return "Allowed once for this host shell command; execution is not sandboxed.";
+    } catch (error) {
+      return error instanceof Error
+        ? `Shell execution denied: ${error.message}`
+        : "Shell command approval failed; execution is denied.";
+    } finally {
+      if (!allowed) this.activeMutations.delete(toolCallId);
+    }
   }
 
   private async checkPath(
