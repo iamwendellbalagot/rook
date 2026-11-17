@@ -68,6 +68,7 @@ function logoLines(mode: TerminalColorMode): string[] {
   let lines = logoCache.get(mode);
   if (!lines) {
     const wordmark = wordmarkLines(mode);
+    const titleOffset = HOME_BRAND_CELLS.length - wordmark.length;
     const divider = tone("│", "border");
     lines = HOME_BRAND_CELLS.map((row, index) => {
       const icon = row
@@ -75,7 +76,7 @@ function logoLines(mode: TerminalColorMode): string[] {
         .slice(0, 14)
         .map((cell) => renderCell(cell, mode))
         .join("");
-      const title = wordmark[index - 1];
+      const title = wordmark[index - titleOffset];
       return `${icon} ${title ? divider : " "} ${title ?? " ".repeat(29)}`;
     });
     logoCache.set(mode, lines);

@@ -50,14 +50,14 @@ export class HomeScreenBody implements Component {
     }
     lines.push("");
 
-    const horizontal = "─".repeat(insideWidth);
+    const horizontal = "━".repeat(insideWidth);
     return [
-      `${margin}${tone(`╭${horizontal}╮`, "border")}`,
+      `${margin}${tone(`╭${horizontal}╮`, "border", true)}`,
       ...lines.map((line) => {
         const clipped = truncateToWidth(line, insideWidth, "");
-        return `${margin}${tone("│", "border")}${clipped}${" ".repeat(insideWidth - visibleWidth(clipped))}${tone("│", "border")}`;
+        return `${margin}${tone("┃", "border", true)}${clipped}${" ".repeat(insideWidth - visibleWidth(clipped))}${tone("┃", "border", true)}`;
       }),
-      `${margin}${tone(`╰${horizontal}╯`, "border")}`,
+      `${margin}${tone(`╰${horizontal}╯`, "border", true)}`,
     ];
   }
 

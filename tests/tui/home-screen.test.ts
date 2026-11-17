@@ -5,9 +5,9 @@ import { HomeScreenBody } from "../../src/tui/home-screen.js";
 describe("home screen body", () => {
   it("encloses the brand, tagline, and all four actions in a rounded frame", () => {
     const lines = new HomeScreenBody().render(65).map(stripTerminalSequences);
-    expect(lines[0]).toMatch(/^  ╭─+╮$/);
-    expect(lines.at(-1)).toMatch(/^  ╰─+╯$/);
-    expect(lines.slice(1, -1).every((line) => /^  │.*│$/.test(line))).toBe(
+    expect(lines[0]).toMatch(/^  ╭━+╮$/);
+    expect(lines.at(-1)).toMatch(/^  ╰━+╯$/);
+    expect(lines.slice(1, -1).every((line) => /^  ┃.*┃$/.test(line))).toBe(
       true,
     );
     expect(lines.every((line) => visibleWidth(line) === 65)).toBe(true);
@@ -29,6 +29,15 @@ describe("home screen body", () => {
         lines.find((line) => line.includes(description))!.indexOf(description),
       ),
     ).toEqual([19, 19, 19, 19]);
+  });
+
+  it("uses bold heavy strokes without changing the panel's dimensions", () => {
+    const lines = new HomeScreenBody().render(65);
+    expect(lines).toHaveLength(17);
+    expect(lines[0]).toContain("\x1b[1m");
+    expect(lines[1]).toContain("\x1b[1m");
+    expect(lines.at(-1)).toContain("\x1b[1m");
+    expect(lines.every((line) => visibleWidth(line) === 65)).toBe(true);
   });
 
   it.each([0, 1, 4, 6, 12, 30, 48, 60, 80, 120])(

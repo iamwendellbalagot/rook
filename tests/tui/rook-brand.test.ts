@@ -65,7 +65,7 @@ describe("home brand", () => {
     expect(HOME_WORDMARK_PIXELS.every((row) => /^[.12]{29}$/.test(row))).toBe(
       true,
     );
-    const lines = new HomeBrand().render(60).slice(1, 6);
+    const lines = new HomeBrand().render(60).slice(2, 7);
     const wordmark = lines.map((line) =>
       stripTerminalSequences(line).slice(19),
     );
@@ -78,6 +78,20 @@ describe("home brand", () => {
     ]);
     expect(wordmark.join("")).not.toMatch(/[\u2800-\u28FF]/);
     expect(lines.join("")).toContain("\x1b[38;2;39;216;243m");
+  });
+
+  it("aligns the title and divider with the icon's bottom row", () => {
+    const lines = new HomeBrand()
+      .render(60)
+      .slice(0, 7)
+      .map(stripTerminalSequences);
+    expect(
+      lines.slice(0, 2).every((line) => line.slice(16).trim() === ""),
+    ).toBe(true);
+    expect(lines.slice(2).every((line) => line[17] === "│")).toBe(true);
+    const baseline = lines.at(-1)!;
+    expect(baseline.slice(0, 16).trim()).not.toBe("");
+    expect(baseline.slice(19)).toBe("██    ▀████▀ ▀████▀ ██ ▀█▄ ██");
   });
 
   it("shows the complete wordmark without the icon when side-by-side is too narrow", () => {
