@@ -47,6 +47,7 @@ class EventGateway implements AgentGateway {
     },
   ];
   selectedModel: ModelInfo | undefined;
+  selectedThinkingLevel: string | undefined;
   forkedEntry?: string;
   compactedInstructions: string | undefined = undefined;
   private finishPendingRun: (() => void) | undefined = undefined;
@@ -106,7 +107,9 @@ class EventGateway implements AgentGateway {
     return { current: "medium", available: ["low", "medium", "high"] };
   }
 
-  setThinkingLevel(): void {}
+  setThinkingLevel(level: string): void {
+    this.selectedThinkingLevel = level;
+  }
 
   async listSessions(): Promise<SessionInfo[]> {
     return [];
@@ -514,6 +517,34 @@ describe("Rook TUI shell", () => {
     expect(plainScreen()).toContain("current");
     terminal.input("\u001b");
     expect(plainScreen()).not.toContain("Search by name");
+
+    terminal.input("\u0003");
+    await finished;
+  });
+
+  it("uses the shared modal and routes arrows to thinking-level selection", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+
+    await app.submit("/settings");
+    app.tui.renderNow(true);
+    const screen = app.tui
+      .getScreenLines()
+      .join("\n")
+      .replace(/\x1B(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g, "");
+    expect(screen).toContain("Thinking level · current: medium");
+    expect(screen).toContain("╭");
+    expect(screen).toContain("╰");
+
+    terminal.input("\u001b[B");
+    terminal.input("\r");
+    expect(gateway.selectedThinkingLevel).toBe("medium");
 
     terminal.input("\u0003");
     await finished;

@@ -474,6 +474,9 @@ class SearchableModelList implements Component {
     else if (matchesKey(data, "pageUp")) this.moveSelection(-10);
     else if (matchesKey(data, "pageDown")) this.moveSelection(10);
     else if (matchesKey(data, "enter")) this.activateSelection();
+    else if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
+      this.onCancel();
+    }
   }
 
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
@@ -634,8 +637,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   let changingHistory = false;
   let acceptingSlashSuggestion = false;
   let dismissedSuggestionText: string | undefined;
-  let closeModelPicker: (() => void) | undefined;
-  let modelPickerList: SearchableModelList | undefined;
+  let modalInputHandler: ((data: string) => void) | undefined;
 
   const suggestionsFor = (text: string): SlashCommandSuggestion[] => {
     const query = text.trimStart();
@@ -1284,7 +1286,6 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       },
       () => hideOverlay(),
     );
-    modelPickerList = list;
     const providerCount = new Set(sortedModels.map((model) => model.provider))
       .size;
     const modelSummary = new Text(
@@ -1335,13 +1336,16 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       maxHeight: "90%",
       margin: 1,
     });
+    const handleModelPickerInput = (data: string): void =>
+      list.handleInput(data);
     hideOverlay = () => {
       overlay.hide();
-      if (closeModelPicker === hideOverlay) closeModelPicker = undefined;
-      if (modelPickerList === list) modelPickerList = undefined;
+      if (modalInputHandler === handleModelPickerInput) {
+        modalInputHandler = undefined;
+      }
       tui.setFocus(editor);
     };
-    closeModelPicker = hideOverlay;
+    modalInputHandler = handleModelPickerInput;
     tui.setFocus(searchEditor);
   }
 
@@ -1627,22 +1631,41 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     onCancel?: () => void,
   ): () => void {
     const list = new SelectList(items, 10, selectListTheme);
-    const panel = new VStack([new Text(tone(title, "text", true), 1, 0), list]);
+    const content = new VStack([
+      new Text(tone(title, "text", true), 1, 0),
+      new ModalSeparator(),
+      list,
+      new ModalSeparator(),
+      new Text(tone("↑/↓ navigate   Enter select   Esc close", "dim"), 1, 0),
+    ]);
+    const panel = new RoundedModal();
+    panel.addChild(content);
     const overlay = tui.showOverlay(panel, {
-      width: "80%",
-      maxHeight: "70%",
+      anchor: "center",
+      width: "72%",
+      minWidth: 48,
+      maxHeight: "85%",
       margin: 1,
     });
-    list.onSelect = (item) => {
+    const handleSelectionInput = (data: string): void => list.handleInput(data);
+    const hide = (): void => {
       overlay.hide();
+      if (modalInputHandler === handleSelectionInput) {
+        modalInputHandler = undefined;
+      }
+      tui.setFocus(editor);
+    };
+    list.onSelect = (item) => {
+      hide();
       void onSelect(item.value);
     };
     list.onCancel = () => {
-      overlay.hide();
+      hide();
       onCancel?.();
     };
+    modalInputHandler = handleSelectionInput;
     tui.setFocus(list);
-    return () => overlay.hide();
+    return hide;
   }
 
   options.gateway.setExternalAccessPrompt(requestExternalAccess);
@@ -1699,19 +1722,17 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   };
 
   tui.addInputListener((data) => {
-    if (closeModelPicker) {
-      if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
-        closeModelPicker();
-        return { consume: true };
-      }
+    if (modalInputHandler) {
       if (
         matchesKey(data, "up") ||
         matchesKey(data, "down") ||
         matchesKey(data, "pageUp") ||
         matchesKey(data, "pageDown") ||
-        matchesKey(data, "enter")
+        matchesKey(data, "enter") ||
+        matchesKey(data, "escape") ||
+        matchesKey(data, "ctrl+c")
       ) {
-        modelPickerList?.handleInput(data);
+        modalInputHandler(data);
         tui.requestRender();
         return { consume: true };
       }
