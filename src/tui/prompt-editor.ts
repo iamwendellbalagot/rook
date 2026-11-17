@@ -43,16 +43,8 @@ export class PromptEditor extends Editor {
     const insideWidth = width - margin.length * 2 - 2;
     const contentWidth = insideWidth - 2;
     const label = contentWidth >= 10 ? "rook > " : "";
-    const available = contentWidth - label.length;
-    // Reserve one cell for the cursor; short prompts sit on the right, while
-    // long/multiline prompts use the available width and Pi's native wrapping.
-    const textWidth = this.getLines().reduce(
-      (maximum, line) => Math.max(maximum, visibleWidth(line)),
-      0,
-    );
-    this.editorWidth = Math.min(available, Math.max(3, textWidth + 1));
-    const gap = " ".repeat(available - this.editorWidth);
-    this.editorX = margin.length + 2 + gap.length + label.length;
+    this.editorWidth = contentWidth - label.length;
+    this.editorX = margin.length + 2 + label.length;
     const rows = super.render(this.editorWidth);
     const border = (top: boolean, hidden: number): string => {
       const indicator = hidden > 0 ? ` ${top ? "↑" : "↓"} ${hidden} ` : "";
@@ -65,7 +57,7 @@ export class PromptEditor extends Editor {
       ...rows.slice(1, -1).map((line, index) => {
         const prefix =
           index === 0 ? tone(label, "cyan", true) : " ".repeat(label.length);
-        return `${margin}${tone("┃", "border", true)} ${gap}${prefix}${line} ${tone("┃", "border", true)}${margin}`;
+        return `${margin}${tone("┃", "border", true)} ${prefix}${line} ${tone("┃", "border", true)}${margin}`;
       }),
       border(false, this.hiddenBelow),
     ];

@@ -260,7 +260,7 @@ class FakeTerminal implements Terminal {
 }
 
 describe("Rook TUI shell", () => {
-  it("renders the framed right-hand prompt and submits only editable text", async () => {
+  it("renders the framed left-hand prompt and submits only editable text", async () => {
     const terminal = new FakeTerminal();
     const gateway = new EventGateway();
     const app = createRookTui({
@@ -274,7 +274,7 @@ describe("Rook TUI shell", () => {
     const row = lines.findIndex((line) => line.includes("\u001b_pi:c"));
     expect(stripTerminalSequences(lines[row - 1]!)).toMatch(/^  ╭━+╮  $/);
     expect(stripTerminalSequences(lines[row]!)).toMatch(
-      /^  ┃ +rook > hello  ┃  $/,
+      /^  ┃ rook > hello +┃  $/,
     );
     expect(stripTerminalSequences(lines[row + 1]!)).toMatch(/^  ╰━+╯  $/);
     terminal.resize(40, 36);

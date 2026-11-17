@@ -19,7 +19,7 @@ function createEditor(): PromptEditor {
 }
 
 describe("prompt editor", () => {
-  it("frames a right-aligned prompt with rounded heavy edges and equal margins", () => {
+  it("frames a left-aligned prompt with rounded heavy edges and equal margins", () => {
     const editor = createEditor();
     editor.setText("hello");
     const rendered = editor.render(60);
@@ -27,12 +27,24 @@ describe("prompt editor", () => {
     expect(lines).toHaveLength(3);
     expect(lines[0]).toMatch(/^  ╭━+╮  $/);
     expect(lines[2]).toMatch(/^  ╰━+╯  $/);
-    expect(lines[1]).toMatch(/^  ┃ +rook > hello  ┃  $/);
-    expect(lines[1]!.indexOf("rook >")).toBeGreaterThan(30);
+    expect(lines[1]).toMatch(/^  ┃ rook > hello +┃  $/);
+    expect(lines[1]!.indexOf("rook >")).toBe(4);
     expect(rendered[0]).toContain("\x1b[1m");
     expect(rendered[1]).toContain("\x1b[1m");
     expect(rendered[1]).toContain(CURSOR_MARKER);
     expect(rendered.every((line) => visibleWidth(line) === 60)).toBe(true);
+  });
+
+  it("keeps the label fixed on the left for empty, short, and multiline input", () => {
+    const editor = createEditor();
+    for (const text of ["", "hello", "first line\nsecond line"]) {
+      editor.setText(text);
+      const lines = editor.render(60).map(stripTerminalSequences);
+      expect(lines[1]).toMatch(/^  ┃ rook > /);
+      if (text.includes("\n")) {
+        expect(lines[2]).toMatch(/^  ┃ {8}second line +┃  $/);
+      }
+    }
   });
 
   it.each([0, 1, 4, 9, 10, 11, 16, 17, 18, 24, 40, 80, 120])(
@@ -107,7 +119,7 @@ describe("prompt editor", () => {
     expect(lines.join("")).toContain(CURSOR_MARKER);
   });
 
-  it("maps mouse clicks to the editable text after the right-hand prefix", () => {
+  it("maps mouse clicks to the editable text after the left-hand prefix", () => {
     const editor = createEditor();
     editor.setText("hello");
     const line = stripTerminalSequences(editor.render(60)[1]!);
