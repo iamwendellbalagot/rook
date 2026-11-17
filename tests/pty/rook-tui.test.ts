@@ -136,6 +136,12 @@ class EventGateway implements AgentGateway {
     this.finishPendingRun = undefined;
   }
 
+  updateChecklist(
+    tasks: Extract<AgentEvent, { type: "todo_updated" }>["tasks"],
+  ): void {
+    this.emit({ type: "todo_updated", tasks });
+  }
+
   async newSession(): Promise<void> {
     this.sessionId = "session-87654321";
   }
@@ -395,6 +401,63 @@ describe("Rook TUI shell", () => {
     await pendingRun;
     expect(app.tui.render(100).join("\n")).not.toContain("Rook is thinking");
 
+    terminal.input("\u0003");
+    await finished;
+  });
+
+  it("pins the latest checklist in the wide sidebar and falls back above the prompt", async () => {
+    const terminal = new FakeTerminal();
+    terminal.columns = 110;
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    const pendingRun = app.submit("long running prompt");
+
+    gateway.updateChecklist([
+      { id: "inspect", title: "Inspect the project", status: "completed" },
+      {
+        id: "implement",
+        title: "Implement the feature",
+        status: "in_progress",
+      },
+    ]);
+    const plainScreen = (): string =>
+      app.tui
+        .render(terminal.columns)
+        .join("\n")
+        .replace(/\x1B(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g, "");
+    let screen = plainScreen();
+    expect(screen).toContain("TASKS · 1/2");
+    expect(screen).toContain("✓ Inspect the project");
+    expect(screen).toContain("› Implement the feature");
+
+    gateway.updateChecklist([
+      { id: "review", title: "Review the result", status: "pending" },
+    ]);
+    screen = plainScreen();
+    expect(screen).toContain("TASKS · 0/1");
+    expect(screen).toContain("○ Review the result");
+    expect(screen).not.toContain("Inspect the project");
+    expect(screen).not.toContain("Implement the feature");
+
+    terminal.resize(70, 36);
+    gateway.updateChecklist([
+      {
+        id: "narrow",
+        title: "Compact checklist fallback",
+        status: "in_progress",
+      },
+    ]);
+    screen = plainScreen();
+    expect(screen).toContain("TASKS · 0/1");
+    expect(screen).toContain("› Compact checklist fallback");
+
+    gateway.completePendingRun();
+    await pendingRun;
     terminal.input("\u0003");
     await finished;
   });

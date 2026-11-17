@@ -1,6 +1,7 @@
 import {
   Container,
   Editor,
+  HStack,
   Markdown,
   ProcessTerminal,
   SelectList,
@@ -34,6 +35,8 @@ import {
 } from "./theme.js";
 
 const TAGLINE = "A coding agent that grows with your codebase.";
+const CHECKLIST_SIDEBAR_MIN_WIDTH = 90;
+const CHECKLIST_SIDEBAR_WIDTH = 34;
 
 export interface RookTuiOptions {
   cwd: string;
@@ -190,6 +193,24 @@ function safeTerminalText(value: string): string {
     .slice(0, 1000);
 }
 
+class TaskChecklistPanel implements Component {
+  private tasks: TaskChecklistItem[] = [];
+  private rendered = new Text("", 1, 0);
+
+  setTasks(tasks: TaskChecklistItem[]): void {
+    this.tasks = tasks;
+  }
+
+  render(width: number): string[] {
+    this.rendered.setText(formatTaskChecklist(this.tasks, width - 2));
+    return this.rendered.render(width);
+  }
+
+  invalidate(): void {
+    this.rendered.invalidate();
+  }
+}
+
 function createHome(
   cwd: string,
   repository?: RepositoryIdentity,
@@ -263,6 +284,20 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     primary: true,
     overscroll: "chain",
   });
+  const checklistSidebar = new TaskChecklistPanel();
+  const compactChecklist = new TaskChecklistPanel();
+  const mainContent = new HStack(
+    [
+      { component: scrollView, basis: 0, grow: 1, minSize: 1 },
+      {
+        component: checklistSidebar,
+        basis: CHECKLIST_SIDEBAR_WIDTH,
+        shrink: 0,
+        visible: ({ width }) => width >= CHECKLIST_SIDEBAR_MIN_WIDTH,
+      },
+    ],
+    { gap: 1, align: "start" },
+  );
   const editor = new Editor(tui, editorTheme, { paddingX: 1 });
   const externalAccessPanel = new ExternalAccessPromptPanel(() =>
     tui.requestRender(),
@@ -270,6 +305,12 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   const loadingIndicator = new Text("", 1, 0);
   const footer = new Text("", 1, 0);
   const bottom = new VStack([
+    {
+      component: compactChecklist,
+      basis: "auto",
+      shrink: 0,
+      visible: ({ width }) => width < CHECKLIST_SIDEBAR_MIN_WIDTH,
+    },
     loadingIndicator,
     editor,
     externalAccessPanel,
@@ -278,7 +319,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   tui.setLayoutRoot(
     new VStack([
       { component: header, basis: "auto", shrink: 0 },
-      { component: scrollView, basis: 0, grow: 1, minSize: 1 },
+      { component: mainContent, basis: "auto", grow: 1, minSize: 1 },
       { component: bottom, basis: "auto", shrink: 0, minSize: 3 },
     ]),
   );
@@ -310,7 +351,6 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   let loadingTimer: ReturnType<typeof setInterval> | undefined;
   let loadingTick = 0;
   let loadingStatus: string | undefined;
-  let activeTaskChecklist: Text | undefined;
   let activePermissionPrompt:
     | {
         resolve: (choice: ExternalAccessChoice) => void;
@@ -400,15 +440,8 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       if (state.runState === "running") startLoadingStatus();
       tui.requestRender();
     } else if (event.type === "todo_updated") {
-      if (!event.tasks.length) {
-        activeTaskChecklist?.setText("");
-      } else {
-        if (!activeTaskChecklist) {
-          activeTaskChecklist = new Text("", 2, 0);
-          transcript.addChild(activeTaskChecklist);
-        }
-        activeTaskChecklist.setText(formatTaskChecklist(event.tasks));
-      }
+      checklistSidebar.setTasks(event.tasks);
+      compactChecklist.setTasks(event.tasks);
       tui.requestRender();
     } else if (event.type === "usage") {
       state = reduceAppState(state, event);
@@ -620,9 +653,6 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     state = reduceAppState(state, { type: "prompt_submitted" });
     if (state.runState !== "running") return;
     appendText(`› ${prompt}`, "user");
-    if (activeTaskChecklist) transcript.removeChild(activeTaskChecklist);
-    activeTaskChecklist = new Text("", 2, 0);
-    transcript.addChild(activeTaskChecklist);
     activeResponse = new Markdown("", 2, 0, markdownTheme, {
       color: (content) => tone(content, "text"),
     });
@@ -1173,10 +1203,18 @@ function formatToolCard(
   return `${tone(icon, color, true)}  ${tone(name, "text", true)}${tone(detail, "muted")}`;
 }
 
-function formatTaskChecklist(tasks: TaskChecklistItem[]): string {
+function formatTaskChecklist(
+  tasks: TaskChecklistItem[],
+  width: number,
+): string {
+  if (!tasks.length || width < 1) return "";
   const completed = tasks.filter((task) => task.status === "completed").length;
   return [
-    tone(`TASKS · ${completed}/${tasks.length} complete`, "blue", true),
+    tone(
+      truncateToWidth(`TASKS · ${completed}/${tasks.length}`, width),
+      "blue",
+      true,
+    ),
     ...tasks.map((task) => {
       const marker =
         task.status === "completed"
@@ -1185,7 +1223,7 @@ function formatTaskChecklist(tasks: TaskChecklistItem[]): string {
             ? tone("›", "amber", true)
             : tone("○", "dim");
       const title = safeTerminalText(task.title).replace(/\s+/g, " ").trim();
-      return `${marker} ${title}`;
+      return truncateToWidth(`${marker} ${title}`, width);
     }),
   ].join("\n");
 }
