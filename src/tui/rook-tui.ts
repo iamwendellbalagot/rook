@@ -461,6 +461,8 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   let settled = false;
   let resolveRun: (() => void) | undefined;
   const toolCards = new Map<string, Text>();
+  let activeResponse: Markdown | undefined;
+  let activeResponseText = "";
   const permissionQueue: {
     request: ExternalAccessRequest;
     resolve: (choice: ExternalAccessChoice) => void;
@@ -526,15 +528,23 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     if (event.type === "text_delta") {
       stopLoadingStatus();
       state = reduceAppState(state, event);
-      activeResponse?.setText(state.response);
+      activeResponseText += event.text;
+      ensureActiveResponse().setText(activeResponseText);
       tui.requestRender();
     } else if (event.type === "message_complete") {
       stopLoadingStatus();
       state = reduceAppState(state, event);
-      activeResponse?.setText(state.response);
+      if (event.text) {
+        activeResponseText = event.text;
+        ensureActiveResponse().setText(activeResponseText);
+      }
+      activeResponse = undefined;
+      activeResponseText = "";
       tui.requestRender();
     } else if (event.type === "tool_started") {
       stopLoadingStatus();
+      activeResponse = undefined;
+      activeResponseText = "";
       state = reduceAppState(state, {
         type: "tool_started",
         tool: { id: event.id, name: event.name, summary: event.summary },
@@ -576,12 +586,21 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     } else if (event.type === "error") {
       stopLoadingStatus();
       state = reduceAppState(state, event);
-      activeResponse?.setText(tone(event.message, roleColors.error));
+      ensureActiveResponse().setText(tone(event.message, roleColors.error));
       updateFooter();
     }
   });
 
-  let activeResponse: Markdown | undefined;
+  function ensureActiveResponse(): Markdown {
+    if (!activeResponse) {
+      activeResponse = new Markdown("", 2, 0, markdownTheme, {
+        color: (content) => tone(content, "text"),
+      });
+      transcript.addChild(activeResponse);
+    }
+    return activeResponse;
+  }
+
   const appendText = (text: string, color: keyof typeof roleColors): void => {
     transcript.addChild(new Text(tone(text, roleColors[color]), 2, 0));
     tui.requestRender();
@@ -775,11 +794,9 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     state = reduceAppState(state, { type: "prompt_submitted" });
     if (state.runState !== "running") return;
     appendText(`› ${prompt}`, "user");
-    activeResponse = new Markdown("", 2, 0, markdownTheme, {
-      color: (content) => tone(content, "text"),
-    });
+    activeResponse = undefined;
+    activeResponseText = "";
     startLoadingStatus(true);
-    transcript.addChild(activeResponse);
     updateFooter();
     try {
       await options.gateway.send(prompt);
@@ -792,11 +809,14 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           type: "error",
           message: error instanceof Error ? error.message : String(error),
         });
-        activeResponse.setText(tone(state.error ?? "Request failed", "error"));
+        ensureActiveResponse().setText(
+          tone(state.error ?? "Request failed", "error"),
+        );
       }
     } finally {
       stopLoadingStatus();
       activeResponse = undefined;
+      activeResponseText = "";
       updateFooter();
     }
   };

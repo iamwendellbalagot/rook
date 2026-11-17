@@ -407,6 +407,33 @@ describe("Rook TUI shell", () => {
     await finished;
   });
 
+  it("renders streamed text and tool activity in the order they occur", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+
+    await app.submit("hello");
+    app.tui.renderNow(true);
+    const transcript = app.tui
+      .render(100)
+      .join("\n")
+      .replace(/\x1B(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g, "");
+    const firstText = transcript.indexOf("draft answer");
+    const toolCall = transcript.indexOf("package.json");
+    const followingText = transcript.indexOf("final answer");
+    expect(firstText).toBeGreaterThanOrEqual(0);
+    expect(firstText).toBeLessThan(toolCall);
+    expect(toolCall).toBeLessThan(followingText);
+
+    terminal.input("\u0003");
+    await finished;
+  });
+
   it("pins the latest checklist in the wide sidebar and falls back above the prompt", async () => {
     const terminal = new FakeTerminal();
     terminal.columns = 110;
