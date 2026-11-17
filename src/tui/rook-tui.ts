@@ -22,6 +22,7 @@ import type {
   ExternalAccessChoice,
   ExternalAccessRequest,
 } from "../pi/agent-gateway.js";
+import type { TaskChecklistItem } from "../pi/task-checklist.js";
 import type { GitSnapshot, RepositoryIdentity } from "../repo/workspace.js";
 import type { MemoryCaptureManager } from "../memory/capture.js";
 import {
@@ -309,6 +310,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   let loadingTimer: ReturnType<typeof setInterval> | undefined;
   let loadingTick = 0;
   let loadingStatus: string | undefined;
+  let activeTaskChecklist: Text | undefined;
   let activePermissionPrompt:
     | {
         resolve: (choice: ExternalAccessChoice) => void;
@@ -396,6 +398,17 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       }
       toolCards.delete(event.id);
       if (state.runState === "running") startLoadingStatus();
+      tui.requestRender();
+    } else if (event.type === "todo_updated") {
+      if (!event.tasks.length) {
+        activeTaskChecklist?.setText("");
+      } else {
+        if (!activeTaskChecklist) {
+          activeTaskChecklist = new Text("", 2, 0);
+          transcript.addChild(activeTaskChecklist);
+        }
+        activeTaskChecklist.setText(formatTaskChecklist(event.tasks));
+      }
       tui.requestRender();
     } else if (event.type === "usage") {
       state = reduceAppState(state, event);
@@ -607,6 +620,9 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     state = reduceAppState(state, { type: "prompt_submitted" });
     if (state.runState !== "running") return;
     appendText(`› ${prompt}`, "user");
+    if (activeTaskChecklist) transcript.removeChild(activeTaskChecklist);
+    activeTaskChecklist = new Text("", 2, 0);
+    transcript.addChild(activeTaskChecklist);
     activeResponse = new Markdown("", 2, 0, markdownTheme, {
       color: (content) => tone(content, "text"),
     });
@@ -1155,6 +1171,23 @@ function formatToolCard(
     status === "ok" ? "green" : status === "error" ? "error" : "muted";
   const detail = summary === name ? "" : `  ${summary}`;
   return `${tone(icon, color, true)}  ${tone(name, "text", true)}${tone(detail, "muted")}`;
+}
+
+function formatTaskChecklist(tasks: TaskChecklistItem[]): string {
+  const completed = tasks.filter((task) => task.status === "completed").length;
+  return [
+    tone(`TASKS · ${completed}/${tasks.length} complete`, "blue", true),
+    ...tasks.map((task) => {
+      const marker =
+        task.status === "completed"
+          ? tone("✓", "green", true)
+          : task.status === "in_progress"
+            ? tone("›", "amber", true)
+            : tone("○", "dim");
+      const title = safeTerminalText(task.title).replace(/\s+/g, " ").trim();
+      return `${marker} ${title}`;
+    }),
+  ].join("\n");
 }
 
 function errorMessage(error: unknown): string {

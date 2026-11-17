@@ -68,6 +68,30 @@ describe("Pi event adapter", () => {
     ).toEqual([{ type: "tool_finished", id: "tool-1", status: "error" }]);
   });
 
+  it("hides internal checklist tool lifecycle events", () => {
+    expect(
+      adaptPiEvent(
+        piEvent({
+          type: "tool_execution_start",
+          toolCallId: "todo-1",
+          toolName: "rook_todo",
+          args: { tasks: [] },
+        }),
+      ),
+    ).toEqual([]);
+    expect(
+      adaptPiEvent(
+        piEvent({
+          type: "tool_execution_end",
+          toolCallId: "todo-1",
+          toolName: "rook_todo",
+          result: { content: [] },
+          isError: false,
+        }),
+      ),
+    ).toEqual([]);
+  });
+
   it("preserves cancellation as an aborted settlement", () => {
     expect(
       adaptPiEvent(piEvent({ type: "agent_settled", aborted: true })),

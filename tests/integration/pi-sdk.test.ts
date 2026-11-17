@@ -28,7 +28,7 @@ describe("Pi SDK compatibility", () => {
         available: expect.any(Array),
       });
       expect(gateway.getActiveTools()).toEqual(
-        expect.arrayContaining(["read", "find", "ls"]),
+        expect.arrayContaining(["read", "find", "ls", "rook_todo"]),
       );
       expect(gateway.getActiveTools()).not.toContain("bash");
       expect(gateway.getActiveTools()).not.toContain("grep");
@@ -37,9 +37,11 @@ describe("Pi SDK compatibility", () => {
       expect(gateway.listPromptTemplates()).toEqual(expect.any(Array));
       gateway.setMode("build");
       expect(gateway.getActiveTools()).toContain("write");
+      expect(gateway.getActiveTools()).toContain("rook_todo");
       expect(gateway.getActiveTools()).not.toContain("bash");
       gateway.setMode("plan");
       expect(gateway.getActiveTools()).not.toContain("write");
+      expect(gateway.getActiveTools()).toContain("rook_todo");
     } finally {
       await gateway.dispose();
     }

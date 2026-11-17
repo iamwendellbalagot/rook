@@ -1,5 +1,6 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { AgentEvent } from "./agent-gateway.js";
+import { TASK_CHECKLIST_TOOL_NAME } from "./task-checklist.js";
 
 export function adaptPiEvent(event: AgentSessionEvent): AgentEvent[] {
   switch (event.type) {
@@ -31,6 +32,7 @@ export function adaptPiEvent(event: AgentSessionEvent): AgentEvent[] {
       return mapped;
     }
     case "tool_execution_start":
+      if (event.toolName === TASK_CHECKLIST_TOOL_NAME) return [];
       return [
         {
           type: "tool_started",
@@ -40,6 +42,7 @@ export function adaptPiEvent(event: AgentSessionEvent): AgentEvent[] {
         },
       ];
     case "tool_execution_end":
+      if (event.toolName === TASK_CHECKLIST_TOOL_NAME) return [];
       return [
         {
           type: "tool_finished",

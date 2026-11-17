@@ -34,6 +34,10 @@ import {
 } from "../memory/context.js";
 import type { MemoryCaptureManager } from "../memory/capture.js";
 import {
+  createTaskChecklistTool,
+  TASK_CHECKLIST_TOOL_NAME,
+} from "./task-checklist.js";
+import {
   getRookSkillDirectories,
   isWithinRookSkillDirectories,
 } from "../skills/manager.js";
@@ -41,9 +45,12 @@ import {
 const AVAILABLE_TOOLS = ["read", "find", "ls", "edit", "write"];
 
 function activeToolsFor(mode: PermissionMode): string[] {
-  return mode === "build"
-    ? AVAILABLE_TOOLS
-    : AVAILABLE_TOOLS.filter((name) => name !== "edit" && name !== "write");
+  return [
+    ...(mode === "build"
+      ? AVAILABLE_TOOLS
+      : AVAILABLE_TOOLS.filter((name) => name !== "edit" && name !== "write")),
+    TASK_CHECKLIST_TOOL_NAME,
+  ];
 }
 
 export async function createPiAgentGateway(
@@ -58,6 +65,9 @@ export async function createPiAgentGateway(
 ): Promise<AgentGateway> {
   const handlers = new Set<(event: AgentEvent) => void>();
   const policy = new ToolPolicy(cwd);
+  const taskChecklistTool = createTaskChecklistTool((tasks) => {
+    emit({ type: "todo_updated", tasks });
+  });
   let unsubscribe: (() => void) | undefined;
   const runtime = await createAgentSessionRuntime(
     async ({
@@ -106,7 +116,8 @@ export async function createPiAgentGateway(
           services,
           sessionManager,
           ...(sessionStartEvent ? { sessionStartEvent } : {}),
-          tools: AVAILABLE_TOOLS,
+          tools: [...AVAILABLE_TOOLS, TASK_CHECKLIST_TOOL_NAME],
+          customTools: [taskChecklistTool],
         })),
         services,
         diagnostics: services.diagnostics,
@@ -142,6 +153,7 @@ export async function createPiAgentGateway(
     async send(prompt, disposition = "normal") {
       try {
         if (disposition === "normal") {
+          emit({ type: "todo_updated", tasks: [] });
           await runtime.session.prompt(prompt);
         } else if (disposition === "steer") {
           if (!runtime.session.isStreaming)

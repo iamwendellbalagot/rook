@@ -13,6 +13,7 @@ import type {
   ExternalAccessGrant,
   ExternalAccessRequest,
 } from "../pi/agent-gateway.js";
+import { TASK_CHECKLIST_TOOL_NAME } from "../pi/task-checklist.js";
 
 const READ_TOOLS = new Set(["read", "find", "ls"]);
 const MUTATING_TOOLS = new Set(["edit", "write"]);
@@ -243,6 +244,7 @@ export function createToolPolicyExtension(policy: ToolPolicy): InlineExtension {
     name: "rook-tool-policy",
     factory(pi: ExtensionAPI) {
       pi.on("tool_call", async (event) => {
+        if (event.toolName === TASK_CHECKLIST_TOOL_NAME) return;
         const decision = await policy.check(
           event.toolName,
           event.input,
