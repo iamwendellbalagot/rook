@@ -52,6 +52,15 @@ describe("ToolPolicy", () => {
     expect(prompts).toBe(0);
     policy.setMode("build");
     expect(
+      (await policy.check("bash", { command: "npm test" }, "before-impact"))
+        .allowed,
+    ).toBe(false);
+    expect(prompts).toBe(0);
+    expect((await policy.check("rook_impact", {}, "impact")).allowed).toBe(
+      true,
+    );
+    policy.finish("impact", "rook_impact", false);
+    expect(
       (await policy.check("bash", { command: "npm test" }, "shell1")).allowed,
     ).toBe(true);
     expect(
@@ -67,29 +76,38 @@ describe("ToolPolicy", () => {
     policy.finish("shell2");
     expect(prompts).toBe(2);
     expect(policy.getExternalAccessGrants()).toEqual([]);
+    expect(
+      (await policy.check("write", { path: "src/main.ts" }, "edit-again"))
+        .allowed,
+    ).toBe(true);
+    policy.finish("edit-again", "write", false);
+    expect(
+      (await policy.check("bash", { command: "npm test" }, "stale-impact"))
+        .allowed,
+    ).toBe(false);
   });
 
   it("denies shell execution without an approval UI, after denial, or with a session grant", async () => {
     const policy = new ToolPolicy(await workspace());
     policy.setMode("build");
     expect(
-      (await policy.check("bash", { command: "npm test" }, "no-ui")).allowed,
+      (await policy.check("bash", { command: "echo ok" }, "no-ui")).allowed,
     ).toBe(false);
     for (const choice of ["deny", "session"] as const) {
       policy.setExternalAccessPrompt(async () => choice);
       expect(
-        (await policy.check("bash", { command: "npm test" }, choice)).allowed,
+        (await policy.check("bash", { command: "echo ok" }, choice)).allowed,
       ).toBe(false);
     }
     policy.setExternalAccessPrompt(async () => {
       throw new Error("UI closed");
     });
     expect(
-      (await policy.check("bash", { command: "npm test" }, "closed")).allowed,
+      (await policy.check("bash", { command: "echo ok" }, "closed")).allowed,
     ).toBe(false);
     policy.setExternalAccessPrompt(async () => "once");
     expect(
-      (await policy.check("bash", { command: "npm test" }, "retry")).allowed,
+      (await policy.check("bash", { command: "echo ok" }, "retry")).allowed,
     ).toBe(true);
   });
 
@@ -101,6 +119,9 @@ describe("ToolPolicy", () => {
       prompts++;
       return "once";
     });
+    const impact = await policy.check("rook_impact", {}, "impact");
+    expect(impact.allowed).toBe(true);
+    policy.finish("impact", "rook_impact", false);
     for (const command of ["", " ", "a".repeat(4097), "echo \x1b[31m"]) {
       expect((await policy.check("bash", { command }, command)).allowed).toBe(
         false,
@@ -123,6 +144,9 @@ describe("ToolPolicy", () => {
   it("expires pending shell approval when switching to plan mode", async () => {
     const policy = new ToolPolicy(await workspace());
     policy.setMode("build");
+    const impact = await policy.check("rook_impact", {}, "impact");
+    expect(impact.allowed).toBe(true);
+    policy.finish("impact", "rook_impact", false);
     policy.setExternalAccessPrompt(async () => {
       policy.setMode("plan");
       return "once";
@@ -156,6 +180,45 @@ describe("ToolPolicy", () => {
     expect((await policy.check("custom_tool", {}, "c1")).allowed).toBe(false);
   });
 
+  it("allows only structured Git inspection in plan mode and impact analysis in build mode", async () => {
+    const policy = new ToolPolicy(await workspace());
+    expect(
+      (await policy.check("rook_inspect", { action: "status" }, "inspect"))
+        .allowed,
+    ).toBe(true);
+    policy.finish("inspect");
+    expect(
+      (await policy.check("rook_search", { query: "symbol" }, "search-ok"))
+        .allowed,
+    ).toBe(true);
+    expect(
+      (
+        await policy.check(
+          "rook_inspect",
+          { action: "exec", command: "touch x" },
+          "unsafe",
+        )
+      ).allowed,
+    ).toBe(false);
+    expect((await policy.check("rook_impact", {}, "impact-plan")).allowed).toBe(
+      false,
+    );
+    policy.finish("search-ok");
+    policy.setMode("build");
+    expect(
+      (await policy.check("rook_impact", {}, "impact-build")).allowed,
+    ).toBe(true);
+    expect(
+      (await policy.check("write", { path: "src/main.ts" }, "during-impact"))
+        .allowed,
+    ).toBe(false);
+    policy.finish("impact-build");
+    expect(
+      (await policy.check("write", { path: "src/main.ts" }, "after-impact"))
+        .allowed,
+    ).toBe(true);
+  });
+
   it("returns a blocking result from Pi's pre-execution tool hook", async () => {
     const policy = new ToolPolicy(await workspace());
     const handlers = new Map<string, (...args: any[]) => unknown>();
@@ -180,6 +243,9 @@ describe("ToolPolicy", () => {
       allowed: false,
     });
     policy.setMode("build");
+    const impact = await policy.check("rook_impact", {}, "impact");
+    expect(impact.allowed).toBe(true);
+    policy.finish("impact", "rook_impact", false);
     policy.setExternalAccessPrompt(async () => "once");
     expect(
       await handlers.get("tool_call")?.({
@@ -188,7 +254,11 @@ describe("ToolPolicy", () => {
         input: { command: "npm test" },
       }),
     ).toBeUndefined();
-    handlers.get("tool_execution_end")?.({ toolCallId: "bash-hook" });
+    handlers.get("tool_execution_end")?.({
+      toolCallId: "bash-hook",
+      toolName: "bash",
+      isError: false,
+    });
     expect(
       (await policy.check("write", { path: "src/main.ts" }, "after-shell"))
         .allowed,
@@ -211,7 +281,7 @@ describe("ToolPolicy", () => {
         .allowed,
     ).toBe(false);
     expect(
-      (await policy.check("bash", { command: "npm test" }, "b1")).allowed,
+      (await policy.check("bash", { command: "echo ok" }, "b1")).allowed,
     ).toBe(false);
   });
 

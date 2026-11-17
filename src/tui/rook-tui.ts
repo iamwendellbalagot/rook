@@ -1050,7 +1050,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           options.gateway.setMode("plan");
           removeHome();
           appendText(
-            "Plan mode enabled: workspace reads and file discovery are allowed; outside-folder reads require approval, mutations and shell execution are blocked.",
+            "Plan mode enabled: workspace reads, file discovery, and read-only Git inspection are available; outside-folder reads require approval, while mutations and shell execution are blocked.",
             "muted",
           );
           updateFooter();
@@ -1063,7 +1063,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           options.gateway.setMode("build");
           removeHome();
           appendText(
-            "Build mode enabled: workspace edits are allowed; terminal commands require one-time approval and run on your host, not in a sandbox. Outside-folder file tools require separate approval; sensitive paths, links, and unknown tools remain blocked for file tools.",
+            "Build mode enabled: workspace edits and diff-aware test planning are available; terminal commands require one-time approval and run on your host, not in a sandbox. Outside-folder file tools require separate approval; sensitive paths, links, and unknown tools remain blocked for file tools.",
             "muted",
           );
           updateFooter();

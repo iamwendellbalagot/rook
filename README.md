@@ -48,6 +48,28 @@ In `/build`, Rook can use Pi's `bash` tool to run tests, builds, and other termi
 
 Commands time out after 120 seconds by default; an explicit timeout must be positive and at most 300 seconds. Ctrl+C cancels the active run through Pi's process-tree cancellation. Pi truncates model-facing command output to 2,000 lines or 50 KiB and may save full output to a temporary file. These limits are not a resource/security sandbox or a disk-usage quota. Tool results go to the model; the transcript shows tool status rather than dumping raw output.
 
+Plan mode provides `rook_search` for bounded literal content search that skips symlinks, sensitive paths, binaries, dependencies, and oversized files, plus `rook_inspect` for structured, read-only Git status/diff/log/branch/file operations. It does not expose arbitrary shell. Build mode provides `rook_impact`, which analyzes the current diff, direct source dependents, related existing tests, and recommends focused verification commands. Recognized test/build/type-check/lint commands are blocked until impact analysis has completed after the last Rook file edit; arbitrary shell remains host access, so command recognition is not a security boundary. Run selected checks with the approved `bash` tool; shared or uncertain changes may justify broader checks. Rook's Pi system guidance prioritizes code-first implementation, simple convention-following changes, diff review, and honest reporting. These code-quality preferences are guidance; tool permissions and mode restrictions are enforced by Rook.
+
+Optional project overrides can be set in `.rook/policy.json`:
+
+```json
+{
+  "execution": { "minimize_tool_calls": true },
+  "code_quality": {
+    "prefer_simple_solutions": true,
+    "minimize_comments": true,
+    "allow_unrelated_refactors": false
+  },
+  "testing": {
+    "strategy": "change-impact",
+    "run_full_suite_by_default": false,
+    "escalate_on_uncertainty": true
+  }
+}
+```
+
+Omitted options use conservative defaults. Configuration adjusts workflow guidance and impact escalation; it cannot disable tool-policy security checks. Test failures and missing verification must always be reported.
+
 Rook only loads skills installed in its own directories, not ambient Pi/OpenCode skills: project skills live in `.rook/skills/`, and global skills live in `$ROOK_HOME/skills/` (default `~/.rook/skills/`). Run `node bin/rook.mjs skills install <path|git-url|owner/repo>` to install project skills, add `--global` for a global skill, and optionally pass `--skill NAME` to select one skill from a repository. GitHub tree URLs can target a skill subdirectory. Use `node bin/rook.mjs skills list` and `node bin/rook.mjs skills remove NAME [--global]` to manage installed skills. Skills are instruction files; installation does not enable Pi executable extensions or grant additional tools.
 
 The TUI uses the visual references in [`tui_references/`](tui_references/README.md). See [`docs/PROGRESS.md`](docs/PROGRESS.md), [`docs/PI_PARITY.md`](docs/PI_PARITY.md), and [`plan.md`](plan.md).

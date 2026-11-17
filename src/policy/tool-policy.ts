@@ -18,6 +18,9 @@ import { MAX_SHELL_COMMAND_LENGTH, shellTimeout } from "./shell-limits.js";
 
 const READ_TOOLS = new Set(["read", "find", "ls"]);
 const MUTATING_TOOLS = new Set(["edit", "write"]);
+const PLAN_INSPECTION_TOOL = "rook_inspect";
+const WORKSPACE_SEARCH_TOOL = "rook_search";
+const CHANGE_IMPACT_TOOL = "rook_impact";
 const SENSITIVE_SEGMENTS = new Set([
   ".git",
   ".ssh",
@@ -31,9 +34,11 @@ const SENSITIVE_SEGMENTS = new Set([
 
 export class ToolPolicy {
   private mode: PermissionMode = "plan";
+  private impactReviewed = false;
   private workspaceRoot?: Promise<string>;
   private readonly decisions: PermissionDecision[] = [];
   private readonly activeMutations = new Set<string>();
+  private readonly shellCommands = new Map<string, string>();
   private readonly externalGrants: ExternalAccessGrant[] = [];
   private externalAccessPrompt:
     | ((request: ExternalAccessRequest) => Promise<ExternalAccessChoice>)
@@ -43,6 +48,7 @@ export class ToolPolicy {
 
   setMode(mode: PermissionMode): void {
     this.mode = mode;
+    if (mode === "plan") this.impactReviewed = false;
   }
 
   getMode(): PermissionMode {
@@ -94,6 +100,7 @@ export class ToolPolicy {
       } else {
         const path = typeof input.path === "string" ? input.path : "";
         this.activeMutations.add(toolCallId);
+        this.impactReviewed = false;
         reason = path
           ? await this.checkPath(path, true, toolName)
           : "A valid workspace path is required.";
@@ -101,7 +108,49 @@ export class ToolPolicy {
         if (!allowed) this.activeMutations.delete(toolCallId);
       }
     } else if (toolName === "bash") {
-      reason = await this.checkShell(input, toolCallId);
+      reason = isVerificationCommand(input.command)
+        ? this.impactReviewed
+          ? await this.checkShell(input, toolCallId)
+          : "Run rook_impact after implementation and before test/build/type-check commands so verification is selected from the actual diff."
+        : await this.checkShell(input, toolCallId);
+      allowed = reason.startsWith("Allowed ");
+    } else if (
+      toolName === PLAN_INSPECTION_TOOL ||
+      toolName === WORKSPACE_SEARCH_TOOL
+    ) {
+      if (this.activeMutations.size) {
+        reason =
+          "Repository inspection is unavailable while another Rook operation is active.";
+      } else if (
+        toolName === PLAN_INSPECTION_TOOL &&
+        !["status", "diff", "log", "branches", "show"].includes(
+          String(input.action),
+        )
+      ) {
+        reason = "Unsupported repository inspection operation.";
+      } else if (
+        toolName === WORKSPACE_SEARCH_TOOL &&
+        (typeof input.query !== "string" ||
+          !input.query.trim() ||
+          input.query.length > 200)
+      ) {
+        reason =
+          "A nonempty literal search query of at most 200 characters is required.";
+      } else {
+        this.activeMutations.add(toolCallId);
+        reason = "Allowed read-only Git inspection.";
+      }
+      allowed = reason.startsWith("Allowed ");
+    } else if (toolName === CHANGE_IMPACT_TOOL) {
+      if (this.mode !== "build") {
+        reason = "Change impact analysis is available in build mode only.";
+      } else if (this.activeMutations.size) {
+        reason =
+          "Change impact analysis must wait until the active mutation or command finishes.";
+      } else {
+        this.activeMutations.add(toolCallId);
+        reason = "Allowed change impact analysis.";
+      }
       allowed = reason.startsWith("Allowed ");
     } else if (toolName === "powershell") {
       reason =
@@ -116,8 +165,15 @@ export class ToolPolicy {
     return { ...decision };
   }
 
-  finish(toolCallId: string): void {
+  finish(toolCallId: string, toolName?: string, isError = false): void {
     this.activeMutations.delete(toolCallId);
+    const command = this.shellCommands.get(toolCallId);
+    this.shellCommands.delete(toolCallId);
+    if (toolName === CHANGE_IMPACT_TOOL && !isError) this.impactReviewed = true;
+    if (toolName === "edit" || toolName === "write")
+      this.impactReviewed = false;
+    if (toolName === "bash" && command && !isVerificationCommand(command))
+      this.impactReviewed = false;
   }
 
   private async checkShell(
@@ -158,6 +214,7 @@ export class ToolPolicy {
       if (this.mode !== "build" || this.externalAccessPrompt !== prompt)
         return "Shell approval expired after a mode or approval-handler change.";
       allowed = true;
+      this.shellCommands.set(toolCallId, command);
       return "Allowed once for this host shell command; execution is not sandboxed.";
     } catch (error) {
       return error instanceof Error
@@ -291,6 +348,13 @@ export class ToolPolicy {
   }
 }
 
+function isVerificationCommand(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  return /(?:^|[\s;&|])(?:npm|pnpm|yarn|bun)\s+(?:(?:run|exec)\s+)?(?:test(?::[\w:-]+)?|check|typecheck|lint|build)(?:\s|$)|(?:^|[\s;&|])(?:npx\s+)?(?:vitest|jest|mocha|pytest|tsc|eslint)(?:\s|$)|(?:^|[\s;&|])(?:go\s+test|cargo\s+test|python\s+-m\s+pytest)(?:\s|$)/.test(
+    value,
+  );
+}
+
 export function createToolPolicyExtension(policy: ToolPolicy): InlineExtension {
   return {
     name: "rook-tool-policy",
@@ -307,7 +371,7 @@ export function createToolPolicyExtension(policy: ToolPolicy): InlineExtension {
           : { block: true, reason: decision.reason };
       });
       pi.on("tool_execution_end", (event) => {
-        policy.finish(event.toolCallId);
+        policy.finish(event.toolCallId, event.toolName, event.isError);
       });
     },
   };

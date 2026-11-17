@@ -25,6 +25,13 @@ import type {
 } from "./agent-gateway.js";
 import { adaptPiEvent } from "./event-adapter.js";
 import { createRookBashTool } from "./bash-tool.js";
+import { createChangeImpactTool } from "./change-impact.js";
+import {
+  createExecutionPolicyExtension,
+  loadExecutionPolicyConfig,
+} from "./execution-policy.js";
+import { createPlanInspectionTool } from "./plan-inspection-tool.js";
+import { createWorkspaceSearchTool } from "./workspace-search-tool.js";
 import {
   createToolPolicyExtension,
   ToolPolicy,
@@ -44,16 +51,24 @@ import {
 } from "../skills/manager.js";
 
 const AVAILABLE_TOOLS = ["read", "find", "ls", "edit", "write", "bash"];
+const PLAN_TOOLS = [
+  "read",
+  "find",
+  "ls",
+  "rook_inspect",
+  "rook_search",
+  TASK_CHECKLIST_TOOL_NAME,
+];
+const BUILD_TOOLS = [
+  ...AVAILABLE_TOOLS,
+  "rook_inspect",
+  "rook_search",
+  "rook_impact",
+  TASK_CHECKLIST_TOOL_NAME,
+];
 
 function activeToolsFor(mode: PermissionMode): string[] {
-  return [
-    ...(mode === "build"
-      ? AVAILABLE_TOOLS
-      : AVAILABLE_TOOLS.filter(
-          (name) => name !== "edit" && name !== "write" && name !== "bash",
-        )),
-    TASK_CHECKLIST_TOOL_NAME,
-  ];
+  return [...(mode === "build" ? BUILD_TOOLS : PLAN_TOOLS)];
 }
 
 export async function createPiAgentGateway(
@@ -68,6 +83,7 @@ export async function createPiAgentGateway(
 ): Promise<AgentGateway> {
   const handlers = new Set<(event: AgentEvent) => void>();
   const policy = new ToolPolicy(cwd);
+  const executionConfig = await loadExecutionPolicyConfig(cwd);
   const taskChecklistTool = createTaskChecklistTool((tasks) => {
     emit({ type: "todo_updated", tasks });
   });
@@ -105,6 +121,10 @@ export async function createPiAgentGateway(
           },
           extensionFactories: [
             createToolPolicyExtension(policy),
+            createExecutionPolicyExtension(
+              () => policy.getMode(),
+              executionConfig,
+            ),
             ...(options.memoryContext
               ? [createMemoryContextExtension(options.memoryContext)]
               : []),
@@ -119,8 +139,20 @@ export async function createPiAgentGateway(
           services,
           sessionManager,
           ...(sessionStartEvent ? { sessionStartEvent } : {}),
-          tools: [...AVAILABLE_TOOLS, TASK_CHECKLIST_TOOL_NAME],
-          customTools: [taskChecklistTool, createRookBashTool(sessionCwd)],
+          tools: [
+            ...AVAILABLE_TOOLS,
+            "rook_inspect",
+            "rook_search",
+            "rook_impact",
+            TASK_CHECKLIST_TOOL_NAME,
+          ],
+          customTools: [
+            taskChecklistTool,
+            createRookBashTool(sessionCwd),
+            createPlanInspectionTool(sessionCwd),
+            createWorkspaceSearchTool(sessionCwd),
+            createChangeImpactTool(sessionCwd, executionConfig),
+          ],
         })),
         services,
         diagnostics: services.diagnostics,
