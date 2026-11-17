@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { visibleWidth, type Terminal } from "@earendil-works/pi-tui";
@@ -237,6 +239,27 @@ describe("Rook TUI shell", () => {
       remoteFingerprint: null,
     };
     store.saveWorkspace(repository, null);
+    const evidencePath = join(directory, "decision.ts");
+    const evidenceContent = "export const mode = 'safe';\n";
+    await writeFile(evidencePath, evidenceContent);
+    const memory = store.recordMemory({
+      repoId: repository.id,
+      kind: "decision",
+      title: "Use safe mode",
+      body: "The project uses safe mode for new workspaces.",
+      status: "stale",
+      confidence: 0.9,
+      sourceClass: "code",
+      evidence: [
+        {
+          path: "decision.ts",
+          contentSha256: createHash("sha256")
+            .update(evidenceContent)
+            .digest("hex"),
+          sourceType: "code",
+        },
+      ],
+    }).memory;
     const memoryCapture = new MemoryCaptureManager(store, repository, null);
     const terminal = new FakeTerminal();
     const app = createRookTui({
@@ -256,6 +279,13 @@ describe("Rook TUI shell", () => {
       expect(memoryCapture.status().optedOut).toBe(false);
       await app.submit("/memory resume");
       expect(memoryCapture.status().paused).toBe(false);
+      await app.submit("/memory status");
+      await app.submit("/memory detail " + memory.id);
+      await app.submit(`/memory verify ${memory.id}`);
+      expect(store.getMemory(memory.id)?.status).toBe("verified");
+      await app.submit("/memory refresh");
+      await app.submit(`/memory forget ${memory.id} confirm`);
+      expect(store.getMemory(memory.id)).toBeUndefined();
       app.tui.renderNow(true);
       expect(terminal.writes.join(" ")).toContain("Memory capture paused");
       expect(terminal.writes.join(" ")).toContain(

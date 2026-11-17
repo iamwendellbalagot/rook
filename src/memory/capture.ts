@@ -13,6 +13,13 @@ import {
   type RookStore,
 } from "../db/store.js";
 import type { GitSnapshot, RepositoryIdentity } from "../repo/workspace.js";
+import { captureWorkspaceSnapshot } from "../repo/workspace.js";
+import {
+  formatMemoryInspection,
+  manuallyVerifyMemory,
+  reconcileMemoryEvidence,
+  type ReconciliationResult,
+} from "./impact.js";
 
 const SESSION_CAPTURE_LIMIT = 3;
 const PENDING_CONFIRMATION_LIMIT = 3;
@@ -24,6 +31,10 @@ export interface MemoryCaptureStatus extends MemoryCaptureSettings {
   capturedThisSession: number;
   sessionCaptureLimit: number;
   pendingConfirmations: number;
+  total: number;
+  verified: number;
+  candidates: number;
+  stale: number;
 }
 
 export class MemoryCaptureManager {
@@ -39,7 +50,7 @@ export class MemoryCaptureManager {
   constructor(
     private readonly store: RookStore,
     private readonly repository: RepositoryIdentity,
-    private readonly snapshot: GitSnapshot | null,
+    private snapshot: GitSnapshot | null,
   ) {}
 
   createExtension(): InlineExtension {
@@ -92,11 +103,21 @@ export class MemoryCaptureManager {
   }
 
   status(): MemoryCaptureStatus {
+    const memories = this.store.listMemories(this.repository.id);
     return {
       ...this.store.getMemoryCaptureSettings(this.repository.id),
       capturedThisSession: this.capturesThisSession,
       sessionCaptureLimit: SESSION_CAPTURE_LIMIT,
       pendingConfirmations: this.pending().length,
+      total: memories.length,
+      verified: memories.filter((memory) => memory.status === "verified")
+        .length,
+      candidates: memories.filter((memory) => memory.status === "candidate")
+        .length,
+      stale: memories.filter(
+        (memory) =>
+          memory.status === "stale" || memory.status === "possibly_stale",
+      ).length,
     };
   }
 
@@ -145,13 +166,48 @@ export class MemoryCaptureManager {
   }
 
   forget(memoryId: string): boolean {
-    return this.store.forgetMemory(memoryId, "User requested forget.");
+    return this.store.forgetRepositoryMemory(
+      this.repository.id,
+      memoryId,
+      "User requested forget.",
+    );
   }
 
   show(): string[] {
     return this.store
       .listMemories(this.repository.id)
       .map((memory) => `${memory.id} · ${memory.status} · ${memory.title}`);
+  }
+
+  inspect(memoryId: string): string[] | undefined {
+    const memory = this.store
+      .listMemories(this.repository.id)
+      .find((candidate) => candidate.id === memoryId);
+    return memory ? formatMemoryInspection(memory) : undefined;
+  }
+
+  async verify(memoryId: string): Promise<string> {
+    const snapshot = await captureWorkspaceSnapshot(this.repository);
+    this.snapshot = snapshot;
+    const result = await manuallyVerifyMemory(
+      this.store,
+      this.repository,
+      memoryId,
+      snapshot,
+    );
+    return result.message;
+  }
+
+  async refresh(): Promise<ReconciliationResult> {
+    this.snapshot = await captureWorkspaceSnapshot(this.repository);
+    if (this.store.getMemoryCaptureSettings(this.repository.id).optedOut) {
+      return { checked: 0, refreshed: 0, invalidated: 0, skipped: 0 };
+    }
+    return reconcileMemoryEvidence(this.store, this.repository, this.snapshot);
+  }
+
+  currentSnapshot(): GitSnapshot | null {
+    return this.snapshot;
   }
 
   drainNotices(): string[] {
@@ -310,7 +366,7 @@ async function collectEvidence(
   const root = await realpath(workspaceRoot);
   const evidence = [];
   for (const path of [...new Set(paths)].slice(0, MAX_READ_EVIDENCE)) {
-    const validated = await hashSafeRead(root, path);
+    const validated = await hashSafeWorkspaceFile(root, path);
     if (!validated) continue;
     evidence.push({
       path: relative(root, validated.path),
@@ -322,11 +378,12 @@ async function collectEvidence(
   return evidence;
 }
 
-async function hashSafeRead(
+export async function hashSafeWorkspaceFile(
   root: string,
   inputPath: string,
 ): Promise<{ path: string; contentSha256: string } | undefined> {
   try {
+    const canonicalRoot = await realpath(root);
     if (inputPath.includes("\0")) return undefined;
     const segments = inputPath.split(/[\\/]+/).filter(Boolean);
     if (
@@ -338,8 +395,8 @@ async function hashSafeRead(
     }
     const absolutePath = isAbsolute(inputPath)
       ? resolve(inputPath)
-      : resolve(root, inputPath);
-    const relativePath = relative(root, absolutePath);
+      : resolve(canonicalRoot, inputPath);
+    const relativePath = relative(canonicalRoot, absolutePath);
     if (
       relativePath === ".." ||
       relativePath.startsWith(`..${sep}`) ||
@@ -357,7 +414,7 @@ async function hashSafeRead(
       return undefined;
     }
     const canonicalPath = await realpath(absolutePath);
-    const canonicalRelative = relative(root, canonicalPath);
+    const canonicalRelative = relative(canonicalRoot, canonicalPath);
     if (
       canonicalRelative === ".." ||
       canonicalRelative.startsWith(`..${sep}`) ||

@@ -283,6 +283,16 @@ async function captureGitSnapshot(
   };
 }
 
+export async function captureWorkspaceSnapshot(
+  repository: RepositoryIdentity,
+): Promise<GitSnapshot | null> {
+  if (repository.kind !== "git") return null;
+  return {
+    ...(await captureGitSnapshot(repository.root)),
+    repoId: repository.id,
+  };
+}
+
 async function hashWorkingPath(
   hash: ReturnType<typeof createHash>,
   root: string,

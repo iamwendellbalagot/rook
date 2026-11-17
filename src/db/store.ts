@@ -764,7 +764,7 @@ export class RookStore {
     if (!row) return undefined;
     const evidenceRows = this.db
       .prepare(
-        "SELECT * FROM memory_evidence WHERE memory_id = ? ORDER BY created_at, id",
+        "SELECT * FROM memory_evidence WHERE memory_id = ? ORDER BY created_at DESC, id DESC",
       )
       .all(id) as RawEvidenceRow[];
     return {
@@ -948,6 +948,32 @@ export class RookStore {
       `,
         )
         .run(randomUUID(), row.repo_id, JSON.stringify({ memoryId: id }), now);
+      return true;
+    });
+    return forget.immediate();
+  }
+
+  forgetRepositoryMemory(
+    repoId: string,
+    id: string,
+    reason: string,
+    now = new Date().toISOString(),
+  ): boolean {
+    if (!reason.trim()) throw new Error("A forget reason is required.");
+    const forget = this.db.transaction(() => {
+      const row = this.db
+        .prepare("SELECT repo_id FROM memories WHERE id = ?")
+        .get(id) as { repo_id: string } | undefined;
+      if (!row || row.repo_id !== repoId) return false;
+      this.db.prepare("DELETE FROM memories WHERE id = ?").run(id);
+      this.db
+        .prepare(
+          `
+        INSERT INTO memory_events(id, repo_id, event_type, metadata_json, created_at)
+        VALUES (?, ?, 'memory_forgotten', ?, ?)
+      `,
+        )
+        .run(randomUUID(), repoId, JSON.stringify({ memoryId: id }), now);
       return true;
     });
     return forget.immediate();

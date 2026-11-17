@@ -43,26 +43,27 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   const workspace = mock ? undefined : await resolveWorkspace(cwd);
   const store = workspace ? await RookStore.open() : undefined;
   try {
+    let memoryCapture: MemoryCaptureManager | undefined;
     if (workspace && store) {
+      memoryCapture = new MemoryCaptureManager(
+        store,
+        workspace.repository,
+        workspace.snapshot,
+      );
+      await memoryCapture.refresh();
       store.saveWorkspace(workspace.repository, workspace.snapshot);
     }
     const memoryContext =
       workspace && store
-        ? (prompt: string) =>
-            retrieveMemoryContext(
+        ? async (userPrompt: string) => {
+            await memoryCapture?.refresh();
+            return retrieveMemoryContext(
               store,
               workspace.repository.id,
-              prompt,
-              workspace.snapshot,
-            )
-        : undefined;
-    const memoryCapture =
-      workspace && store
-        ? new MemoryCaptureManager(
-            store,
-            workspace.repository,
-            workspace.snapshot,
-          )
+              userPrompt,
+              memoryCapture?.currentSnapshot() ?? workspace.snapshot,
+            );
+          }
         : undefined;
     const gateway = mock
       ? new MockAgentGateway()
@@ -70,34 +71,55 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
           ...(memoryContext ? { memoryContext } : {}),
           ...(memoryCapture ? { memoryCapture } : {}),
         });
-    let state = reduceAppState(initialAppState(), { type: "startup_complete" });
-    try {
-      if (prompt) {
-        state = await runPrompt(gateway, prompt, state);
-        await memoryCapture?.flush();
-        for (const notice of memoryCapture?.drainNotices() ?? []) {
-          stdout.write(`\n${notice}\n`);
-        }
-        return;
-      }
-      const app = createRookTui({
-        cwd,
-        gateway,
-        ...(workspace?.snapshot?.branch
-          ? { branch: workspace.snapshot.branch }
-          : {}),
-        ...(workspace
-          ? { repository: workspace.repository, snapshot: workspace.snapshot }
-          : {}),
-        ...(memoryCapture ? { memoryCapture } : {}),
-      });
-      await app.start();
-      await memoryCapture?.flush();
-    } finally {
-      await gateway.dispose();
-    }
+    await runApplication({
+      cwd,
+      prompt,
+      gateway,
+      ...(workspace ? { workspace } : {}),
+      ...(memoryCapture ? { memoryCapture } : {}),
+    });
   } finally {
     store?.close();
+  }
+}
+
+async function runApplication(options: {
+  cwd: string;
+  prompt: string;
+  gateway: AgentGateway;
+  workspace?: Awaited<ReturnType<typeof resolveWorkspace>>;
+  memoryCapture?: MemoryCaptureManager;
+}): Promise<void> {
+  let state = reduceAppState(initialAppState(), { type: "startup_complete" });
+  try {
+    if (options.prompt) {
+      state = await runPrompt(options.gateway, options.prompt, state);
+      await options.memoryCapture?.flush();
+      for (const notice of options.memoryCapture?.drainNotices() ?? []) {
+        stdout.write(`\n${notice}\n`);
+      }
+      return;
+    }
+    const app = createRookTui({
+      cwd: options.cwd,
+      gateway: options.gateway,
+      ...(options.workspace?.snapshot?.branch
+        ? { branch: options.workspace.snapshot.branch }
+        : {}),
+      ...(options.workspace
+        ? {
+            repository: options.workspace.repository,
+            snapshot: options.workspace.snapshot,
+          }
+        : {}),
+      ...(options.memoryCapture
+        ? { memoryCapture: options.memoryCapture }
+        : {}),
+    });
+    await app.start();
+    await options.memoryCapture?.flush();
+  } finally {
+    await options.gateway.dispose();
   }
 }
 

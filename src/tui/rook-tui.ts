@@ -299,7 +299,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/help":
           removeHome();
           appendText(
-            "Available: /help, /login, /logout, /model, /settings, /new, /sessions, /resume, /plan, /build, /permissions, /memory status|show|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
+            "Available: /help, /login, /logout, /model, /settings, /new, /sessions, /resume, /plan, /build, /permissions, /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
             "muted",
           );
           return;
@@ -421,7 +421,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       case "status": {
         const status = memory.status();
         appendText(
-          `Memory capture ${status.optedOut ? "opted out" : status.paused ? "paused" : "active"}; ${status.capturedThisSession}/${status.sessionCaptureLimit} session captures; ${status.pendingConfirmations} pending confirmation(s).`,
+          `Memory ${status.total} total · ${status.verified} verified · ${status.candidates} candidates · ${status.stale} stale; capture ${status.optedOut ? "opted out" : status.paused ? "paused" : "active"}; ${status.capturedThisSession}/${status.sessionCaptureLimit} session captures; ${status.pendingConfirmations} pending confirmation(s).`,
           "muted",
         );
         return;
@@ -465,6 +465,36 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           entries.length
             ? entries.map(safeTerminalText).join("\n")
             : "No memories are stored for this repository.",
+          "muted",
+        );
+        return;
+      }
+      case "detail": {
+        if (!args[0]) {
+          appendText("Usage: /memory detail <memory-id>", "error");
+          return;
+        }
+        const detail = memory.inspect(args[0]);
+        appendText(
+          detail
+            ? detail.map(safeTerminalText).join("\n")
+            : "No memory matches that ID in this repository.",
+          "muted",
+        );
+        return;
+      }
+      case "verify": {
+        if (!args[0]) {
+          appendText("Usage: /memory verify <memory-id>", "error");
+          return;
+        }
+        appendText(safeTerminalText(await memory.verify(args[0])), "muted");
+        return;
+      }
+      case "refresh": {
+        const result = await memory.refresh();
+        appendText(
+          `Memory refresh: checked ${result.checked} evidence item(s), refreshed ${result.refreshed}, invalidated ${result.invalidated}, skipped ${result.skipped}.`,
           "muted",
         );
         return;
@@ -520,7 +550,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       }
       default:
         appendText(
-          "Usage: /memory [status|show|pause|resume|opt-out|opt-in|pending|confirm <id>|cancel <id>|forget <id> confirm]. Use `remember: <claim>` in a prompt to request a memory, then confirm its pending ID.",
+          "Usage: /memory [status|show|detail <id>|verify <id>|refresh|pause|resume|opt-out|opt-in|pending|confirm <id>|cancel <id>|forget <id> confirm]. Use `remember: <claim>` in a prompt to request a memory, then confirm its pending ID.",
           "muted",
         );
     }
