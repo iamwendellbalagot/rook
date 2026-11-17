@@ -13,6 +13,7 @@ const palette = {
   border: parseColor("#3A4652"),
   green: parseColor("#98DEAC"),
   blue: parseColor("#9BC7ED"),
+  cyan: parseColor("#27D8F3"),
   purple: parseColor("#C7BCF1"),
   amber: parseColor("#E6D6A3"),
   error: parseColor("#F09BA5"),

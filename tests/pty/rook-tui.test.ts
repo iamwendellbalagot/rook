@@ -285,9 +285,14 @@ describe("Rook TUI shell", () => {
 
     expect(terminal.started).toBe(1);
     expect(gateway.externalAccessPrompt).toBeDefined();
-    expect(terminal.writes.join("")).toContain("rook.");
-    expect(terminal.writes.join("")).toContain("Repository repo-12");
-    expect(terminal.writes.join("")).toContain("Snapshot 0123456 · clean");
+    expect(terminal.writes.join("")).toContain("rook");
+    expect(terminal.writes.join("")).toContain(
+      "A coding agent that grows with your codebase.",
+    );
+    expect(terminal.writes.join("")).toContain(
+      "Think through a task before making changes",
+    );
+    expect(terminal.writes.join("")).toContain("View what Rook knows");
 
     await app.submit("hello");
     app.tui.renderNow(true);

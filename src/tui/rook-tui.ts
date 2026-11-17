@@ -37,8 +37,8 @@ import {
   tone,
 } from "./theme.js";
 import { shuffleLoadingPhrases } from "./loading-phrases.js";
+import { RookBrand } from "./rook-brand.js";
 
-const TAGLINE = "A coding agent that grows with your codebase.";
 const CHECKLIST_SIDEBAR_MIN_WIDTH = 90;
 const CHECKLIST_SIDEBAR_WIDTH = 34;
 const MAX_PROMPT_HISTORY = 100;
@@ -543,71 +543,52 @@ class ModalSeparator implements Component {
   invalidate(): void {}
 }
 
-function createHome(
-  cwd: string,
-  repository?: RepositoryIdentity,
-  snapshot?: GitSnapshot | null,
-): Text {
-  const commands = [
-    ["/plan", "Read and search workspace files without mutations"],
-    ["/build", "Enable policy-gated workspace edits"],
-    ["/model", "Choose a model from Pi's catalog"],
-    ["/new", "Start a new persistent session"],
-    ["/sessions", "Browse and resume saved sessions"],
-    ["/fork", "Fork the current session from a user message"],
-    ["/compact", "Compact the current Pi session"],
-    ["/skills", "List Pi skills available in this workspace"],
-    ["/prompts", "List Pi prompt templates"],
-    ["/login", "Sign in to a Pi provider"],
-    ["/settings", "Adjust thinking level"],
-    ["/permissions", "Review or revoke session access grants"],
-    ["/memory", "Show, pause, resume, or control repository memory"],
-    ["/help", "Show available commands"],
-  ] as const;
-  const commandLines = commands
-    .map(
-      ([command, description]) =>
-        `  ${tone(command, "text", true)}  ${tone(description, "muted")}`,
-    )
-    .join("\n");
+const HOME_ACTIONS = [
+  ["/plan", "Think through a task before making changes"],
+  ["/build", "Make and apply changes to your codebase"],
+  ["/memory", "View what Rook knows about this repository"],
+  ["/help", "Show all commands"],
+] as const;
 
-  return new Text(
-    [
-      "",
-      tone("rook.", "text", true),
-      tone(TAGLINE, "muted"),
-      "",
-      tone("GET STARTED", "dim", true),
-      commandLines,
-      "",
-      tone(
-        repository
-          ? "◇  Repository memory available · /memory show"
-          : "◇  No repository memory yet",
-        "dim",
-      ),
-      `   ${tone(resolve(cwd), "dim")}`,
-      ...(repository
-        ? [
-            `   ${tone(`Repository ${repository.id.slice(0, 8)} · ${repository.kind}`, "dim")}`,
-          ]
-        : []),
-      ...(snapshot
-        ? [
-            `   ${tone(`Snapshot ${snapshot.headCommit?.slice(0, 7) ?? "unborn"} · ${snapshot.dirtyFingerprint ? "dirty" : "clean"}`, "dim")}`,
-          ]
-        : []),
-    ].join("\n"),
-    2,
-    1,
-  );
+class HomeScreenBody implements Component {
+  private readonly brand = new RookBrand({ indent: 2 });
+
+  render(width: number): string[] {
+    const lines = ["", ...this.brand.render(width - 4), ""];
+    const chipWidth = 14;
+    const innerWidth = chipWidth - 2;
+    const left = "  ";
+
+    for (const [command, description] of HOME_ACTIONS) {
+      const top = `╭${"─".repeat(innerWidth)}╮`;
+      const label = ` ${command.padEnd(innerWidth - 2)} `;
+      const middle = `│${tone(label, "cyan", true)}│`;
+      const bottom = `╰${"─".repeat(innerWidth)}╯`;
+      const descriptionWidth = Math.max(0, width - left.length - chipWidth - 3);
+      lines.push(
+        `${left}${tone(top, "blue")}`,
+        `${left}${tone(middle, "blue")}   ${tone(truncateToWidth(description, descriptionWidth), "muted")}`,
+        `${left}${tone(bottom, "blue")}`,
+      );
+    }
+
+    return lines;
+  }
+
+  invalidate(): void {
+    this.brand.invalidate();
+  }
+}
+
+function createHome(): Component {
+  return new HomeScreenBody();
 }
 
 export function createRookTui(options: RookTuiOptions): RookTuiController {
   const terminal = options.terminal ?? new ProcessTerminal();
   const tui = new TuiAltScreen(terminal);
   const transcript = new Container();
-  const home = createHome(options.cwd, options.repository, options.snapshot);
+  const home = createHome();
   transcript.addChild(home);
 
   const header = new Header(resolve(options.cwd), options.branch);
