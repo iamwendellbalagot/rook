@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -209,7 +209,7 @@ class EventGateway implements AgentGateway {
     this.handlers.clear();
   }
 
-  private emit(event: AgentEvent): void {
+  emit(event: AgentEvent): void {
     for (const handler of this.handlers) handler(event);
   }
 }
@@ -260,6 +260,147 @@ class FakeTerminal implements Terminal {
 }
 
 describe("Rook TUI shell", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("places per-prompt token totals, rate, and elapsed time below the final result", async () => {
+    let now = 1000;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    vi.spyOn(gateway, "send").mockImplementation(async (prompt) => {
+      if (prompt === "first") {
+        gateway.emit({
+          type: "message_complete",
+          text: "Checking the project.",
+        });
+        gateway.emit({ type: "usage", inputTokens: 100, outputTokens: 20 });
+        gateway.emit({
+          type: "tool_started",
+          id: "read-stats",
+          name: "read",
+          summary: "package.json",
+        });
+        now = 6000;
+        gateway.emit({ type: "tool_finished", id: "read-stats", status: "ok" });
+        gateway.emit({ type: "message_complete", text: "First result." });
+        gateway.emit({ type: "usage", inputTokens: 300, outputTokens: 80 });
+        now = 11000;
+      } else {
+        gateway.emit({ type: "message_complete", text: "Second result." });
+        gateway.emit({ type: "usage", inputTokens: 10, outputTokens: 0 });
+        now += 5000;
+      }
+      gateway.emit({ type: "run_settled", aborted: false });
+      now += 10000; // Promise cleanup must not extend the measured inference time.
+    });
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    await app.submit("first");
+    let lines = app.tui.render(100).map(stripTerminalSequences);
+    const resultRow = lines.findIndex((line) => line.includes("First result."));
+    const statsRow = lines.findIndex((line) =>
+      line.includes("in 400 · out 100 · 10.0 tok/s · 10.0s elapsed"),
+    );
+    expect(statsRow).toBeGreaterThan(resultRow);
+    expect(resultRow).toBeGreaterThanOrEqual(0);
+    expect(
+      lines.slice(resultRow + 1, statsRow).every((line) => !line.trim()),
+    ).toBe(true);
+    expect(lines.filter((line) => line.includes("s elapsed"))).toHaveLength(1);
+    await app.submit("second");
+    lines = app.tui.render(100).map(stripTerminalSequences);
+    expect(lines.filter((line) => line.includes("s elapsed"))).toHaveLength(2);
+    expect(lines.join("\n")).toContain(
+      "in 10 · out 0 · 0.0 tok/s · 5.0s elapsed",
+    );
+    app.stop();
+    await finished;
+  });
+
+  it("waits until the whole run finishes instead of showing stats after an intermediate turn", async () => {
+    let now = 1000;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    const pending = app.submit("long running prompt");
+    gateway.emit({ type: "message_complete", text: "An intermediate turn." });
+    gateway.emit({ type: "usage", inputTokens: 30, outputTokens: 10 });
+    expect(app.tui.render(100).join("\n")).not.toContain("s elapsed");
+    now = 3500;
+    gateway.completePendingRun();
+    await pending;
+    const lines = app.tui.render(100).map(stripTerminalSequences);
+    expect(lines.join("\n")).toContain(
+      "in 30 · out 10 · 4.0 tok/s · 2.5s elapsed",
+    );
+    expect(lines.filter((line) => line.includes("s elapsed"))).toHaveLength(1);
+    const next = app.submit("long running prompt");
+    now = 6000;
+    gateway.completePendingRun();
+    await next;
+    expect(
+      app.tui.render(100).map(stripTerminalSequences).join("\n"),
+    ).toContain("in — · out — · — tok/s · 2.5s elapsed");
+    app.stop();
+    await finished;
+  });
+
+  it.each(["settled", "returned", "failed", "cancelled"])(
+    "adds one stats line without stale usage when a run is %s",
+    async (outcome) => {
+      let now = 1000;
+      vi.spyOn(performance, "now").mockImplementation(() => now);
+      const terminal = new FakeTerminal();
+      const gateway = new EventGateway();
+      vi.spyOn(gateway, "send").mockImplementation(async () => {
+        now += 2000;
+        if (outcome === "failed") {
+          gateway.emit({ type: "error", message: "Request failed." });
+          throw new Error("Request failed.");
+        }
+        gateway.emit({
+          type: "message_complete",
+          text: "An inference result.",
+        });
+        if (outcome !== "returned") {
+          gateway.emit({
+            type: "run_settled",
+            aborted: outcome === "cancelled",
+          });
+        }
+      });
+      const app = createRookTui({
+        cwd: "/workspace/sample-project",
+        gateway,
+        terminal,
+      });
+      const finished = app.start();
+      await app.submit("/help");
+      expect(app.tui.render(100).join("\n")).not.toContain("s elapsed");
+      await app.submit("hello");
+      const lines = app.tui.render(100).map(stripTerminalSequences);
+      expect(lines.filter((line) => line.includes("s elapsed"))).toHaveLength(
+        1,
+      );
+      expect(lines.join("\n")).toContain(
+        "in — · out — · — tok/s · 2.0s elapsed",
+      );
+      expect(lines.join("\n")).not.toMatch(/NaN|Infinity/);
+      app.stop();
+      await finished;
+    },
+  );
+
   it("shares screen gutters across the header, home, transcript, prompt, and footer", async () => {
     const terminal = new FakeTerminal();
     const gateway = new EventGateway();

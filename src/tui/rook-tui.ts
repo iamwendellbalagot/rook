@@ -39,6 +39,7 @@ import {
 import { shuffleLoadingPhrases } from "./loading-phrases.js";
 import { HomeScreenBody } from "./home-screen.js";
 import { PromptEditor } from "./prompt-editor.js";
+import { InferenceStatsLine } from "./inference-stats.js";
 
 const CHECKLIST_SIDEBAR_MIN_WIDTH = 90;
 const CHECKLIST_SIDEBAR_WIDTH = 34;
@@ -665,6 +666,13 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   const toolCards = new Map<string, Text>();
   let activeResponse: Markdown | undefined;
   let activeResponseText = "";
+  let activeInference:
+    | {
+        startedAt: number;
+        inputTokens?: number;
+        outputTokens?: number;
+      }
+    | undefined;
   const permissionQueue: {
     request: ExternalAccessRequest;
     resolve: (choice: ExternalAccessChoice) => void;
@@ -742,6 +750,19 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     }
   }
 
+  function finishInference(inference = activeInference): void {
+    if (!inference || inference !== activeInference) return;
+    activeInference = undefined;
+    const { startedAt, ...usage } = inference;
+    transcript.addChild(
+      new InferenceStatsLine({
+        ...usage,
+        elapsedMs: performance.now() - startedAt,
+      }),
+    );
+    tui.requestRender();
+  }
+
   const unsubscribe = options.gateway.subscribe((event) => {
     if (event.type === "text_delta") {
       stopLoadingStatus();
@@ -794,12 +815,24 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       compactChecklist.setTasks(event.tasks);
       tui.requestRender();
     } else if (event.type === "usage") {
+      // Pi reports usage once per assistant message, including tool-call turns.
+      if (activeInference) {
+        if (event.inputTokens !== undefined) {
+          activeInference.inputTokens =
+            (activeInference.inputTokens ?? 0) + event.inputTokens;
+        }
+        if (event.outputTokens !== undefined) {
+          activeInference.outputTokens =
+            (activeInference.outputTokens ?? 0) + event.outputTokens;
+        }
+      }
       state = reduceAppState(state, event);
       updateFooter();
     } else if (event.type === "run_settled") {
       stopLoadingStatus();
       state = reduceAppState(state, { type: "run_state", state: "settled" });
       if (event.aborted) appendText("Run cancelled.", "muted");
+      finishInference();
       updateFooter();
     } else if (event.type === "error") {
       stopLoadingStatus();
@@ -1014,6 +1047,8 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     appendText(`› ${prompt}`, "user");
     activeResponse = undefined;
     activeResponseText = "";
+    const inference = { startedAt: performance.now() };
+    activeInference = inference;
     startLoadingStatus(true);
     updateFooter();
     try {
@@ -1033,6 +1068,8 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       }
     } finally {
       stopLoadingStatus();
+      // Fallback for gateways that finish or throw without run_settled.
+      finishInference(inference);
       activeResponse = undefined;
       activeResponseText = "";
       updateFooter();
