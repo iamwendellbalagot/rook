@@ -94,6 +94,8 @@ class ExternalAccessPromptPanel implements Component {
   private selected = 0;
   private onChoose: ((choice: ExternalAccessChoice) => void) | undefined;
 
+  constructor(private readonly onChange: () => void) {}
+
   show(
     request: ExternalAccessRequest,
     onChoose: (choice: ExternalAccessChoice) => void,
@@ -155,10 +157,12 @@ class ExternalAccessPromptPanel implements Component {
     }
     if (matchesKey(data, "up")) {
       this.selected = (this.selected + 2) % 3;
+      this.onChange();
       return;
     }
     if (matchesKey(data, "down")) {
       this.selected = (this.selected + 1) % 3;
+      this.onChange();
       return;
     }
     if (matchesKey(data, "enter")) {
@@ -255,7 +259,9 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     overscroll: "chain",
   });
   const editor = new Editor(tui, editorTheme, { paddingX: 1 });
-  const externalAccessPanel = new ExternalAccessPromptPanel();
+  const externalAccessPanel = new ExternalAccessPromptPanel(() =>
+    tui.requestRender(),
+  );
   const footer = new Text("", 1, 0);
   const bottom = new VStack([editor, externalAccessPanel, footer]);
   tui.setLayoutRoot(

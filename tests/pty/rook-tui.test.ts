@@ -257,6 +257,7 @@ describe("Rook TUI shell", () => {
       accessScreen.indexOf("/Users/test/Downloads/notes.txt"),
     ).toBeLessThan(accessScreen.indexOf("Ctrl+C exit"));
     terminal.input("\u001b[B");
+    expect(app.tui.render(100).join("\n")).toContain("2. [Allow read once]");
     terminal.input("\r");
     await expect(accessRequest).resolves.toBe("once");
 
