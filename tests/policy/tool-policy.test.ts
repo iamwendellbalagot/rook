@@ -41,7 +41,6 @@ describe("ToolPolicy", () => {
       prompts++;
       expect(request).toMatchObject({
         access: "execute",
-        command: "npm test",
         timeoutSeconds: 120,
       });
       return "once";
@@ -69,11 +68,16 @@ describe("ToolPolicy", () => {
     expect(
       (await policy.check("bash", { command: "npm test" }, "parallel")).allowed,
     ).toBe(false);
-    policy.finish("shell1");
+    policy.finish("shell1", "bash", false);
     expect(
-      (await policy.check("bash", { command: "npm test" }, "shell2")).allowed,
+      (await policy.check("bash", { command: "npm test" }, "duplicate"))
+        .allowed,
+    ).toBe(false);
+    expect(
+      (await policy.check("bash", { command: "npm run typecheck" }, "shell2"))
+        .allowed,
     ).toBe(true);
-    policy.finish("shell2");
+    policy.finish("shell2", "bash", false);
     expect(prompts).toBe(2);
     expect(policy.getExternalAccessGrants()).toEqual([]);
     expect(

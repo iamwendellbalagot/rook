@@ -35,10 +35,12 @@ const SENSITIVE_SEGMENTS = new Set([
 export class ToolPolicy {
   private mode: PermissionMode = "plan";
   private impactReviewed = false;
+  private changeVersion = 0;
   private workspaceRoot?: Promise<string>;
   private readonly decisions: PermissionDecision[] = [];
   private readonly activeMutations = new Set<string>();
   private readonly shellCommands = new Map<string, string>();
+  private readonly successfulChecks = new Map<string, number>();
   private readonly externalGrants: ExternalAccessGrant[] = [];
   private externalAccessPrompt:
     | ((request: ExternalAccessRequest) => Promise<ExternalAccessChoice>)
@@ -106,13 +108,25 @@ export class ToolPolicy {
           : "A valid workspace path is required.";
         allowed = reason.startsWith("Allowed ");
         if (!allowed) this.activeMutations.delete(toolCallId);
+        else this.invalidateChecks();
       }
     } else if (toolName === "bash") {
-      reason = isVerificationCommand(input.command)
-        ? this.impactReviewed
-          ? await this.checkShell(input, toolCallId)
-          : "Run rook_impact after implementation and before test/build/type-check commands so verification is selected from the actual diff."
-        : await this.checkShell(input, toolCallId);
+      const command = input.command;
+      if (this.mode !== "build") {
+        reason = await this.checkShell(input, toolCallId);
+      } else if (
+        isVerificationCommand(command) &&
+        this.successfulChecks.get(command) === this.changeVersion
+      ) {
+        reason =
+          "This exact verification command already succeeded since the last Rook-observed change; do not repeat it.";
+      } else {
+        reason = isVerificationCommand(command)
+          ? this.impactReviewed
+            ? await this.checkShell(input, toolCallId)
+            : "Run rook_impact after implementation and before test/build/type-check commands so verification is selected from the actual diff."
+          : await this.checkShell(input, toolCallId);
+      }
       allowed = reason.startsWith("Allowed ");
     } else if (
       toolName === PLAN_INSPECTION_TOOL ||
@@ -172,8 +186,12 @@ export class ToolPolicy {
     if (toolName === CHANGE_IMPACT_TOOL && !isError) this.impactReviewed = true;
     if (toolName === "edit" || toolName === "write")
       this.impactReviewed = false;
-    if (toolName === "bash" && command && !isVerificationCommand(command))
+    if (toolName === "bash" && command && isVerificationCommand(command)) {
+      if (!isError) this.successfulChecks.set(command, this.changeVersion);
+    } else if (toolName === "bash" && command) {
       this.impactReviewed = false;
+      this.invalidateChecks();
+    }
   }
 
   private async checkShell(
@@ -345,6 +363,11 @@ export class ToolPolicy {
       path: canonicalPath,
       folderPath: targetInfo?.isDirectory() ? canonicalPath : parent,
     };
+  }
+
+  private invalidateChecks(): void {
+    this.changeVersion++;
+    this.successfulChecks.clear();
   }
 }
 
