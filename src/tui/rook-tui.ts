@@ -266,8 +266,14 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   const externalAccessPanel = new ExternalAccessPromptPanel(() =>
     tui.requestRender(),
   );
+  const loadingIndicator = new Text("", 1, 0);
   const footer = new Text("", 1, 0);
-  const bottom = new VStack([editor, externalAccessPanel, footer]);
+  const bottom = new VStack([
+    loadingIndicator,
+    editor,
+    externalAccessPanel,
+    footer,
+  ]);
   tui.setLayoutRoot(
     new VStack([
       { component: header, basis: "auto", shrink: 0 },
@@ -312,16 +318,6 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     resolveRun = resolvePromise;
   });
   const updateFooter = (): void => {
-    if (loadingStatus) {
-      footer.setText(
-        truncateToWidth(
-          `${tone(modelLabel, "muted")} · ${tone(`♜ ${loadingStatus}`, "blue")} · ${tone(state.mode.toUpperCase(), state.mode === "plan" ? "blue" : "amber", true)} · ${state.mode === "plan" ? "read-only tools" : "workspace edits enabled"} · Ctrl+C exit`,
-          Math.max(1, terminal.columns),
-        ),
-      );
-      tui.requestRender();
-      return;
-    }
     const status = state.runState === "running" ? " · running" : "";
     const usage = state.usage
       ? ` · ↑ ${state.usage.inputTokens ?? 0} ↓ ${state.usage.outputTokens ?? 0}`
@@ -344,8 +340,9 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         thinkingPhrases[Math.floor(loadingTick / 3) % thinkingPhrases.length]!;
       const dots = ".".repeat((loadingTick % 3) + 1);
       loadingStatus = `${phrase}${dots}`;
+      loadingIndicator.setText(tone(`♜ ${loadingStatus}`, "blue"));
       loadingTick += 1;
-      updateFooter();
+      tui.requestRender();
     };
     update();
     loadingTimer = setInterval(update, 650);
@@ -356,7 +353,8 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     loadingTimer = undefined;
     if (loadingStatus) {
       loadingStatus = undefined;
-      updateFooter();
+      loadingIndicator.setText("");
+      tui.requestRender();
     }
   }
 
