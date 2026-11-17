@@ -13,6 +13,8 @@ import {
   truncateToWidth,
   visibleWidth,
   type Component,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
   type Terminal,
 } from "@earendil-works/pi-tui";
 import { resolve } from "node:path";
@@ -22,6 +24,7 @@ import type {
   AgentGateway,
   ExternalAccessChoice,
   ExternalAccessRequest,
+  ModelInfo,
 } from "../pi/agent-gateway.js";
 import type { TaskChecklistItem } from "../pi/task-checklist.js";
 import type { GitSnapshot, RepositoryIdentity } from "../repo/workspace.js";
@@ -291,6 +294,57 @@ class SlashCommandSuggestionPanel implements Component {
   invalidate(): void {}
 }
 
+class SearchableModelList implements Component {
+  readonly capturesViewportInput = true;
+  private list: SelectList;
+
+  constructor(
+    items: { value: string; label: string; description?: string }[],
+    private readonly onSelect: (value: string) => void,
+    private readonly onCancel: () => void,
+  ) {
+    this.list = this.createList(items);
+  }
+
+  setItems(
+    items: { value: string; label: string; description?: string }[],
+  ): void {
+    const currentValue = this.list.getSelectedItem()?.value;
+    this.list = this.createList(items);
+    if (currentValue) {
+      const selectedIndex = items.findIndex(
+        (item) => item.value === currentValue,
+      );
+      if (selectedIndex >= 0) this.list.setSelectedIndex(selectedIndex);
+    }
+  }
+
+  private createList(
+    items: { value: string; label: string; description?: string }[],
+  ): SelectList {
+    const list = new SelectList(items, 10, selectListTheme);
+    list.onSelect = (item) => this.onSelect(item.value);
+    list.onCancel = this.onCancel;
+    return list;
+  }
+
+  render(width: number): string[] {
+    return this.list.render(width);
+  }
+
+  handleInput(data: string): void {
+    this.list.handleInput(data);
+  }
+
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    return this.list.handleMouse(event);
+  }
+
+  invalidate(): void {
+    this.list.invalidate();
+  }
+}
+
 function createHome(
   cwd: string,
   repository?: RepositoryIdentity,
@@ -386,6 +440,8 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   let changingHistory = false;
   let acceptingSlashSuggestion = false;
   let dismissedSuggestionText: string | undefined;
+  let closeModelPicker: (() => void) | undefined;
+  let modelPickerList: SearchableModelList | undefined;
 
   const suggestionsFor = (text: string): SlashCommandSuggestion[] => {
     const query = text.trimStart();
@@ -978,28 +1034,82 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         );
         return;
       }
-      showSelection(
-        "Select a Pi model",
-        models.map((model) => ({
+      showModelPicker(models);
+    } catch (error) {
+      appendText(errorMessage(error), "error");
+    }
+  }
+
+  function showModelPicker(models: ModelInfo[]): void {
+    const currentModel = options.gateway.currentModel();
+    const sortedModels = [...models].sort(
+      (left, right) =>
+        left.provider.localeCompare(right.provider) ||
+        left.name.localeCompare(right.name) ||
+        left.id.localeCompare(right.id),
+    );
+    const itemsFor = (query: string) => {
+      const normalizedQuery = query.trim().toLocaleLowerCase();
+      return sortedModels
+        .filter((model) =>
+          [model.name, model.provider, model.id]
+            .join(" ")
+            .toLocaleLowerCase()
+            .includes(normalizedQuery),
+        )
+        .map((model) => ({
           value: `${model.provider}/${model.id}`,
           label: model.name,
-          description: model.provider,
-        })),
-        async (value) => {
-          const model = models.find(
-            (candidate) => `${candidate.provider}/${candidate.id}` === value,
-          );
-          if (!model) return;
-          try {
-            await options.gateway.selectModel(model);
-            modelLabel = `${model.provider}/${model.name}`;
-            appendText(`Selected ${modelLabel}.`, "muted");
-            updateFooter();
-          } catch (error) {
-            appendText(errorMessage(error), "error");
-          }
-        },
-      );
+          description: `${model.provider} · ${model.id}${currentModel && model.provider === currentModel.provider && model.id === currentModel.id ? " · current" : ""}`,
+        }));
+    };
+    const searchEditor = new Editor(tui, editorTheme, { paddingX: 1 });
+    let hideOverlay = (): void => {};
+    const list = new SearchableModelList(
+      itemsFor(""),
+      (value) => {
+        hideOverlay();
+        const model = sortedModels.find(
+          (candidate) => `${candidate.provider}/${candidate.id}` === value,
+        );
+        if (model) void selectModel(model);
+      },
+      () => hideOverlay(),
+    );
+    modelPickerList = list;
+    searchEditor.onChange = (query) => {
+      list.setItems(itemsFor(query));
+      tui.requestRender();
+    };
+    const panel = new VStack([
+      new Text(tone("Select a model", "text", true), 1, 0),
+      new Text(tone("Search by model, provider, or ID", "muted"), 1, 0),
+      searchEditor,
+      list,
+      new Text(tone("↑/↓ navigate · Enter select · Esc close", "dim"), 1, 0),
+    ]);
+    const overlay = tui.showOverlay(panel, {
+      anchor: "center",
+      width: "72%",
+      maxHeight: "75%",
+      margin: 1,
+    });
+    hideOverlay = () => {
+      overlay.hide();
+      if (closeModelPicker === hideOverlay) closeModelPicker = undefined;
+      if (modelPickerList === list) modelPickerList = undefined;
+      tui.setFocus(editor);
+    };
+    closeModelPicker = hideOverlay;
+    tui.setFocus(searchEditor);
+  }
+
+  async function selectModel(model: ModelInfo): Promise<void> {
+    try {
+      await options.gateway.selectModel(model);
+      modelLabel = `${model.provider}/${model.name}`;
+      appendText(`Selected ${modelLabel}.`, "muted");
+      updateFooter();
     } catch (error) {
       appendText(errorMessage(error), "error");
     }
@@ -1348,6 +1458,24 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   };
 
   tui.addInputListener((data) => {
+    if (closeModelPicker) {
+      if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
+        closeModelPicker();
+        return { consume: true };
+      }
+      if (
+        matchesKey(data, "up") ||
+        matchesKey(data, "down") ||
+        matchesKey(data, "pageUp") ||
+        matchesKey(data, "pageDown") ||
+        matchesKey(data, "enter")
+      ) {
+        modelPickerList?.handleInput(data);
+        tui.requestRender();
+        return { consume: true };
+      }
+      return undefined;
+    }
     if (activePermissionPrompt) {
       if (matchesKey(data, "ctrl+c")) {
         denyPendingPermissionPrompts();

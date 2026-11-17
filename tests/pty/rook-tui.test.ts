@@ -38,6 +38,15 @@ class EventGateway implements AgentGateway {
   externalGrants: ExternalAccessGrant[] = [];
   queuedMessages: { text: string; disposition: string }[] = [];
   sentPrompts: string[] = [];
+  models: ModelInfo[] = [
+    { provider: "openai", id: "gpt-4.1", name: "GPT-4.1" },
+    {
+      provider: "anthropic",
+      id: "claude-sonnet-4",
+      name: "Claude Sonnet 4",
+    },
+  ];
+  selectedModel: ModelInfo | undefined;
   forkedEntry?: string;
   compactedInstructions: string | undefined = undefined;
   private finishPendingRun: (() => void) | undefined = undefined;
@@ -76,14 +85,16 @@ class EventGateway implements AgentGateway {
   async cancel(): Promise<void> {}
 
   async listModels(): Promise<ModelInfo[]> {
-    return [];
+    return this.models;
   }
 
-  currentModel(): undefined {
-    return undefined;
+  currentModel(): ModelInfo | undefined {
+    return this.selectedModel;
   }
 
-  async selectModel(): Promise<void> {}
+  async selectModel(model: ModelInfo): Promise<void> {
+    this.selectedModel = model;
+  }
 
   listProviders(): [] {
     return [];
@@ -429,6 +440,56 @@ describe("Rook TUI shell", () => {
     expect(firstText).toBeGreaterThanOrEqual(0);
     expect(firstText).toBeLessThan(toolCall);
     expect(toolCall).toBeLessThan(followingText);
+
+    terminal.input("\u0003");
+    await finished;
+  });
+
+  it("opens a centered searchable model picker and selects a filtered model", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+
+    await app.submit("/model");
+    const plainScreen = (): string => {
+      app.tui.renderNow(true);
+      return app.tui
+        .getScreenLines()
+        .join("\n")
+        .replace(/\x1B(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g, "");
+    };
+    let screen = plainScreen();
+    expect(screen).toContain("Select a model");
+    expect(screen).toContain("Search by model");
+    const titleRow = screen
+      .split("\n")
+      .findIndex((line) => line.includes("Select a model"));
+    expect(titleRow).toBeGreaterThan(2);
+    expect(titleRow).toBeLessThan(terminal.rows - 4);
+
+    for (const character of "claude") terminal.input(character);
+    const filtered = plainScreen();
+    expect(filtered).toContain("Claude Sonnet 4");
+    expect(filtered).not.toContain("GPT-4.1");
+
+    terminal.input("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(gateway.selectedModel).toEqual({
+      provider: "anthropic",
+      id: "claude-sonnet-4",
+      name: "Claude Sonnet 4",
+    });
+    expect(plainScreen()).not.toContain("Search by model");
+
+    await app.submit("/model");
+    expect(plainScreen()).toContain("current");
+    terminal.input("\u001b");
+    expect(plainScreen()).not.toContain("Search by model");
 
     terminal.input("\u0003");
     await finished;
