@@ -44,13 +44,14 @@ M0 is implemented, but live-provider streaming remains credential-gated and unve
 - Security scope: this is a host-side policy, not an OS/container sandbox; filesystem checks cannot eliminate races with a hostile concurrent process. Use an isolated container/VM for untrusted repositories.
 - ROOK-011: added Git and non-Git workspace identity in a locked, atomic, permission-restricted `~/.rook/repositories.json` registry (`ROOK_HOME` overrides the directory). Git working trees get generated IDs keyed by local Git metadata identity, so clones stay distinct and worktrees get distinct IDs with a common logical ID; path renames retain the ID. Credential-free remote fingerprints are hashed before storage. The registry retains the latest branch/HEAD/dirty snapshot, and the TUI displays the repository ID and initial snapshot. SQLite/history remains ROOK-012.
 - ROOK-012: added `better-sqlite3` (Node 22.19+ verified) and transactional, versioned SQLite migrations with WAL, foreign keys, constraints, indexes, FTS5 triggers, and a rebuild operation. Real workspaces now persist generated repository identity and append snapshot history to `~/.rook/state.sqlite`; the ROOK-011 JSON registry remains the identity resolver. Added parameterized memory persistence/search, content-clearing soft delete and purge, SQLite backup, and JSON export. The database is created with owner-only file permissions.
+- ROOK-013: added repo-scoped memory create/get/list, source evidence management, revision history for edits, pinning, semantic-key deduplication with evidence dedupe, and explicit forget with cascading physical removal from the live database. Secret-like content and secret-bearing file paths are rejected before persistence; soft-deleted content is removed from FTS and copied text is cleared from revision/evidence records.
 
 ### Validation
 
 - `npm run typecheck` — passed.
 - `npx vitest run tests/app/state.test.ts` — passed (5 focused tests).
 - `npx vitest run tests/pi/event-adapter.test.ts tests/pi/mock-agent-gateway.test.ts` — passed (4 tests; event mapping, no raw tool data, and final-message deduplication).
-- `npm test` — passed (8 files, 30 tests; includes policy traversal, sensitive path, link, tool-hook, mode/concurrency, repository identity/snapshot, migrations, FTS, backup, and export cases).
+- `npm test` — passed (8 files, 33 tests; includes policy traversal, sensitive path, link, tool-hook, mode/concurrency, repository identity/snapshot, migrations, FTS, memory revisions/deduplication/forget, backup, and export cases).
 - Node 22.19 compatibility — passed: rebuilt the native driver under Node 22.19, verified FTS5, and ran all focused database tests.
 - `npm run test:pty` — passed (fake-terminal render, resize, prompt, mode/session commands, and cleanup flow).
 - `npm run test:integration` — passed (SDK lifecycle, tool allowlist/mode changes, and persistent session list/resume/new/rebind flow).
@@ -60,4 +61,4 @@ M0 is implemented, but live-provider streaming remains credential-gated and unve
 
 ### Next
 
-- ROOK-013: implement evidence-aware memory CRUD with revision, deduplication, and forget behavior on the ROOK-012 store.
+- ROOK-014: implement repo-scoped retrieval and safe context composition using evidence-backed memories.
