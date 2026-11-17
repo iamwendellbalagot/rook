@@ -66,13 +66,6 @@ const PALETTE: Record<string, string> = {
   D: "#A5D1E4",
   E: "#B8F2FC",
 };
-const GLYPHS: Record<string, readonly string[]> = {
-  r: ["00000", "00000", "11110", "10001", "10000", "10000", "10000"],
-  o: ["00000", "00000", "01110", "10001", "10001", "10001", "01110"],
-  k: ["10000", "10000", "10010", "10100", "11000", "10100", "10010"],
-  ".": ["00", "00", "00", "00", "00", "11", "11"],
-};
-
 const RESET = "\x1b[0m";
 const IVORY = "#F1EEE7";
 const CYAN = "#27D8F3";
@@ -97,24 +90,14 @@ function halfBlock(top: string, bottom: string): string {
   return fg(a!) + bg(b!) + "▀" + RESET;
 }
 function renderIconRow(row: number): string {
-  const top = ICON_PIXELS[row * 2]!;
-  const bottom = ICON_PIXELS[row * 2 + 1]!;
-  return [...top].map((cell, x) => halfBlock(cell, bottom[x]!)).join("");
-}
-function glyphLine(row: number, scale: number): string {
-  const symbol = (ch: string) =>
-    [...GLYPHS[ch]![row]!]
-      .map((b) => (b === "1" ? "█".repeat(scale) : " ".repeat(scale)))
-      .join("");
-  return (
-    fg(IVORY) +
-    ["r", "o", "o", "k"].map(symbol).join(" ".repeat(scale)) +
-    RESET +
-    " ".repeat(scale) +
-    fg(CYAN) +
-    symbol(".") +
-    RESET
-  );
+  const sample = (x: number, y: number): string => {
+    const sourceX = Math.min(33, Math.floor(((x + 0.5) * 34) / 8));
+    const sourceY = Math.min(33, Math.floor(((y + 0.5) * 34) / 8));
+    return ICON_PIXELS[sourceY]![sourceX]!;
+  };
+  return Array.from({ length: 8 }, (_, x) =>
+    halfBlock(sample(x, row * 2), sample(x, row * 2 + 1)),
+  ).join("");
 }
 export interface RookBrandOptions {
   tagline?: boolean;
@@ -124,28 +107,27 @@ export interface RookBrandOptions {
 export class RookBrand implements Component {
   constructor(private readonly options: RookBrandOptions = {}) {}
   render(width: number): string[] {
-    if (width < 40) return [fg(CYAN) + "♜" + RESET + " rook."];
     const pad = " ".repeat(this.options.indent ?? 2);
-    if (width < 69) {
-      // Icon-free compact wordmark prevents ugly wrapping on narrow terminals.
-      const word = fg(IVORY) + "rook" + RESET + fg(CYAN) + "." + RESET;
-      return [
-        pad + word,
-        ...(this.options.tagline === false
-          ? []
-          : [pad + TAGLINE.slice(0, Math.max(0, width - pad.length))]),
-      ];
-    }
-    const scale = width >= 100 ? 2 : 1;
+    const wordmark = fg(IVORY) + "rook" + RESET + fg(CYAN) + "." + RESET;
     const lines: string[] = [];
-    for (let y = 0; y < 17; y++) {
-      const right = y >= 5 && y < 12 ? glyphLine(y - 5, scale) : "";
-      const divider = y >= 5 && y < 12 ? fg(MUTED) + "│" + RESET : " ";
-      lines.push(pad + renderIconRow(y) + " " + divider + " " + right);
+    for (let row = 0; row < 4; row++) {
+      const divider = fg(MUTED) + "│" + RESET;
+      lines.push(
+        pad +
+          renderIconRow(row) +
+          " " +
+          divider +
+          " " +
+          (row === 1 ? wordmark : ""),
+      );
     }
     if (this.options.tagline !== false) {
-      lines.push("");
-      lines.push(pad + fg(MUTED) + TAGLINE + RESET);
+      lines.push(
+        pad +
+          fg(MUTED) +
+          TAGLINE.slice(0, Math.max(0, width - pad.length)) +
+          RESET,
+      );
     }
     return lines;
   }

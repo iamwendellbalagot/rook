@@ -555,20 +555,15 @@ class HomeScreenBody implements Component {
 
   render(width: number): string[] {
     const lines = ["", ...this.brand.render(width - 4), ""];
-    const chipWidth = 14;
-    const innerWidth = chipWidth - 2;
     const left = "  ";
 
     for (const [command, description] of HOME_ACTIONS) {
-      const top = `╭${"─".repeat(innerWidth)}╮`;
-      const label = ` ${command.padEnd(innerWidth - 2)} `;
-      const middle = `│${tone(label, "cyan", true)}│`;
-      const bottom = `╰${"─".repeat(innerWidth)}╯`;
-      const descriptionWidth = Math.max(0, width - left.length - chipWidth - 3);
+      const label = `⟮ ${command} ⟯`;
+      const actionColumn = 14;
+      const gap = " ".repeat(Math.max(1, actionColumn - visibleWidth(label)));
+      const descriptionWidth = Math.max(0, width - left.length - actionColumn);
       lines.push(
-        `${left}${tone(top, "blue")}`,
-        `${left}${tone(middle, "blue")}   ${tone(truncateToWidth(description, descriptionWidth), "muted")}`,
-        `${left}${tone(bottom, "blue")}`,
+        `${left}${tone(label, "cyan")}${gap}${tone(truncateToWidth(description, descriptionWidth), "dim")}`,
       );
     }
 
