@@ -462,7 +462,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           }
           return;
         case "/skills":
-          showAgentResources("Pi skills", options.gateway.listSkills());
+          showAgentResources("Rook skills", options.gateway.listSkills());
           return;
         case "/prompts":
           showAgentResources(

@@ -118,28 +118,51 @@ describe("Pi SDK compatibility", () => {
     }
   });
 
-  it("loads Pi skills and prompt templates without enabling executable extensions", async () => {
+  it("loads only Rook-managed skills while leaving extensions disabled", async () => {
     const root = await mkdtemp(join(tmpdir(), "rook-pi-resources-"));
     const cwd = join(root, "workspace");
     const sessionDir = join(root, "sessions");
-    await mkdir(join(cwd, ".pi", "skills", "safe-review"), {
-      recursive: true,
-    });
-    await mkdir(join(cwd, ".pi", "prompts"), { recursive: true });
-    await writeFile(
-      join(cwd, ".pi", "skills", "safe-review", "SKILL.md"),
-      "---\nname: safe-review\ndescription: Review code without executing commands.\n---\nRead and review code only.\n",
-    );
-    await writeFile(
-      join(cwd, ".pi", "prompts", "review.md"),
-      "---\nname: review\ndescription: Review the current change.\n---\nReview this change: $ARGUMENTS\n",
-    );
-    const gateway = await createPiAgentGateway(cwd, { sessionDir });
+    const previousRookHome = process.env.ROOK_HOME;
+    process.env.ROOK_HOME = join(root, "rook-home");
+    let gateway: Awaited<ReturnType<typeof createPiAgentGateway>> | undefined;
     try {
+      await mkdir(join(cwd, ".rook", "skills", "safe-review"), {
+        recursive: true,
+      });
+      await mkdir(join(cwd, ".pi", "skills", "ambient-review"), {
+        recursive: true,
+      });
+      await mkdir(join(cwd, ".agents", "skills", "shared-review"), {
+        recursive: true,
+      });
+      await mkdir(join(cwd, ".pi", "prompts"), { recursive: true });
+      await writeFile(
+        join(cwd, ".rook", "skills", "safe-review", "SKILL.md"),
+        "---\nname: safe-review\ndescription: Review code without executing commands.\n---\nRead and review code only.\n",
+      );
+      await writeFile(
+        join(cwd, ".pi", "skills", "ambient-review", "SKILL.md"),
+        "---\nname: ambient-review\ndescription: Must not leak into Rook.\n---\nAmbient skill.\n",
+      );
+      await writeFile(
+        join(cwd, ".agents", "skills", "shared-review", "SKILL.md"),
+        "---\nname: shared-review\ndescription: Must not leak into Rook.\n---\nShared skill.\n",
+      );
+      await writeFile(
+        join(cwd, ".pi", "prompts", "review.md"),
+        "---\nname: review\ndescription: Review the current change.\n---\nReview this change: $ARGUMENTS\n",
+      );
+      gateway = await createPiAgentGateway(cwd, { sessionDir });
       expect(gateway.listSkills()).toContainEqual({
         name: "safe-review",
         description: "Review code without executing commands.",
       });
+      expect(gateway.listSkills()).not.toContainEqual(
+        expect.objectContaining({ name: "ambient-review" }),
+      );
+      expect(gateway.listSkills()).not.toContainEqual(
+        expect.objectContaining({ name: "shared-review" }),
+      );
       expect(gateway.listPromptTemplates()).toContainEqual({
         name: "review",
         description: "Review the current change.",
@@ -149,7 +172,9 @@ describe("Pi SDK compatibility", () => {
       expect(gateway.getActiveTools()).not.toContain("bash");
       expect(gateway.getActiveTools()).not.toContain("codemode");
     } finally {
-      await gateway.dispose();
+      await gateway?.dispose();
+      if (previousRookHome === undefined) delete process.env.ROOK_HOME;
+      else process.env.ROOK_HOME = previousRookHome;
       await rm(root, { recursive: true, force: true });
     }
   });

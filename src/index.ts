@@ -8,6 +8,12 @@ import { MemoryCaptureManager } from "./memory/capture.js";
 import { resolveWorkspace } from "./repo/workspace.js";
 import { createRookTui } from "./tui/rook-tui.js";
 import { initialAppState, reduceAppState, type AppState } from "./app/state.js";
+import {
+  installSkills,
+  listInstalledSkills,
+  removeInstalledSkill,
+  type SkillScope,
+} from "./skills/manager.js";
 
 export function parseCliArguments(
   args: string[],
@@ -33,9 +39,21 @@ export function parseCliArguments(
 }
 
 export async function main(args = process.argv.slice(2)): Promise<void> {
+  if (
+    args[0] === "skills" &&
+    (args.length === 1 ||
+      args[1] === "list" ||
+      args[1] === "install" ||
+      args[1] === "remove" ||
+      args[1] === "--help" ||
+      args[1] === "-h")
+  ) {
+    await runSkillCommand(args.slice(1));
+    return;
+  }
   if (args.includes("--help") || args.includes("-h")) {
     console.log(
-      "Usage: rook [--cwd PATH] [--mock] [PROMPT]\n\nStart the Rook TUI, or send a one-shot headless prompt.",
+      "Usage: rook [--cwd PATH] [--mock] [PROMPT]\n       rook skills [list|install|remove] ...\n\nStart the Rook TUI, send a one-shot prompt, or manage Rook-scoped skills.",
     );
     return;
   }
@@ -90,6 +108,101 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   } finally {
     store?.close();
   }
+}
+
+async function runSkillCommand(args: string[]): Promise<void> {
+  const usage =
+    "Usage: rook skills [list]\n       rook skills install <local-path|git-url|owner/repo> [--skill NAME] [--project|--global] [--cwd PATH]\n       rook skills remove <NAME> [--project|--global] [--cwd PATH]";
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log(usage);
+    return;
+  }
+
+  const [action = "list", ...rest] = args;
+  if (action !== "list" && action !== "install" && action !== "remove") {
+    throw new Error(`Unknown skills action '${action}'.\n${usage}`);
+  }
+
+  const options = parseSkillCommandOptions(rest);
+  if (action === "list") {
+    if (options.value)
+      throw new Error(`Unexpected argument '${options.value}'.`);
+    const skills = await listInstalledSkills(options.cwd);
+    console.log(
+      skills.length
+        ? skills
+            .map(
+              (skill) =>
+                `${skill.name} [${skill.scope}] — ${skill.description}`,
+            )
+            .join("\n")
+        : "No Rook skills are installed.",
+    );
+    return;
+  }
+
+  if (!options.value) throw new Error(`Missing ${action} target.\n${usage}`);
+  if (action === "install") {
+    const installed = await installSkills(options.value, {
+      cwd: options.cwd,
+      scope: options.scope,
+      ...(options.skillName ? { skillName: options.skillName } : {}),
+    });
+    console.log(
+      installed
+        .map(
+          (skill) => `Installed ${skill.name} (${skill.scope}): ${skill.path}`,
+        )
+        .join("\n"),
+    );
+    return;
+  }
+
+  const removed = await removeInstalledSkill(options.value, {
+    cwd: options.cwd,
+    scope: options.scope,
+  });
+  console.log(
+    removed
+      ? `Removed ${options.value} from ${options.scope} skills.`
+      : `No ${options.scope} skill named '${options.value}' was found.`,
+  );
+}
+
+function parseSkillCommandOptions(args: string[]): {
+  value?: string;
+  cwd: string;
+  scope: SkillScope;
+  skillName?: string;
+} {
+  let value: string | undefined;
+  let cwd = process.cwd();
+  let scope: SkillScope = "project";
+  let skillName: string | undefined;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "--project" || arg === "--global") {
+      scope = arg === "--global" ? "global" : "project";
+    } else if (arg === "--cwd" || arg === "--skill") {
+      const optionValue = args[index + 1];
+      if (!optionValue) throw new Error(`${arg} requires a value.`);
+      if (arg === "--cwd") cwd = optionValue;
+      else skillName = optionValue;
+      index += 1;
+    } else if (arg.startsWith("-")) {
+      throw new Error(`Unknown skills option '${arg}'.`);
+    } else if (value === undefined) {
+      value = arg;
+    } else {
+      throw new Error(`Unexpected argument '${arg}'.`);
+    }
+  }
+  return {
+    ...(value ? { value } : {}),
+    cwd,
+    scope,
+    ...(skillName ? { skillName } : {}),
+  };
 }
 
 async function runApplication(options: {

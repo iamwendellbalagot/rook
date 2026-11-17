@@ -33,6 +33,10 @@ import {
   type RetrievedMemoryContext,
 } from "../memory/context.js";
 import type { MemoryCaptureManager } from "../memory/capture.js";
+import {
+  getRookSkillDirectories,
+  isWithinRookSkillDirectories,
+} from "../skills/manager.js";
 
 const AVAILABLE_TOOLS = ["read", "find", "ls", "edit", "write"];
 
@@ -69,6 +73,23 @@ export async function createPiAgentGateway(
           noExtensions: true,
           noSkills: false,
           noPromptTemplates: false,
+          additionalSkillPaths: Object.values(
+            getRookSkillDirectories(sessionCwd),
+          ),
+          skillsOverride: (loaded) => {
+            const managedSkillDirectories = Object.values(
+              getRookSkillDirectories(sessionCwd),
+            );
+            return {
+              ...loaded,
+              skills: loaded.skills.filter((skill) =>
+                isWithinRookSkillDirectories(
+                  skill.filePath,
+                  managedSkillDirectories,
+                ),
+              ),
+            };
+          },
           extensionFactories: [
             createToolPolicyExtension(policy),
             ...(options.memoryContext
