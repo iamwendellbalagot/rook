@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -33,6 +33,8 @@ describe("Pi SDK compatibility", () => {
       expect(gateway.getActiveTools()).not.toContain("bash");
       expect(gateway.getActiveTools()).not.toContain("grep");
       expect(gateway.getActiveTools()).not.toContain("write");
+      expect(gateway.listSkills()).toEqual(expect.any(Array));
+      expect(gateway.listPromptTemplates()).toEqual(expect.any(Array));
       gateway.setMode("build");
       expect(gateway.getActiveTools()).toContain("write");
       expect(gateway.getActiveTools()).not.toContain("bash");
@@ -98,10 +100,54 @@ describe("Pi SDK compatibility", () => {
         { role: "user", text: "saved test prompt" },
       ]);
 
+      const forkPoint = gateway.listForkPoints()[0];
+      expect(forkPoint?.text).toBe("saved test prompt");
+      const previousSessionId = gateway.currentSession().id;
+      await gateway.fork(forkPoint!.entryId);
+      // Pi forks before the selected user message so it can be edited/retried.
+      expect(gateway.sessionHistory()).toEqual([]);
+      expect(gateway.currentSession().id).not.toBe(previousSessionId);
+
       const previousId = gateway.currentSession().id;
       await gateway.newSession();
       expect(gateway.currentSession().id).not.toBe(previousId);
       expect(gateway.sessionHistory()).toEqual([]);
+    } finally {
+      await gateway.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("loads Pi skills and prompt templates without enabling executable extensions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rook-pi-resources-"));
+    const cwd = join(root, "workspace");
+    const sessionDir = join(root, "sessions");
+    await mkdir(join(cwd, ".pi", "skills", "safe-review"), {
+      recursive: true,
+    });
+    await mkdir(join(cwd, ".pi", "prompts"), { recursive: true });
+    await writeFile(
+      join(cwd, ".pi", "skills", "safe-review", "SKILL.md"),
+      "---\nname: safe-review\ndescription: Review code without executing commands.\n---\nRead and review code only.\n",
+    );
+    await writeFile(
+      join(cwd, ".pi", "prompts", "review.md"),
+      "---\nname: review\ndescription: Review the current change.\n---\nReview this change: $ARGUMENTS\n",
+    );
+    const gateway = await createPiAgentGateway(cwd, { sessionDir });
+    try {
+      expect(gateway.listSkills()).toContainEqual({
+        name: "safe-review",
+        description: "Review code without executing commands.",
+      });
+      expect(gateway.listPromptTemplates()).toContainEqual({
+        name: "review",
+        description: "Review the current change.",
+      });
+      expect(gateway.isResourceCommand("/skill:safe-review")).toBe(true);
+      expect(gateway.isResourceCommand("/review this diff")).toBe(true);
+      expect(gateway.getActiveTools()).not.toContain("bash");
+      expect(gateway.getActiveTools()).not.toContain("codemode");
     } finally {
       await gateway.dispose();
       await rm(root, { recursive: true, force: true });

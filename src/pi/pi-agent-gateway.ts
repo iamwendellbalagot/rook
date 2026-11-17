@@ -9,10 +9,12 @@ import {
 import type {
   AgentEvent,
   AgentGateway,
+  AgentResource,
   CurrentSessionInfo,
   ExternalAccessChoice,
   ExternalAccessGrant,
   ExternalAccessRequest,
+  ForkPoint,
   ModelInfo,
   PermissionDecision,
   PermissionMode,
@@ -65,7 +67,8 @@ export async function createPiAgentGateway(
         agentDir,
         resourceLoaderOptions: {
           noExtensions: true,
-          noSkills: true,
+          noSkills: false,
+          noPromptTemplates: false,
           extensionFactories: [
             createToolPolicyExtension(policy),
             ...(options.memoryContext
@@ -115,9 +118,23 @@ export async function createPiAgentGateway(
   }
 
   return {
-    async send(prompt) {
+    async send(prompt, disposition = "normal") {
       try {
-        await runtime.session.prompt(prompt);
+        if (disposition === "normal") {
+          await runtime.session.prompt(prompt);
+        } else if (disposition === "steer") {
+          if (!runtime.session.isStreaming)
+            throw new Error(
+              "Steering is only available while Rook is responding.",
+            );
+          await runtime.session.steer(prompt);
+        } else {
+          if (!runtime.session.isStreaming)
+            throw new Error(
+              "Follow-up is only available while Rook is responding.",
+            );
+          await runtime.session.followUp(prompt);
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         emit({ type: "error", message });
@@ -237,6 +254,41 @@ export async function createPiAgentGateway(
                 .join("");
         return text ? [{ role: message.role, text }] : [];
       });
+    },
+    listSkills(): AgentResource[] {
+      return runtime.session.resourceLoader
+        .getSkills()
+        .skills.map(({ name, description }) => ({ name, description }));
+    },
+    listPromptTemplates(): AgentResource[] {
+      return runtime.session.resourceLoader
+        .getPrompts()
+        .prompts.map(({ name, description }) => ({ name, description }));
+    },
+    isResourceCommand(prompt: string): boolean {
+      const command = prompt.trim().split(/\s+/, 1)[0];
+      if (!command) return false;
+      if (command.startsWith("/skill:")) {
+        const name = command.slice("/skill:".length);
+        return runtime.session.resourceLoader
+          .getSkills()
+          .skills.some((skill) => skill.name === name);
+      }
+      if (!command.startsWith("/")) return false;
+      const name = command.slice(1);
+      return runtime.session.resourceLoader
+        .getPrompts()
+        .prompts.some((template) => template.name === name);
+    },
+    listForkPoints(): ForkPoint[] {
+      return runtime.session.getUserMessagesForForking();
+    },
+    async fork(entryId) {
+      const result = await runtime.fork(entryId);
+      if (result.cancelled) throw new Error("Fork was cancelled.");
+    },
+    async compact(customInstructions) {
+      await runtime.session.compact(customInstructions);
     },
     async newSession() {
       await runtime.newSession();

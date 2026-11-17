@@ -200,6 +200,10 @@ function createHome(
     ["/model", "Choose a model from Pi's catalog"],
     ["/new", "Start a new persistent session"],
     ["/sessions", "Browse and resume saved sessions"],
+    ["/fork", "Fork the current session from a user message"],
+    ["/compact", "Compact the current Pi session"],
+    ["/skills", "List Pi skills available in this workspace"],
+    ["/prompts", "List Pi prompt templates"],
     ["/login", "Sign in to a Pi provider"],
     ["/settings", "Adjust thinking level"],
     ["/permissions", "Review or revoke session access grants"],
@@ -393,7 +397,13 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   const submitPrompt = async (text: string): Promise<void> => {
     const prompt = text.trim();
     if (!prompt) return;
-    if (state.runState === "running" && prompt !== "/cancel") {
+    const command = prompt.split(/\s+/, 1)[0];
+    const canQueueInput = command === "/steer" || command === "/follow-up";
+    if (
+      state.runState === "running" &&
+      prompt !== "/cancel" &&
+      !canQueueInput
+    ) {
       appendText(
         "A response is still running. Use /cancel or Ctrl+C.",
         "muted",
@@ -402,7 +412,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     }
 
     if (prompt.startsWith("/")) {
-      switch (prompt.split(/\s+/, 1)[0]) {
+      switch (command) {
         case "/exit":
         case "/quit":
           exit();
@@ -410,7 +420,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/help":
           removeHome();
           appendText(
-            "Available: /help, /login, /logout, /model, /settings, /new, /sessions, /resume, /plan, /build, /permissions [revoke <grant-id>], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
+            "Available: /help, /login, /logout, /model, /settings, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
             "muted",
           );
           return;
@@ -438,6 +448,54 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/resume":
           await showSessionMenu();
           return;
+        case "/fork":
+          showForkMenu();
+          return;
+        case "/compact":
+          try {
+            await options.gateway.compact(
+              prompt.slice("/compact".length).trim() || undefined,
+            );
+            appendText("Pi compacted the current session context.", "muted");
+          } catch (error) {
+            appendText(errorMessage(error), "error");
+          }
+          return;
+        case "/skills":
+          showAgentResources("Pi skills", options.gateway.listSkills());
+          return;
+        case "/prompts":
+          showAgentResources(
+            "Pi prompt templates",
+            options.gateway.listPromptTemplates(),
+          );
+          return;
+        case "/steer":
+        case "/follow-up": {
+          const text = prompt.slice(command.length).trim();
+          if (!text) {
+            appendText(`Usage: ${command} <text>`, "error");
+            return;
+          }
+          if (state.runState !== "running") {
+            appendText(
+              `${command} is only available while Rook is responding.`,
+              "error",
+            );
+            return;
+          }
+          const disposition = command === "/steer" ? "steer" : "follow_up";
+          try {
+            await options.gateway.send(text, disposition);
+            appendText(
+              `${command === "/steer" ? "Steering" : "Follow-up"} message queued.`,
+              "muted",
+            );
+          } catch (error) {
+            appendText(errorMessage(error), "error");
+          }
+          return;
+        }
         case "/plan":
           state = reduceAppState(state, { type: "mode_changed", mode: "plan" });
           options.gateway.setMode("plan");
@@ -488,6 +546,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           await options.gateway.cancel();
           return;
         default:
+          if (options.gateway.isResourceCommand(prompt)) break;
           removeHome();
           appendText(
             "Unknown command. Use /help for available commands.",
@@ -794,6 +853,47 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         ? "External folder grant revoked."
         : "No external folder grant matches that ID.",
       revoked ? "muted" : "error",
+    );
+  }
+
+  function showAgentResources(
+    title: string,
+    resources: { name: string; description: string }[],
+  ): void {
+    appendText(
+      resources.length
+        ? `${title}:\n${resources
+            .map(
+              (resource) =>
+                `/${safeTerminalText(resource.name)} — ${safeTerminalText(resource.description)}`,
+            )
+            .join("\n")}`
+        : `No ${title.toLocaleLowerCase()} are available.`,
+      "muted",
+    );
+  }
+
+  function showForkMenu(): void {
+    const forkPoints = options.gateway.listForkPoints();
+    if (!forkPoints.length) {
+      appendText("No user messages are available to fork from.", "muted");
+      return;
+    }
+    showSelection(
+      "Fork session from a user message",
+      forkPoints.map((point, index) => ({
+        value: point.entryId,
+        label: compactSessionLabel(point.text || `User message ${index + 1}`),
+      })),
+      async (entryId) => {
+        try {
+          await options.gateway.fork(entryId);
+          renderCurrentSession();
+          appendText("Forked the session from the selected message.", "muted");
+        } catch (error) {
+          appendText(errorMessage(error), "error");
+        }
+      },
     );
   }
 

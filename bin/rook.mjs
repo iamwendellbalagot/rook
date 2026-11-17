@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-import { main } from "../dist/index.js";
+const args = process.argv.slice(2);
+const { main } = await import("../dist/index.js");
 
-main().catch((error) => {
+main(args).catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
   console.error(`rook: ${message}`);
   process.exitCode = 1;

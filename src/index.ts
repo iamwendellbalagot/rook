@@ -9,6 +9,29 @@ import { resolveWorkspace } from "./repo/workspace.js";
 import { createRookTui } from "./tui/rook-tui.js";
 import { initialAppState, reduceAppState, type AppState } from "./app/state.js";
 
+export function parseCliArguments(
+  args: string[],
+  defaultCwd = process.cwd(),
+): { cwd: string; prompt: string; mock: boolean; smoke: boolean } {
+  const mock = args.includes("--mock") || args.includes("--smoke");
+  const smoke = args.includes("--smoke");
+  const cwdIndex = args.indexOf("--cwd");
+  const cwdArgument = cwdIndex === -1 ? undefined : args[cwdIndex + 1];
+  if (cwdIndex !== -1 && !cwdArgument) throw new Error("--cwd requires a path");
+  const cwd = cwdArgument ?? defaultCwd;
+  const prompt =
+    args
+      .filter(
+        (arg, index) =>
+          arg !== "--mock" &&
+          arg !== "--smoke" &&
+          arg !== "--cwd" &&
+          (cwdIndex === -1 || index !== cwdIndex + 1),
+      )
+      .join(" ") || (smoke ? "smoke test" : "");
+  return { cwd, prompt, mock, smoke };
+}
+
 export async function main(args = process.argv.slice(2)): Promise<void> {
   if (args.includes("--help") || args.includes("-h")) {
     console.log(
@@ -21,22 +44,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     return;
   }
 
-  const mock = args.includes("--mock") || args.includes("--smoke");
-  const smoke = args.includes("--smoke");
-  const cwdIndex = args.indexOf("--cwd");
-  const cwdArgument = cwdIndex === -1 ? undefined : args[cwdIndex + 1];
-  if (cwdIndex !== -1 && !cwdArgument) throw new Error("--cwd requires a path");
-  const cwd = cwdArgument ?? process.cwd();
-  const prompt =
-    args
-      .filter(
-        (arg, index) =>
-          arg !== "--mock" &&
-          arg !== "--smoke" &&
-          arg !== "--cwd" &&
-          index !== cwdIndex + 1,
-      )
-      .join(" ") || (smoke ? "smoke test" : "");
+  const { cwd, prompt, mock } = parseCliArguments(args);
   if (!prompt && !stdin.isTTY) {
     throw new Error("Pass a prompt argument when running non-interactively.");
   }

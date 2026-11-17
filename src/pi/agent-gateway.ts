@@ -71,8 +71,20 @@ export interface SessionMessage {
   text: string;
 }
 
+export type PromptDisposition = "normal" | "steer" | "follow_up";
+
+export interface AgentResource {
+  name: string;
+  description: string;
+}
+
+export interface ForkPoint {
+  entryId: string;
+  text: string;
+}
+
 export interface AgentGateway {
-  send(prompt: string): Promise<void>;
+  send(prompt: string, disposition?: PromptDisposition): Promise<void>;
   cancel(): Promise<void>;
   listModels(): Promise<ModelInfo[]>;
   currentModel(): ModelInfo | undefined;
@@ -84,6 +96,12 @@ export interface AgentGateway {
   listSessions(): Promise<SessionInfo[]>;
   currentSession(): CurrentSessionInfo;
   sessionHistory(): SessionMessage[];
+  listSkills(): AgentResource[];
+  listPromptTemplates(): AgentResource[];
+  isResourceCommand(prompt: string): boolean;
+  listForkPoints(): ForkPoint[];
+  fork(entryId: string): Promise<void>;
+  compact(customInstructions?: string): Promise<void>;
   newSession(): Promise<void>;
   resumeSession(path: string): Promise<void>;
   setMode(mode: PermissionMode): void;

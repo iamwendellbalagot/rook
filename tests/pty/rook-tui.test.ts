@@ -8,9 +8,11 @@ import { visibleWidth, type Terminal } from "@earendil-works/pi-tui";
 import type {
   AgentEvent,
   AgentGateway,
+  AgentResource,
   ExternalAccessChoice,
   ExternalAccessGrant,
   ExternalAccessRequest,
+  ForkPoint,
   ModelInfo,
   PermissionDecision,
   PermissionMode,
@@ -34,8 +36,28 @@ class EventGateway implements AgentGateway {
     | ((request: ExternalAccessRequest) => Promise<ExternalAccessChoice>)
     | undefined = undefined;
   externalGrants: ExternalAccessGrant[] = [];
+  queuedMessages: { text: string; disposition: string }[] = [];
+  forkedEntry?: string;
+  compactedInstructions: string | undefined = undefined;
+  private finishPendingRun: (() => void) | undefined = undefined;
 
-  async send(): Promise<void> {
+  async send(
+    prompt: string,
+    disposition: "normal" | "steer" | "follow_up" = "normal",
+  ): Promise<void> {
+    if (disposition !== "normal") {
+      this.queuedMessages.push({ text: prompt, disposition });
+      return;
+    }
+    if (prompt === "long running prompt") {
+      this.emit({ type: "text_delta", text: "working" });
+      await new Promise<void>((resolve) => {
+        this.finishPendingRun = resolve;
+      });
+      this.emit({ type: "message_complete", text: "finished" });
+      this.emit({ type: "run_settled", aborted: false });
+      return;
+    }
     this.emit({ type: "text_delta", text: "draft answer" });
     this.emit({
       type: "tool_started",
@@ -83,6 +105,35 @@ class EventGateway implements AgentGateway {
 
   sessionHistory(): SessionMessage[] {
     return [];
+  }
+
+  listSkills(): AgentResource[] {
+    return [{ name: "review", description: "Review source changes" }];
+  }
+
+  listPromptTemplates(): AgentResource[] {
+    return [{ name: "explain", description: "Explain a design" }];
+  }
+
+  isResourceCommand(prompt: string): boolean {
+    return prompt.startsWith("/skill:review") || prompt.startsWith("/explain");
+  }
+
+  listForkPoints(): ForkPoint[] {
+    return [{ entryId: "entry-user-1", text: "start from here" }];
+  }
+
+  async fork(entryId: string): Promise<void> {
+    this.forkedEntry = entryId;
+  }
+
+  async compact(customInstructions?: string): Promise<void> {
+    this.compactedInstructions = customInstructions;
+  }
+
+  completePendingRun(): void {
+    this.finishPendingRun?.();
+    this.finishPendingRun = undefined;
   }
 
   async newSession(): Promise<void> {
@@ -236,12 +287,37 @@ describe("Rook TUI shell", () => {
     );
     expect(app.tui.render(100).join("\n")).toContain("S:session-");
 
+    const pendingRun = app.submit("long running prompt");
+    await app.submit("/steer Continue with the simpler approach");
+    await app.submit("/follow-up Add tests after that");
+    expect(gateway.queuedMessages).toEqual([
+      {
+        text: "Continue with the simpler approach",
+        disposition: "steer",
+      },
+      { text: "Add tests after that", disposition: "follow_up" },
+    ]);
+    gateway.completePendingRun();
+    await pendingRun;
+
+    await app.submit("/compact Keep the final decision");
+    expect(gateway.compactedInstructions).toBe("Keep the final decision");
+    await app.submit("/skills");
+    await app.submit("/prompts");
+    await app.submit("/skill:review");
+    await app.submit("/explain this module");
+    await app.submit("/fork");
+    terminal.input("\r");
+    expect(gateway.forkedEntry).toBe("entry-user-1");
+
     await app.submit("/build");
     app.tui.renderNow(true);
-    expect(terminal.writes.join("")).toContain("Build mode enabled");
+    expect(app.tui.render(100).join("\n")).toContain("BUILD");
+    expect(app.tui.render(100).join("\n")).toContain("workspace edits enabled");
     await app.submit("/plan");
     app.tui.renderNow(true);
-    expect(terminal.writes.join("")).toContain("Plan mode enabled");
+    expect(app.tui.render(100).join("\n")).toContain("PLAN");
+    expect(app.tui.render(100).join("\n")).toContain("read-only tools");
 
     const accessRequest = gateway.externalAccessPrompt?.({
       toolName: "read",

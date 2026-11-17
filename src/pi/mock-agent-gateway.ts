@@ -1,6 +1,7 @@
 import type {
   AgentEvent,
   AgentGateway,
+  AgentResource,
   ExternalAccessGrant,
   ModelInfo,
   PermissionDecision,
@@ -64,6 +65,30 @@ export class MockAgentGateway implements AgentGateway {
 
   sessionHistory(): SessionMessage[] {
     return [];
+  }
+
+  listSkills(): AgentResource[] {
+    return [];
+  }
+
+  listPromptTemplates(): AgentResource[] {
+    return [];
+  }
+
+  isResourceCommand(): boolean {
+    return false;
+  }
+
+  listForkPoints(): [] {
+    return [];
+  }
+
+  async fork(): Promise<void> {
+    throw new Error("The mock gateway has no saved session branches.");
+  }
+
+  async compact(): Promise<void> {
+    throw new Error("The mock gateway has no persistent session to compact.");
   }
 
   async newSession(): Promise<void> {}
