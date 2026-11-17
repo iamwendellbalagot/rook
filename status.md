@@ -10,13 +10,14 @@
 - ROOK-009 is implemented: the gateway uses Pi's `AgentSessionRuntime`; `/new` and `/sessions`/`/resume` replace sessions and rebind subscriptions. Resumed user/assistant text is restored without rendering raw tool data.
 - ROOK-010 is implemented: plan/build permissions are enforced at Pi's `tool_call` boundary. Plan allows scoped reads/file discovery; build adds scoped workspace edits. Shell, content grep, sensitive paths, links, unknown tools, external extensions/skills, and concurrent mutations are denied; `/permissions` displays recent decisions. Pi's grep is disabled because it searches hidden files.
 - ROOK-011 is implemented: Git and directory workspaces receive stable generated IDs in an atomic local registry. Local renames retain IDs; separate clones remain distinct; worktrees get distinct IDs with a shared logical grouping ID. Git branch, HEAD, and dirty fingerprint snapshots are refreshed at startup and shown in the TUI. Remote credentials are stripped before fingerprinting; raw remote URLs are not stored.
+- ROOK-012 is implemented: `better-sqlite3` works on the declared Node 22.19 minimum and current Node 26 runtime. A WAL database at `~/.rook/state.sqlite` receives repository identity and snapshot history at startup. Versioned migrations create constrained repository, snapshot, memory, evidence, revision, link, and event tables; FTS5 triggers/rebuild, memory search, backup, and JSON export are available. Soft deletion removes searchable content and clears copies in revision/evidence text; explicit purge cascades.
 - Offline validation passes: typecheck, unit/integration tests, build, mock smoke, and Prettier check. See `docs/PROGRESS.md` for command results.
 - Live-provider streaming still needs a credential-configured smoke run.
 - The permission policy is a host-side guard, not an OS/container sandbox; filesystem checks cannot eliminate hostile concurrent-process races. External Pi extensions and skills are disabled in the policy-controlled runtime.
 - The repository-memory engine is not implemented yet.
-- Repository metadata currently uses a small JSON registry; snapshot history and durable memory tables are deferred to ROOK-012's SQLite migrations.
+- The JSON registry remains the stable local identity resolver; SQLite mirrors current repository metadata and stores snapshot history. No automatic memory extraction/injection pipeline exists yet.
 
 ## Pending
 
-- ROOK-012 is next: implement SQLite schema and migrations.
+- ROOK-013 is next: implement evidence-aware memory CRUD, revisions, deduplication, and forget behavior.
 - Run a real-provider prompt when Pi credentials are available.

@@ -2,6 +2,7 @@ import { stdin, stdout } from "node:process";
 import { MockAgentGateway } from "./pi/mock-agent-gateway.js";
 import { createPiAgentGateway } from "./pi/pi-agent-gateway.js";
 import type { AgentGateway } from "./pi/agent-gateway.js";
+import { RookStore } from "./db/store.js";
 import { resolveWorkspace } from "./repo/workspace.js";
 import { createRookTui } from "./tui/rook-tui.js";
 import { initialAppState, reduceAppState, type AppState } from "./app/state.js";
@@ -38,29 +39,36 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     throw new Error("Pass a prompt argument when running non-interactively.");
   }
   const workspace = mock ? undefined : await resolveWorkspace(cwd);
-  const gateway = mock
-    ? new MockAgentGateway()
-    : await createPiAgentGateway(cwd);
-  let state = reduceAppState(initialAppState(), { type: "startup_complete" });
-
+  const store = workspace ? await RookStore.open() : undefined;
   try {
-    if (prompt) {
-      state = await runPrompt(gateway, prompt, state);
-      return;
+    if (workspace && store) {
+      store.saveWorkspace(workspace.repository, workspace.snapshot);
     }
-    const app = createRookTui({
-      cwd,
-      gateway,
-      ...(workspace?.snapshot?.branch
-        ? { branch: workspace.snapshot.branch }
-        : {}),
-      ...(workspace
-        ? { repository: workspace.repository, snapshot: workspace.snapshot }
-        : {}),
-    });
-    await app.start();
+    const gateway = mock
+      ? new MockAgentGateway()
+      : await createPiAgentGateway(cwd);
+    let state = reduceAppState(initialAppState(), { type: "startup_complete" });
+    try {
+      if (prompt) {
+        state = await runPrompt(gateway, prompt, state);
+        return;
+      }
+      const app = createRookTui({
+        cwd,
+        gateway,
+        ...(workspace?.snapshot?.branch
+          ? { branch: workspace.snapshot.branch }
+          : {}),
+        ...(workspace
+          ? { repository: workspace.repository, snapshot: workspace.snapshot }
+          : {}),
+      });
+      await app.start();
+    } finally {
+      await gateway.dispose();
+    }
   } finally {
-    await gateway.dispose();
+    store?.close();
   }
 }
 

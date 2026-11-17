@@ -43,13 +43,15 @@ M0 is implemented, but live-provider streaming remains credential-gated and unve
 - ROOK-010: added a Pi `tool_call` boundary policy. `/plan` allows scoped workspace reads and file discovery; `/build` additionally allows scoped `edit`/`write`. Shell, content grep, sensitive paths, symlink/hardlink paths, unknown tools, external extensions, skills, and concurrent mutations are denied. Pi's grep uses ripgrep `--hidden`, so it stays disabled rather than risk reading hidden credentials. `/permissions` shows recent decisions. Risky operations fail closed rather than prompting for approval.
 - Security scope: this is a host-side policy, not an OS/container sandbox; filesystem checks cannot eliminate races with a hostile concurrent process. Use an isolated container/VM for untrusted repositories.
 - ROOK-011: added Git and non-Git workspace identity in a locked, atomic, permission-restricted `~/.rook/repositories.json` registry (`ROOK_HOME` overrides the directory). Git working trees get generated IDs keyed by local Git metadata identity, so clones stay distinct and worktrees get distinct IDs with a common logical ID; path renames retain the ID. Credential-free remote fingerprints are hashed before storage. The registry retains the latest branch/HEAD/dirty snapshot, and the TUI displays the repository ID and initial snapshot. SQLite/history remains ROOK-012.
+- ROOK-012: added `better-sqlite3` (Node 22.19+ verified) and transactional, versioned SQLite migrations with WAL, foreign keys, constraints, indexes, FTS5 triggers, and a rebuild operation. Real workspaces now persist generated repository identity and append snapshot history to `~/.rook/state.sqlite`; the ROOK-011 JSON registry remains the identity resolver. Added parameterized memory persistence/search, content-clearing soft delete and purge, SQLite backup, and JSON export. The database is created with owner-only file permissions.
 
 ### Validation
 
 - `npm run typecheck` — passed.
 - `npx vitest run tests/app/state.test.ts` — passed (5 focused tests).
 - `npx vitest run tests/pi/event-adapter.test.ts tests/pi/mock-agent-gateway.test.ts` — passed (4 tests; event mapping, no raw tool data, and final-message deduplication).
-- `npm test` — passed (7 files, 24 tests; includes policy traversal, sensitive path, link, tool-hook, mode/concurrency, and repository identity/snapshot cases).
+- `npm test` — passed (8 files, 30 tests; includes policy traversal, sensitive path, link, tool-hook, mode/concurrency, repository identity/snapshot, migrations, FTS, backup, and export cases).
+- Node 22.19 compatibility — passed: rebuilt the native driver under Node 22.19, verified FTS5, and ran all focused database tests.
 - `npm run test:pty` — passed (fake-terminal render, resize, prompt, mode/session commands, and cleanup flow).
 - `npm run test:integration` — passed (SDK lifecycle, tool allowlist/mode changes, and persistent session list/resume/new/rebind flow).
 - `npm run build` — passed.
@@ -58,4 +60,4 @@ M0 is implemented, but live-provider streaming remains credential-gated and unve
 
 ### Next
 
-- ROOK-012: implement the SQLite schema and migrations, using the stable repository IDs and snapshot contract from ROOK-011.
+- ROOK-013: implement evidence-aware memory CRUD with revision, deduplication, and forget behavior on the ROOK-012 store.
