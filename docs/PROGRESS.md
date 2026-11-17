@@ -45,20 +45,21 @@ M0 is implemented, but live-provider streaming remains credential-gated and unve
 - ROOK-011: added Git and non-Git workspace identity in a locked, atomic, permission-restricted `~/.rook/repositories.json` registry (`ROOK_HOME` overrides the directory). Git working trees get generated IDs keyed by local Git metadata identity, so clones stay distinct and worktrees get distinct IDs with a common logical ID; path renames retain the ID. Credential-free remote fingerprints are hashed before storage. The registry retains the latest branch/HEAD/dirty snapshot, and the TUI displays the repository ID and initial snapshot. SQLite/history remains ROOK-012.
 - ROOK-012: added `better-sqlite3` (Node 22.19+ verified) and transactional, versioned SQLite migrations with WAL, foreign keys, constraints, indexes, FTS5 triggers, and a rebuild operation. Real workspaces now persist generated repository identity and append snapshot history to `~/.rook/state.sqlite`; the ROOK-011 JSON registry remains the identity resolver. Added parameterized memory persistence/search, content-clearing soft delete and purge, SQLite backup, and JSON export. The database is created with owner-only file permissions.
 - ROOK-013: added repo-scoped memory create/get/list, source evidence management, revision history for edits, pinning, semantic-key deduplication with evidence dedupe, and explicit forget with cascading physical removal from the live database. Secret-like content and secret-bearing file paths are rejected before persistence; soft-deleted content is removed from FTS and copied text is cleared from revision/evidence records.
+- ROOK-014: added repo-scoped, query-dependent retrieval with exact repository scoping, verified/trusted/evidence-backed filters, lexical/FTS/path/symbol/source/recency/freshness ranking, and a top-K context composer capped at 1,500 estimated tokens. Context is XML-escaped and explicitly untrusted; stale memories are labeled historical, and irrelevant queries inject nothing. The Pi SDK's documented `before_agent_start` hook receives context as a hidden custom message without rewriting the system prompt. Retrieval logs persist only memory IDs and token estimates, never prompt or memory content.
 
 ### Validation
 
 - `npm run typecheck` — passed.
 - `npx vitest run tests/app/state.test.ts` — passed (5 focused tests).
 - `npx vitest run tests/pi/event-adapter.test.ts tests/pi/mock-agent-gateway.test.ts` — passed (4 tests; event mapping, no raw tool data, and final-message deduplication).
-- `npm test` — passed (8 files, 33 tests; includes policy traversal, sensitive path, link, tool-hook, mode/concurrency, repository identity/snapshot, migrations, FTS, memory revisions/deduplication/forget, backup, and export cases).
+- `npm test` — passed (9 files, 38 tests; includes policy traversal, sensitive path, link, tool-hook, mode/concurrency, repository identity/snapshot, migrations, FTS, memory revisions/deduplication/forget, retrieval scoping/ranking/sanitization, backup, and export cases).
 - Node 22.19 compatibility — passed: rebuilt the native driver under Node 22.19, verified FTS5, and ran all focused database tests.
 - `npm run test:pty` — passed (fake-terminal render, resize, prompt, mode/session commands, and cleanup flow).
-- `npm run test:integration` — passed (SDK lifecycle, tool allowlist/mode changes, and persistent session list/resume/new/rebind flow).
+- `npm run test:integration` — passed (SDK lifecycle, tool allowlist/mode changes, optional memory extension loading, and persistent session list/resume/new/rebind flow).
 - `npm run build` — passed.
 - `node bin/rook.mjs --smoke` — passed with the mock gateway.
 - `npm run lint` — passed.
 
 ### Next
 
-- ROOK-014: implement repo-scoped retrieval and safe context composition using evidence-backed memories.
+- ROOK-015: implement bounded memory capture from settled runs with explicit user controls and evidence validation.

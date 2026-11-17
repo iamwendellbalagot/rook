@@ -40,6 +40,25 @@ describe("Pi SDK compatibility", () => {
     }
   });
 
+  it("loads the optional memory context extension alongside the tool policy", async () => {
+    const gateway = await createPiAgentGateway(process.cwd(), {
+      memoryContext: () => ({
+        content: "",
+        memoryIds: [],
+        estimatedTokens: 0,
+        tokenBudget: 1000,
+      }),
+    });
+    try {
+      expect(gateway.getActiveTools()).toEqual(
+        expect.arrayContaining(["read", "find", "ls"]),
+      );
+      expect(gateway.getActiveTools()).not.toContain("bash");
+    } finally {
+      await gateway.dispose();
+    }
+  });
+
   it("replaces the active persistent session through Pi's runtime", async () => {
     const root = await mkdtemp(join(tmpdir(), "rook-session-runtime-"));
     const cwd = join(root, "workspace");

@@ -3,6 +3,7 @@ import { MockAgentGateway } from "./pi/mock-agent-gateway.js";
 import { createPiAgentGateway } from "./pi/pi-agent-gateway.js";
 import type { AgentGateway } from "./pi/agent-gateway.js";
 import { RookStore } from "./db/store.js";
+import { retrieveMemoryContext } from "./memory/context.js";
 import { resolveWorkspace } from "./repo/workspace.js";
 import { createRookTui } from "./tui/rook-tui.js";
 import { initialAppState, reduceAppState, type AppState } from "./app/state.js";
@@ -44,9 +45,21 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     if (workspace && store) {
       store.saveWorkspace(workspace.repository, workspace.snapshot);
     }
+    const memoryContext =
+      workspace && store
+        ? (prompt: string) =>
+            retrieveMemoryContext(
+              store,
+              workspace.repository.id,
+              prompt,
+              workspace.snapshot,
+            )
+        : undefined;
     const gateway = mock
       ? new MockAgentGateway()
-      : await createPiAgentGateway(cwd);
+      : await createPiAgentGateway(cwd, {
+          ...(memoryContext ? { memoryContext } : {}),
+        });
     let state = reduceAppState(initialAppState(), { type: "startup_complete" });
     try {
       if (prompt) {

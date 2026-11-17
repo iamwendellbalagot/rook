@@ -877,6 +877,29 @@ export class RookStore {
       .all(query, repoId, safeLimit) as SearchResult[];
   }
 
+  recordMemoryRetrieval(
+    repoId: string,
+    memoryIds: string[],
+    estimatedTokens: number,
+    tokenBudget: number,
+    now = new Date().toISOString(),
+  ): void {
+    const ids = memoryIds.filter((id) => typeof id === "string").slice(0, 6);
+    const metadata = JSON.stringify({
+      memoryIds: ids,
+      estimatedTokens: Math.max(0, Math.trunc(estimatedTokens)),
+      tokenBudget: Math.max(0, Math.trunc(tokenBudget)),
+    });
+    this.db
+      .prepare(
+        `
+      INSERT INTO memory_events(id, repo_id, event_type, metadata_json, created_at)
+      VALUES (?, ?, 'memory_retrieval', ?, ?)
+    `,
+      )
+      .run(randomUUID(), repoId, metadata, now);
+  }
+
   rebuildSearchIndex(): void {
     const rebuild = this.db.transaction(() => {
       this.db.exec("DELETE FROM memory_search");

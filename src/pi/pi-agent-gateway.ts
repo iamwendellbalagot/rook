@@ -23,6 +23,10 @@ import {
   createToolPolicyExtension,
   ToolPolicy,
 } from "../policy/tool-policy.js";
+import {
+  createMemoryContextExtension,
+  type RetrievedMemoryContext,
+} from "../memory/context.js";
 
 const AVAILABLE_TOOLS = ["read", "find", "ls", "edit", "write"];
 
@@ -34,7 +38,12 @@ function activeToolsFor(mode: PermissionMode): string[] {
 
 export async function createPiAgentGateway(
   cwd = process.cwd(),
-  options: { sessionDir?: string } = {},
+  options: {
+    sessionDir?: string;
+    memoryContext?: (
+      prompt: string,
+    ) => RetrievedMemoryContext | Promise<RetrievedMemoryContext>;
+  } = {},
 ): Promise<AgentGateway> {
   const handlers = new Set<(event: AgentEvent) => void>();
   const policy = new ToolPolicy(cwd);
@@ -52,7 +61,12 @@ export async function createPiAgentGateway(
         resourceLoaderOptions: {
           noExtensions: true,
           noSkills: true,
-          extensionFactories: [createToolPolicyExtension(policy)],
+          extensionFactories: [
+            createToolPolicyExtension(policy),
+            ...(options.memoryContext
+              ? [createMemoryContextExtension(options.memoryContext)]
+              : []),
+          ],
         },
       });
       return {
