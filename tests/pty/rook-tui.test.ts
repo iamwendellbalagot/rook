@@ -404,9 +404,7 @@ describe("Rook TUI shell", () => {
     const finished = app.start();
     const pendingRun = app.submit("long running prompt");
     const loadingScreen = app.tui.render(100);
-    const loadingLine = loadingScreen.findIndex((line) =>
-      line.includes("Rook is thinking."),
-    );
+    const loadingLine = loadingScreen.findIndex((line) => line.includes("♜ "));
     const promptLine = loadingScreen.findIndex((line) =>
       line.includes("\u001b_pi:c"),
     );
@@ -415,7 +413,7 @@ describe("Rook TUI shell", () => {
 
     gateway.completePendingRun();
     await pendingRun;
-    expect(app.tui.render(100).join("\n")).not.toContain("Rook is thinking");
+    expect(app.tui.render(100).join("\n")).not.toContain("♜ ");
 
     terminal.input("\u0003");
     await finished;

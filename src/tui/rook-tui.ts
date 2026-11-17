@@ -36,6 +36,7 @@ import {
   selectListTheme,
   tone,
 } from "./theme.js";
+import { shuffleLoadingPhrases } from "./loading-phrases.js";
 
 const TAGLINE = "A coding agent that grows with your codebase.";
 const CHECKLIST_SIDEBAR_MIN_WIDTH = 90;
@@ -719,13 +720,12 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     request: ExternalAccessRequest;
     resolve: (choice: ExternalAccessChoice) => void;
   }[] = [];
-  const thinkingPhrases = [
-    "Rook is thinking",
-    "Connecting the pieces",
-    "Working through it",
-  ];
   let loadingTimer: ReturnType<typeof setInterval> | undefined;
-  let loadingTick = 0;
+  let loadingPhraseOrder: string[] = [];
+  let loadingPhraseIndex = 0;
+  let loadingDotTick = 0;
+  let activeLoadingPhrase = "";
+  let lastLoadingPhrase: string | undefined;
   let loadingStatus: string | undefined;
   let activePermissionPrompt:
     | {
@@ -752,14 +752,31 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
 
   function startLoadingStatus(reset = false): void {
     stopLoadingStatus();
-    if (reset) loadingTick = 0;
+    if (reset) {
+      loadingPhraseOrder = shuffleLoadingPhrases(
+        Math.random,
+        lastLoadingPhrase,
+      );
+      loadingPhraseIndex = 0;
+      loadingDotTick = 0;
+      activeLoadingPhrase = "";
+    }
     const update = (): void => {
-      const phrase =
-        thinkingPhrases[Math.floor(loadingTick / 3) % thinkingPhrases.length]!;
-      const dots = ".".repeat((loadingTick % 3) + 1);
-      loadingStatus = `${phrase}${dots}`;
+      if (loadingDotTick === 0) {
+        if (loadingPhraseIndex >= loadingPhraseOrder.length) {
+          loadingPhraseOrder = shuffleLoadingPhrases(
+            Math.random,
+            lastLoadingPhrase,
+          );
+          loadingPhraseIndex = 0;
+        }
+        activeLoadingPhrase = loadingPhraseOrder[loadingPhraseIndex]!;
+        loadingPhraseIndex += 1;
+        lastLoadingPhrase = activeLoadingPhrase;
+      }
+      loadingStatus = `${activeLoadingPhrase}${".".repeat(loadingDotTick + 1)}`;
+      loadingDotTick = (loadingDotTick + 1) % 3;
       loadingIndicator.setText(tone(`♜ ${loadingStatus}`, "blue"));
-      loadingTick += 1;
       tui.requestRender();
     };
     update();
