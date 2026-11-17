@@ -42,13 +42,14 @@ M0 is implemented, but live-provider streaming remains credential-gated and unve
 - ROOK-009: moved the Pi gateway onto `AgentSessionRuntime`, added `/new` and `/sessions`/`/resume`, and rebound session subscriptions/extensions after replacement. Session selection shows saved-session metadata; resuming restores user/assistant text while omitting tool arguments and results.
 - ROOK-010: added a Pi `tool_call` boundary policy. `/plan` allows scoped workspace reads and file discovery; `/build` additionally allows scoped `edit`/`write`. Shell, content grep, sensitive paths, symlink/hardlink paths, unknown tools, external extensions, skills, and concurrent mutations are denied. Pi's grep uses ripgrep `--hidden`, so it stays disabled rather than risk reading hidden credentials. `/permissions` shows recent decisions. Risky operations fail closed rather than prompting for approval.
 - Security scope: this is a host-side policy, not an OS/container sandbox; filesystem checks cannot eliminate races with a hostile concurrent process. Use an isolated container/VM for untrusted repositories.
+- ROOK-011: added Git and non-Git workspace identity in a locked, atomic, permission-restricted `~/.rook/repositories.json` registry (`ROOK_HOME` overrides the directory). Git working trees get generated IDs keyed by local Git metadata identity, so clones stay distinct and worktrees get distinct IDs with a common logical ID; path renames retain the ID. Credential-free remote fingerprints are hashed before storage. The registry retains the latest branch/HEAD/dirty snapshot, and the TUI displays the repository ID and initial snapshot. SQLite/history remains ROOK-012.
 
 ### Validation
 
 - `npm run typecheck` — passed.
 - `npx vitest run tests/app/state.test.ts` — passed (5 focused tests).
 - `npx vitest run tests/pi/event-adapter.test.ts tests/pi/mock-agent-gateway.test.ts` — passed (4 tests; event mapping, no raw tool data, and final-message deduplication).
-- `npm test` — passed (6 files, 19 tests; includes policy traversal, sensitive path, link, tool-hook, mode, and concurrency checks).
+- `npm test` — passed (7 files, 24 tests; includes policy traversal, sensitive path, link, tool-hook, mode/concurrency, and repository identity/snapshot cases).
 - `npm run test:pty` — passed (fake-terminal render, resize, prompt, mode/session commands, and cleanup flow).
 - `npm run test:integration` — passed (SDK lifecycle, tool allowlist/mode changes, and persistent session list/resume/new/rebind flow).
 - `npm run build` — passed.
@@ -57,4 +58,4 @@ M0 is implemented, but live-provider streaming remains credential-gated and unve
 
 ### Next
 
-- ROOK-011: implement Git repository identity and snapshots. Preserve ROOK-010's fail-closed policy; do not describe it as a sandbox.
+- ROOK-012: implement the SQLite schema and migrations, using the stable repository IDs and snapshot contract from ROOK-011.

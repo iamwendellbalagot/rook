@@ -2,8 +2,8 @@ import { stdin, stdout } from "node:process";
 import { MockAgentGateway } from "./pi/mock-agent-gateway.js";
 import { createPiAgentGateway } from "./pi/pi-agent-gateway.js";
 import type { AgentGateway } from "./pi/agent-gateway.js";
+import { resolveWorkspace } from "./repo/workspace.js";
 import { createRookTui } from "./tui/rook-tui.js";
-import { execFileSync } from "node:child_process";
 import { initialAppState, reduceAppState, type AppState } from "./app/state.js";
 
 export async function main(args = process.argv.slice(2)): Promise<void> {
@@ -37,6 +37,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   if (!prompt && !stdin.isTTY) {
     throw new Error("Pass a prompt argument when running non-interactively.");
   }
+  const workspace = mock ? undefined : await resolveWorkspace(cwd);
   const gateway = mock
     ? new MockAgentGateway()
     : await createPiAgentGateway(cwd);
@@ -47,25 +48,19 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       state = await runPrompt(gateway, prompt, state);
       return;
     }
-    const branch = readGitBranch(cwd);
-    const app = createRookTui({ cwd, gateway, ...(branch ? { branch } : {}) });
+    const app = createRookTui({
+      cwd,
+      gateway,
+      ...(workspace?.snapshot?.branch
+        ? { branch: workspace.snapshot.branch }
+        : {}),
+      ...(workspace
+        ? { repository: workspace.repository, snapshot: workspace.snapshot }
+        : {}),
+    });
     await app.start();
   } finally {
     await gateway.dispose();
-  }
-}
-
-function readGitBranch(cwd: string): string | undefined {
-  try {
-    const branch = execFileSync("git", ["branch", "--show-current"], {
-      cwd,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 1000,
-    }).trim();
-    return branch || undefined;
-  } catch {
-    return undefined;
   }
 }
 

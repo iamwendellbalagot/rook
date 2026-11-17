@@ -18,6 +18,7 @@ import { resolve } from "node:path";
 import type { AppState } from "../app/state.js";
 import { initialAppState, reduceAppState } from "../app/state.js";
 import type { AgentGateway } from "../pi/agent-gateway.js";
+import type { GitSnapshot, RepositoryIdentity } from "../repo/workspace.js";
 import {
   editorTheme,
   markdownTheme,
@@ -31,6 +32,8 @@ const TAGLINE = "A coding agent that grows with your codebase.";
 export interface RookTuiOptions {
   cwd: string;
   branch?: string;
+  repository?: RepositoryIdentity;
+  snapshot?: GitSnapshot | null;
   gateway: AgentGateway;
   terminal?: Terminal;
 }
@@ -80,7 +83,11 @@ function compactPath(path: string, maxWidth: number): string {
   return truncateToWidth(tail, maxWidth, "…");
 }
 
-function createHome(cwd: string): Text {
+function createHome(
+  cwd: string,
+  repository?: RepositoryIdentity,
+  snapshot?: GitSnapshot | null,
+): Text {
   const commands = [
     ["/plan", "Read and search workspace files without mutations"],
     ["/build", "Enable policy-gated workspace edits"],
@@ -111,6 +118,16 @@ function createHome(cwd: string): Text {
       "",
       tone("◇  No repository memory yet", "dim"),
       `   ${tone(resolve(cwd), "dim")}`,
+      ...(repository
+        ? [
+            `   ${tone(`Repository ${repository.id.slice(0, 8)} · ${repository.kind}`, "dim")}`,
+          ]
+        : []),
+      ...(snapshot
+        ? [
+            `   ${tone(`Snapshot ${snapshot.headCommit?.slice(0, 7) ?? "unborn"} · ${snapshot.dirtyFingerprint ? "dirty" : "clean"}`, "dim")}`,
+          ]
+        : []),
     ].join("\n"),
     2,
     1,
@@ -121,7 +138,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   const terminal = options.terminal ?? new ProcessTerminal();
   const tui = new TuiAltScreen(terminal);
   const transcript = new Container();
-  const home = createHome(options.cwd);
+  const home = createHome(options.cwd, options.repository, options.snapshot);
   transcript.addChild(home);
 
   const header = new Header(resolve(options.cwd), options.branch);
@@ -152,6 +169,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     ? `${initialModel.provider}/${initialModel.name}`
     : "no model selected";
   let sessionLabel = initialSession.id.slice(0, 8);
+  const repositoryLabel = options.repository?.id.slice(0, 8);
   let settled = false;
   let resolveRun: (() => void) | undefined;
   const toolCards = new Map<string, Text>();
@@ -165,7 +183,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       : "";
     footer.setText(
       truncateToWidth(
-        `${tone(modelLabel, "muted")} · ${tone(`S:${sessionLabel}`, "dim")} · ${tone(state.mode.toUpperCase(), state.mode === "plan" ? "blue" : "amber", true)} · ${state.mode === "plan" ? "read-only tools" : "workspace edits enabled"}${usage}${status} · Ctrl+C exit`,
+        `${tone(modelLabel, "muted")} · ${tone(`S:${sessionLabel}`, "dim")}${repositoryLabel ? ` · ${tone(`R:${repositoryLabel}`, "dim")}` : ""} · ${tone(state.mode.toUpperCase(), state.mode === "plan" ? "blue" : "amber", true)} · ${state.mode === "plan" ? "read-only tools" : "workspace edits enabled"}${usage}${status} · Ctrl+C exit`,
         Math.max(1, terminal.columns),
       ),
     );

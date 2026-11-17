@@ -10,6 +10,10 @@ import type {
   SessionMessage,
   ThinkingInfo,
 } from "../../src/pi/agent-gateway.js";
+import type {
+  GitSnapshot,
+  RepositoryIdentity,
+} from "../../src/repo/workspace.js";
 import { createRookTui } from "../../src/tui/rook-tui.js";
 
 class EventGateway implements AgentGateway {
@@ -150,6 +154,21 @@ describe("Rook TUI shell", () => {
     const app = createRookTui({
       cwd: "/workspace/sample-project",
       branch: "feature/ui",
+      repository: {
+        id: "repo-12345678",
+        logicalId: "logical-12345678",
+        kind: "git",
+        root: "/workspace/sample-project",
+        displayName: "sample-project",
+        remoteFingerprint: null,
+      } satisfies RepositoryIdentity,
+      snapshot: {
+        repoId: "repo-12345678",
+        branch: "feature/ui",
+        headCommit: "0123456789abcdef",
+        dirtyFingerprint: null,
+        capturedAt: new Date(0).toISOString(),
+      } satisfies GitSnapshot,
       gateway: new EventGateway(),
       terminal,
     });
@@ -158,6 +177,8 @@ describe("Rook TUI shell", () => {
 
     expect(terminal.started).toBe(1);
     expect(terminal.writes.join("")).toContain("rook.");
+    expect(terminal.writes.join("")).toContain("Repository repo-12");
+    expect(terminal.writes.join("")).toContain("Snapshot 0123456 · clean");
 
     await app.submit("hello");
     app.tui.renderNow(true);
