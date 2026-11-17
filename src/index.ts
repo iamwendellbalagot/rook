@@ -45,13 +45,13 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   try {
     let memoryCapture: MemoryCaptureManager | undefined;
     if (workspace && store) {
+      store.saveWorkspace(workspace.repository, workspace.snapshot);
       memoryCapture = new MemoryCaptureManager(
         store,
         workspace.repository,
         workspace.snapshot,
       );
       await memoryCapture.refresh();
-      store.saveWorkspace(workspace.repository, workspace.snapshot);
     }
     const memoryContext =
       workspace && store
