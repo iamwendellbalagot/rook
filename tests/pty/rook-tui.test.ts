@@ -260,6 +260,36 @@ class FakeTerminal implements Terminal {
 }
 
 describe("Rook TUI shell", () => {
+  it("renders the framed right-hand prompt and submits only editable text", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    for (const character of "hello") terminal.input(character);
+    let lines = app.tui.render(100);
+    const row = lines.findIndex((line) => line.includes("\u001b_pi:c"));
+    expect(stripTerminalSequences(lines[row - 1]!)).toMatch(/^  ╭━+╮  $/);
+    expect(stripTerminalSequences(lines[row]!)).toMatch(
+      /^  ┃ +rook > hello  ┃  $/,
+    );
+    expect(stripTerminalSequences(lines[row + 1]!)).toMatch(/^  ╰━+╯  $/);
+    terminal.resize(40, 36);
+    lines = app.tui.render(40);
+    expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
+    expect(lines.map(stripTerminalSequences).join("\n")).toContain(
+      "rook > hello",
+    );
+    terminal.input("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(gateway.sentPrompts).toEqual(["hello"]);
+    terminal.input("\u0003");
+    await finished;
+  });
+
   it("renders the home view, handles resize, and restores the terminal on exit", async () => {
     const terminal = new FakeTerminal();
     const gateway = new EventGateway();

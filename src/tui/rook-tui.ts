@@ -38,6 +38,7 @@ import {
 } from "./theme.js";
 import { shuffleLoadingPhrases } from "./loading-phrases.js";
 import { HomeScreenBody } from "./home-screen.js";
+import { PromptEditor } from "./prompt-editor.js";
 
 const CHECKLIST_SIDEBAR_MIN_WIDTH = 90;
 const CHECKLIST_SIDEBAR_WIDTH = 34;
@@ -570,7 +571,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     ],
     { gap: 1, align: "start" },
   );
-  const editor = new Editor(tui, editorTheme, { paddingX: 1 });
+  const editor = new PromptEditor(tui, editorTheme, { paddingX: 0 });
   const slashSuggestions = new SlashCommandSuggestionPanel();
   const promptHistory: string[] = [];
   let historyIndex = -1;
