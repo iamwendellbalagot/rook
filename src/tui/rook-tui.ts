@@ -2,6 +2,7 @@ import {
   Container,
   Editor,
   HStack,
+  Image,
   Markdown,
   ProcessTerminal,
   SelectList,
@@ -17,7 +18,9 @@ import {
   type TuiMouseEventResult,
   type Terminal,
 } from "@earendil-works/pi-tui";
-import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AppState } from "../app/state.js";
 import { initialAppState, reduceAppState } from "../app/state.js";
 import type {
@@ -542,81 +545,28 @@ class ModalSeparator implements Component {
   invalidate(): void {}
 }
 
-const HOME_BRAND_COLORS: Record<string, string> = {
-  "1": "#020A2B",
-  "2": "#00185D",
-  "3": "#002472",
-  "4": "#0057BC",
-  "5": "#007AF2",
-  "6": "#00ADFC",
-  "7": "#00F2FC",
-  "8": "#A5F9FD",
-  "9": "#FDF7F0",
-  A: "#FFFFFF",
-};
-
-// 20%-scale terminal rasters sampled from the provided PNG assets.
-const HOME_ICON_RASTER = [
-  "..........",
-  "....77....",
-  "..........",
-  "..988888..",
-  "..255548.6",
-  "...6434...",
-  ".6.57845..",
-  "8.245242..",
-  "..2AA6A7..",
-  ".85844548.",
-] as const;
-const HOME_WORDMARK_RASTER = [
-  "..........9....",
-  ".....2....9.1..",
-  "9991992991939..",
-  "9.19.911.999...",
-  "9..9.9111999117",
-  "9..199.99.9.917",
-] as const;
-
-function rasterPixel(top: string, bottom: string): string {
-  const topColor = HOME_BRAND_COLORS[top];
-  const bottomColor = HOME_BRAND_COLORS[bottom];
-  if (!topColor && !bottomColor) return " ";
-  if (topColor && !bottomColor) return `\x1b[38;2;${hexRgb(topColor)}m▀\x1b[0m`;
-  if (!topColor && bottomColor)
-    return `\x1b[38;2;${hexRgb(bottomColor)}m▄\x1b[0m`;
-  if (topColor === bottomColor)
-    return `\x1b[38;2;${hexRgb(topColor!)}m█\x1b[0m`;
-  return `\x1b[38;2;${hexRgb(topColor!)}m\x1b[48;2;${hexRgb(bottomColor!)}m▀\x1b[0m`;
-}
-
-function hexRgb(hex: string): string {
-  const value = Number.parseInt(hex.slice(1), 16);
-  return `${(value >> 16) & 255};${(value >> 8) & 255};${value & 255}`;
-}
+const HOME_LOCKUP_BASE64 = readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), "assets", "rook_lockup.png"),
+).toString("base64");
 
 export class HomeBrand implements Component {
+  private readonly image = new Image(
+    HOME_LOCKUP_BASE64,
+    "image/png",
+    { fallbackColor: (text) => tone(text, "dim") },
+    { maxWidthCells: 30, maxHeightCells: 8, filename: "rook_lockup.png" },
+  );
+
   render(width: number): string[] {
-    const lines = Array.from({ length: 5 }, (_, row) => {
-      const iconTop = HOME_ICON_RASTER[row * 2]!;
-      const iconBottom = HOME_ICON_RASTER[row * 2 + 1]!;
-      const wordmarkTop = HOME_WORDMARK_RASTER[row * 2 - 2];
-      const wordmarkBottom = HOME_WORDMARK_RASTER[row * 2 - 1];
-      const icon = [...iconTop]
-        .map((pixel, x) => rasterPixel(pixel, iconBottom[x]!))
-        .join("");
-      const wordmark = Array.from({ length: 15 }, (_, x) =>
-        rasterPixel(wordmarkTop?.[x] ?? ".", wordmarkBottom?.[x] ?? "."),
-      ).join("");
-      const divider = row > 0 && row < 4 ? tone("│", "border") : " ";
-      return `  ${icon} ${divider} ${wordmark}`;
-    });
-    lines.push(
+    return [
+      ...this.image.render(Math.max(1, width - 2)).map((line) => `  ${line}`),
       `  ${tone("A coding agent that grows with your codebase.".slice(0, Math.max(0, width - 2)), "muted")}`,
-    );
-    return lines;
+    ];
   }
 
-  invalidate(): void {}
+  invalidate(): void {
+    this.image.invalidate();
+  }
 }
 
 const HOME_ACTIONS = [
