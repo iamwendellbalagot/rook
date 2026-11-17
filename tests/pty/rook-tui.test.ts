@@ -37,6 +37,7 @@ class EventGateway implements AgentGateway {
     | undefined = undefined;
   externalGrants: ExternalAccessGrant[] = [];
   queuedMessages: { text: string; disposition: string }[] = [];
+  sentPrompts: string[] = [];
   forkedEntry?: string;
   compactedInstructions: string | undefined = undefined;
   private finishPendingRun: (() => void) | undefined = undefined;
@@ -49,6 +50,7 @@ class EventGateway implements AgentGateway {
       this.queuedMessages.push({ text: prompt, disposition });
       return;
     }
+    this.sentPrompts.push(prompt);
     if (prompt === "long running prompt") {
       await new Promise<void>((resolve) => {
         this.finishPendingRun = resolve;
@@ -458,6 +460,99 @@ describe("Rook TUI shell", () => {
 
     gateway.completePendingRun();
     await pendingRun;
+    terminal.input("\u0003");
+    await finished;
+  });
+
+  it("suggests slash commands and accepts a selected command without submitting it", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+
+    for (const character of "prior prompt") terminal.input(character);
+    terminal.input("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    for (const character of "/m") terminal.input(character);
+    let suggestions = app.tui.render(100).join("\n");
+    expect(suggestions).toContain("/memory");
+    expect(suggestions).toContain("/mode");
+    expect(suggestions).toContain("/model");
+
+    terminal.input("\u001b[A");
+    let promptLine = app.tui
+      .render(100)
+      .find((line) => line.includes("\u001b_pi:c"));
+    expect(promptLine).toContain("prior prompt");
+    expect(app.tui.render(100).join("\n")).not.toContain("COMMANDS ·");
+
+    terminal.input("\u001b[B");
+    suggestions = app.tui.render(100).join("\n");
+    expect(suggestions).toContain("COMMANDS ·");
+    terminal.input("\t");
+    terminal.input("\r");
+    promptLine = app.tui
+      .render(100)
+      .find((line) => line.includes("\u001b_pi:c"));
+    expect(promptLine).toContain("/mode");
+    expect(gateway.sentPrompts).toEqual(["prior prompt"]);
+
+    terminal.input("\u0003");
+    await finished;
+  });
+
+  it("uses Up and Down exclusively to browse submitted prompt history", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    const type = (text: string): void => {
+      for (const character of text) terminal.input(character);
+    };
+    const submitInput = async (text: string): Promise<void> => {
+      type(text);
+      terminal.input("\r");
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    };
+
+    await submitInput("first prompt");
+    await submitInput("second prompt");
+
+    type("unfinished draft");
+    terminal.input("\u001b[B");
+    let promptLine = app.tui
+      .render(100)
+      .find((line) => line.includes("\u001b_pi:c"));
+    expect(promptLine).toContain("unfinished draft");
+
+    terminal.input("\u001b[A");
+    terminal.input("\u001b[A");
+    terminal.input("\u001b[B");
+    terminal.input("\u001b[B");
+    promptLine = app.tui
+      .render(100)
+      .find((line) => line.includes("\u001b_pi:c"));
+    expect(promptLine).toContain("unfinished draft");
+
+    terminal.input("\u001b[A");
+    terminal.input("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(gateway.sentPrompts).toEqual([
+      "first prompt",
+      "second prompt",
+      "second prompt",
+    ]);
+
     terminal.input("\u0003");
     await finished;
   });

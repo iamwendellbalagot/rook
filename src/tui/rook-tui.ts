@@ -37,6 +37,37 @@ import {
 const TAGLINE = "A coding agent that grows with your codebase.";
 const CHECKLIST_SIDEBAR_MIN_WIDTH = 90;
 const CHECKLIST_SIDEBAR_WIDTH = 34;
+const MAX_PROMPT_HISTORY = 100;
+
+interface SlashCommandSuggestion {
+  command: string;
+  description: string;
+}
+
+const BUILTIN_SLASH_COMMANDS: SlashCommandSuggestion[] = [
+  { command: "/plan", description: "Enable read-only mode" },
+  { command: "/build", description: "Enable workspace edits" },
+  { command: "/mode", description: "Set plan or build mode" },
+  { command: "/model", description: "Choose a model" },
+  { command: "/login", description: "Sign in to a provider" },
+  { command: "/logout", description: "Sign out of a provider" },
+  { command: "/settings", description: "Adjust thinking level" },
+  { command: "/new", description: "Start a new session" },
+  { command: "/sessions", description: "Browse saved sessions" },
+  { command: "/resume", description: "Resume a session" },
+  { command: "/fork", description: "Fork the current session" },
+  { command: "/compact", description: "Compact session context" },
+  { command: "/skills", description: "List available skills" },
+  { command: "/prompts", description: "List prompt templates" },
+  { command: "/steer", description: "Steer the current response" },
+  { command: "/follow-up", description: "Queue a follow-up" },
+  { command: "/permissions", description: "Review access grants" },
+  { command: "/memory", description: "Manage repository memory" },
+  { command: "/help", description: "Show available commands" },
+  { command: "/cancel", description: "Cancel the current response" },
+  { command: "/exit", description: "Exit Rook" },
+  { command: "/quit", description: "Exit Rook" },
+];
 
 export interface RookTuiOptions {
   cwd: string;
@@ -211,6 +242,55 @@ class TaskChecklistPanel implements Component {
   }
 }
 
+class SlashCommandSuggestionPanel implements Component {
+  private suggestions: SlashCommandSuggestion[] = [];
+  private selectedIndex = 0;
+
+  setSuggestions(suggestions: SlashCommandSuggestion[]): void {
+    this.suggestions = suggestions;
+    this.selectedIndex = 0;
+  }
+
+  get isOpen(): boolean {
+    return this.suggestions.length > 0;
+  }
+
+  selected(): SlashCommandSuggestion | undefined {
+    return this.suggestions[this.selectedIndex];
+  }
+
+  moveSelection(direction: -1 | 1): void {
+    if (!this.suggestions.length) return;
+    this.selectedIndex =
+      (this.selectedIndex + direction + this.suggestions.length) %
+      this.suggestions.length;
+  }
+
+  render(width: number): string[] {
+    if (width <= 0 || !this.suggestions.length) return [];
+    const visibleCount = Math.min(5, this.suggestions.length);
+    const firstIndex = Math.min(
+      Math.max(0, this.selectedIndex - visibleCount + 1),
+      this.suggestions.length - visibleCount,
+    );
+    return [
+      tone("COMMANDS · Tab/Shift+Tab choose · Enter accept", "dim"),
+      ...this.suggestions
+        .slice(firstIndex, firstIndex + visibleCount)
+        .map((suggestion, offset) => {
+          const index = firstIndex + offset;
+          const selected = index === this.selectedIndex;
+          const command = safeTerminalText(suggestion.command);
+          const description = safeTerminalText(suggestion.description);
+          const line = `${selected ? "›" : " "} ${tone(command, selected ? "text" : "blue", selected)}  ${tone(description, "muted")}`;
+          return truncateToWidth(line, width);
+        }),
+    ].map((line) => truncateToWidth(line, width));
+  }
+
+  invalidate(): void {}
+}
+
 function createHome(
   cwd: string,
   repository?: RepositoryIdentity,
@@ -299,12 +379,54 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     { gap: 1, align: "start" },
   );
   const editor = new Editor(tui, editorTheme, { paddingX: 1 });
+  const slashSuggestions = new SlashCommandSuggestionPanel();
+  const promptHistory: string[] = [];
+  let historyIndex = -1;
+  let historyDraft = "";
+  let changingHistory = false;
+  let acceptingSlashSuggestion = false;
+  let dismissedSuggestionText: string | undefined;
+
+  const suggestionsFor = (text: string): SlashCommandSuggestion[] => {
+    const query = text.trimStart();
+    if (!query.startsWith("/") || /\s/.test(query)) return [];
+    const resources: SlashCommandSuggestion[] = [
+      ...options.gateway.listSkills().map((skill) => ({
+        command: `/skill:${skill.name}`,
+        description: skill.description,
+      })),
+      ...options.gateway.listPromptTemplates().map((template) => ({
+        command: `/${template.name}`,
+        description: template.description,
+      })),
+    ];
+    const unique = new Map<string, SlashCommandSuggestion>();
+    for (const suggestion of [...BUILTIN_SLASH_COMMANDS, ...resources]) {
+      if (suggestion.command.startsWith(query)) {
+        unique.set(suggestion.command, suggestion);
+      }
+    }
+    return [...unique.values()];
+  };
+
+  const updateSlashSuggestions = (text: string): void => {
+    slashSuggestions.setSuggestions(
+      changingHistory ||
+        historyIndex >= 0 ||
+        acceptingSlashSuggestion ||
+        text === dismissedSuggestionText
+        ? []
+        : suggestionsFor(text),
+    );
+  };
+
   const externalAccessPanel = new ExternalAccessPromptPanel(() =>
     tui.requestRender(),
   );
   const loadingIndicator = new Text("", 1, 0);
   const footer = new Text("", 1, 0);
   const bottom = new VStack([
+    slashSuggestions,
     {
       component: compactChecklist,
       basis: "auto",
@@ -1154,7 +1276,54 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
 
   options.gateway.setExternalAccessPrompt(requestExternalAccess);
 
+  const browsePromptHistory = (direction: -1 | 1): void => {
+    if (direction === -1) {
+      if (!promptHistory.length) return;
+      if (historyIndex < 0) {
+        historyDraft = editor.getText();
+        historyIndex = 0;
+      } else if (historyIndex < promptHistory.length - 1) {
+        historyIndex += 1;
+      }
+    } else {
+      if (historyIndex < 0) return;
+      if (historyIndex === 0) {
+        historyIndex = -1;
+      } else {
+        historyIndex -= 1;
+      }
+    }
+
+    changingHistory = true;
+    editor.setText(
+      historyIndex < 0 ? historyDraft : (promptHistory[historyIndex] ?? ""),
+    );
+    changingHistory = false;
+    if (historyIndex < 0) historyDraft = "";
+    updateSlashSuggestions(editor.getText());
+    tui.requestRender();
+  };
+
+  editor.onChange = (text) => {
+    if (!changingHistory) {
+      historyIndex = -1;
+      historyDraft = "";
+      dismissedSuggestionText = undefined;
+    }
+    updateSlashSuggestions(text);
+    tui.requestRender();
+  };
+
   editor.onSubmit = (text) => {
+    const prompt = text.trim();
+    if (prompt && promptHistory[0] !== prompt) {
+      promptHistory.unshift(prompt);
+      if (promptHistory.length > MAX_PROMPT_HISTORY) promptHistory.pop();
+    }
+    historyIndex = -1;
+    historyDraft = "";
+    dismissedSuggestionText = undefined;
+    slashSuggestions.setSuggestions([]);
     void submitPrompt(text);
   };
 
@@ -1167,6 +1336,47 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         externalAccessPanel.handleInput(data);
       }
       return { consume: true };
+    }
+    if (matchesKey(data, "up")) {
+      browsePromptHistory(-1);
+      return { consume: true };
+    }
+    if (matchesKey(data, "down")) {
+      browsePromptHistory(1);
+      return { consume: true };
+    }
+    if (slashSuggestions.isOpen) {
+      if (matchesKey(data, "shift+tab")) {
+        slashSuggestions.moveSelection(-1);
+        tui.requestRender();
+        return { consume: true };
+      }
+      if (matchesKey(data, "tab")) {
+        slashSuggestions.moveSelection(1);
+        tui.requestRender();
+        return { consume: true };
+      }
+      if (matchesKey(data, "enter")) {
+        const selected = slashSuggestions.selected();
+        if (selected && editor.getText().trim() === selected.command) {
+          return undefined;
+        }
+        if (selected) {
+          acceptingSlashSuggestion = true;
+          editor.setText(selected.command);
+          acceptingSlashSuggestion = false;
+          dismissedSuggestionText = selected.command;
+          slashSuggestions.setSuggestions([]);
+          tui.requestRender();
+        }
+        return { consume: true };
+      }
+      if (matchesKey(data, "escape")) {
+        dismissedSuggestionText = editor.getText();
+        slashSuggestions.setSuggestions([]);
+        tui.requestRender();
+        return { consume: true };
+      }
     }
     if (matchesKey(data, "ctrl+c") || matchesKey(data, "escape")) {
       if (state.runState === "running") {
