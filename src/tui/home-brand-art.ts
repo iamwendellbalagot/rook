@@ -11,3 +11,19 @@ export const HOME_BRAND_CELLS = [
   "3F/3EBEE6/- E7/2199D5/- A4/227CAF/- FE/338BB8/- 80/ABC4E6/0A90EB 13/006ED0/0E3680 E0/ABD3E6/0C4492 C4/A2DBF1/0D3D88 80/64759F/05307F 58/6ABEEF/046FDC C7/375C85/- - - - 38/041031/- C0/353B56/EEE9E5 47/4C5268/- - - 3B/D6D2D1/- C8/333A55/DEDAD7 36/DAD6D5/1F2747 E0/363C57/F2ECE7 1F/A3A2A9/- 3B/E9E4E0/- C8/323853/E4E0DC 36/E2DDDA/2F3652 7F/F6EFE9/- BB/565B70/- C0/393E58/FDF7F0 5F/5F6376/- BF/F9F3EC/- C8/373D58/EBE6E1 7E/222A49/- C0/003E61/00E7F3 07/00F2FD/00496A",
   "- - FE/386FA2/- 1A/6FD7F9/1160B7 29/8CD2F7/0662C5 1B/A4DBF3/0966C4 1B/18B0FC/0051B9 1B/129FFB/004CB5 1B/8BD0F8/0C5EBB 0D/68C0F2/035BC0 13/70C5E5/1157AC E6/1B4F88/- - - - - - - - - - - - - - - - - - - - - - - - -",
 ] as const;
+
+// Solid silhouette from rook_wordmark.png, sampled per letter to preserve a
+// full-cell gap between letters. 1 = ivory, 2 = cyan, . = transparent.
+// This avoids Braille dots breaking the title's stems and counters apart.
+export const HOME_WORDMARK_PIXELS = [
+  "....................11.......",
+  "....................11.......",
+  "....................11.......",
+  "11111..1111...1111..11.111...",
+  "11111.111111.111111.11111....",
+  "11..1.11..11.11..11.1111.....",
+  "11....11..11.11..11.1111.....",
+  "11....11..11.11..11.11111..22",
+  "11....111111.111111.11.11..22",
+  "11.....1111...1111..11..11.22",
+] as const;

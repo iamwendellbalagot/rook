@@ -37,7 +37,7 @@ import {
   tone,
 } from "./theme.js";
 import { shuffleLoadingPhrases } from "./loading-phrases.js";
-import { HomeBrand } from "./home-brand.js";
+import { HomeScreenBody } from "./home-screen.js";
 
 const CHECKLIST_SIDEBAR_MIN_WIDTH = 90;
 const CHECKLIST_SIDEBAR_WIDTH = 34;
@@ -543,47 +543,11 @@ class ModalSeparator implements Component {
   invalidate(): void {}
 }
 
-const HOME_ACTIONS = [
-  ["/plan", "Think through a task before making changes"],
-  ["/build", "Make and apply changes to your codebase"],
-  ["/memory", "View what Rook knows about this repository"],
-  ["/help", "Show all commands"],
-] as const;
-
-class HomeScreenBody implements Component {
-  private readonly brand = new HomeBrand();
-
-  render(width: number): string[] {
-    const lines = ["", ...this.brand.render(width - 4), ""];
-    const left = "  ";
-
-    for (const [command, description] of HOME_ACTIONS) {
-      const label = `⟮ ${command} ⟯`;
-      const actionColumn = 14;
-      const gap = " ".repeat(Math.max(1, actionColumn - visibleWidth(label)));
-      const descriptionWidth = Math.max(0, width - left.length - actionColumn);
-      lines.push(
-        `${left}${tone(label, "cyan")}${gap}${tone(truncateToWidth(description, descriptionWidth), "dim")}`,
-      );
-    }
-
-    return lines;
-  }
-
-  invalidate(): void {
-    this.brand.invalidate();
-  }
-}
-
-function createHome(): Component {
-  return new HomeScreenBody();
-}
-
 export function createRookTui(options: RookTuiOptions): RookTuiController {
   const terminal = options.terminal ?? new ProcessTerminal();
   const tui = new TuiAltScreen(terminal);
   const transcript = new Container();
-  const home = createHome();
+  const home = new HomeScreenBody();
   transcript.addChild(home);
 
   const header = new Header(resolve(options.cwd), options.branch);

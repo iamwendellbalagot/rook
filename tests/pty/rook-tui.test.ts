@@ -4,7 +4,11 @@ import { writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { visibleWidth, type Terminal } from "@earendil-works/pi-tui";
+import {
+  stripTerminalSequences,
+  visibleWidth,
+  type Terminal,
+} from "@earendil-works/pi-tui";
 import type {
   AgentEvent,
   AgentGateway,
@@ -293,6 +297,16 @@ describe("Rook TUI shell", () => {
       "Think through a task before making changes",
     );
     expect(terminal.writes.join("")).toContain("View what Rook knows");
+    const homeScreen = app.tui.getScreenLines().map(stripTerminalSequences);
+    const frameTop = homeScreen.findIndex((line) => line.includes("╭"));
+    const frameBottom = homeScreen.findIndex((line) => line.includes("╰"));
+    const helpRow = homeScreen.findIndex((line) => line.includes("/help"));
+    expect(frameTop).toBeGreaterThan(0);
+    expect(helpRow).toBeGreaterThan(frameTop);
+    expect(frameBottom).toBeGreaterThan(helpRow);
+    expect(
+      homeScreen.findIndex((line) => line.includes("S:session-")),
+    ).toBeGreaterThan(frameBottom);
 
     await app.submit("hello");
     app.tui.renderNow(true);

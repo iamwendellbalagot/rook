@@ -5,7 +5,10 @@ import {
   visibleWidth,
 } from "@earendil-works/pi-tui";
 import { HomeBrand } from "../../src/tui/home-brand.js";
-import { HOME_BRAND_CELLS } from "../../src/tui/home-brand-art.js";
+import {
+  HOME_BRAND_CELLS,
+  HOME_WORDMARK_PIXELS,
+} from "../../src/tui/home-brand-art.js";
 
 describe("home brand", () => {
   beforeEach(() => setCapabilityOverrides({ trueColor: true, images: null }));
@@ -14,7 +17,7 @@ describe("home brand", () => {
   it("renders finer Braille contours and solid fills without image protocols", () => {
     const lines = new HomeBrand().render(120);
     expect(lines).toHaveLength(8);
-    expect(lines.slice(0, 7).map(visibleWidth)).toEqual(Array(7).fill(38));
+    expect(lines.slice(0, 7).map(visibleWidth)).toEqual(Array(7).fill(48));
     const artwork = lines.slice(0, 7).join("\n");
     expect(artwork).toContain("\x1b[38;2;");
     expect(artwork).toContain("\x1b[48;2;");
@@ -40,21 +43,49 @@ describe("home brand", () => {
     }
   });
 
-  it("preserves the reviewed tower, orbit, star, and lowercase wordmark contours", () => {
+  it("preserves the reviewed tower, orbit, and star contours", () => {
     const contours = new HomeBrand()
       .render(60)
       .slice(0, 7)
-      .map((line) => stripTerminalSequences(line).trimEnd());
+      .map((line) => stripTerminalSequences(line).slice(0, 16).trimEnd());
 
     expect(contours).toEqual([
       "       ⣀▟⣇⣀",
       "     ⢀⣀⡉⢹⡏⢁⣀⡀",
-      "     ▐⠹⣷⠏⠹▟⠉▌⣀⣀⡀              ▗⣶⡆",
-      "     ⠹⡈⠒⠒⠒⠒⢡⠋⢉⣽⠇▗⣶⣶⣶⣦⣠⣶⣶⣶⣄⣠⣶⣶⣦⣸█⣇⣴⣶⡶",
-      "  ⢀⣴⠞▜⠇▌⠰⠆⠇⡘⡶▀⠁ ▐▐▛▀▀▐⣟⠙⡆▌▐⣟⢹⡆▌█⠁⠰⡏ ⣀⣀",
-      "  ⠿▙⢤⣾⢀⠓⣠⣄⢀⡘⣇   ⠸⣀▌  ⠻⣈⠶⣠⠟⠻⣈⠶⡿▜⣀▛⢿⣈⡾⣀⠇",
+      "     ▐⠹⣷⠏⠹▟⠉▌⣀⣀⡀",
+      "     ⠹⡈⠒⠒⠒⠒⢡⠋⢉⣽⠇",
+      "  ⢀⣴⠞▜⠇▌⠰⠆⠇⡘⡶▀⠁",
+      "  ⠿▙⢤⣾⢀⠓⣠⣄⢀⡘⣇",
       "    ⣾⠚⠩▀▀▀▀⠍⠓⣦",
     ]);
+  });
+
+  it("uses a solid ivory wordmark with letter spacing and a cyan dot", () => {
+    expect(HOME_WORDMARK_PIXELS).toHaveLength(10);
+    expect(HOME_WORDMARK_PIXELS.every((row) => /^[.12]{29}$/.test(row))).toBe(
+      true,
+    );
+    const lines = new HomeBrand().render(60).slice(1, 6);
+    const wordmark = lines.map((line) =>
+      stripTerminalSequences(line).slice(19),
+    );
+    expect(wordmark).toEqual([
+      "                    ██       ",
+      "▄▄▄▄▄  ▄▄▄▄   ▄▄▄▄  ██ ▄▄▄   ",
+      "██▀▀█ ██▀▀██ ██▀▀██ ████▀    ",
+      "██    ██  ██ ██  ██ ████▄  ▄▄",
+      "██    ▀████▀ ▀████▀ ██ ▀█▄ ██",
+    ]);
+    expect(wordmark.join("")).not.toMatch(/[\u2800-\u28FF]/);
+    expect(lines.join("")).toContain("\x1b[38;2;39;216;243m");
+  });
+
+  it("shows the complete wordmark without the icon when side-by-side is too narrow", () => {
+    const lines = new HomeBrand().render(38);
+    expect(lines).toHaveLength(6);
+    expect(lines.slice(0, 5).join("")).not.toMatch(/[\u2800-\u28FF]/);
+    expect(lines.every((line) => visibleWidth(line) <= 38)).toBe(true);
+    expect(stripTerminalSequences(lines[4]!)).toContain("▀████▀");
   });
 
   it.each([1, 12, 30, 38, 60])("fits within %i terminal columns", (width) => {

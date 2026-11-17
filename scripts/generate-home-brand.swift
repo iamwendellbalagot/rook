@@ -1,7 +1,40 @@
 // Development-only artwork conversion; no Swift/PNG dependency at runtime.
 // swift scripts/generate-home-brand.swift <rook_lockup.png> [preview.png]
+// swift scripts/generate-home-brand.swift --wordmark <rook_wordmark.png>
 // Prints seven rows of mask/foreground/background cells for home-brand.ts.
 import AppKit
+
+if CommandLine.arguments[1] == "--wordmark" {
+    let image = NSBitmapImageRep(data: try Data(contentsOf:
+        URL(fileURLWithPath: CommandLine.arguments[2])))!
+    // Bright-foreground bounds of r, o, o, k, and . in the supplied PNG.
+    // Sample each letter separately to retain one whole column of spacing.
+    let glyphs = [(40, 205, 5), (232, 429, 6), (462, 651, 6),
+                  (680, 891, 6), (918, 993, 2)]
+    for y in 0..<10 {
+        var row = ""
+        for (index, glyph) in glyphs.enumerated() {
+            if index > 0 { row += "." }
+            let (left, right, width) = glyph
+            for x in 0..<width {
+                let x0 = left + x * (right - left) / width
+                let x1 = left + (x + 1) * (right - left) / width
+                let y0 = 40 + y * 291 / 10, y1 = 40 + (y + 1) * 291 / 10
+                var coverage = 0.0
+                for sy in y0..<y1 { for sx in x0..<x1 {
+                    let c = image.colorAt(x: sx, y: sy)!.usingColorSpace(.sRGB)!
+                    if c.greenComponent > 0.55 && c.blueComponent > 0.55 {
+                        coverage += c.alphaComponent
+                    }
+                }}
+                row += coverage / Double((x1 - x0) * (y1 - y0)) >= 0.4
+                    ? (index == 4 ? "2" : "1") : "."
+            }
+        }
+        print("  \"" + row + "\",")
+    }
+    exit(0)
+}
 
 struct Pixel {
     var r: Double, g: Double, b: Double, a: Double
