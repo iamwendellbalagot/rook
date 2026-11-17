@@ -1,22 +1,71 @@
-import { createAgentSession } from "@earendil-works/pi-coding-agent";
+import {
+  createAgentSessionFromServices,
+  createAgentSessionRuntime,
+  createAgentSessionServices,
+  getAgentDir,
+  SessionManager,
+  type AgentSession,
+} from "@earendil-works/pi-coding-agent";
 import type {
   AgentEvent,
   AgentGateway,
+  CurrentSessionInfo,
   ModelInfo,
   ProviderInfo,
+  SessionInfo,
+  SessionMessage,
   ThinkingInfo,
 } from "./agent-gateway.js";
 import { adaptPiEvent } from "./event-adapter.js";
 
 export async function createPiAgentGateway(
   cwd = process.cwd(),
-  options: { tools?: string[] } = {},
+  options: { tools?: string[]; sessionDir?: string } = {},
 ): Promise<AgentGateway> {
-  const { session } = await createAgentSession({ cwd, ...options });
   const handlers = new Set<(event: AgentEvent) => void>();
-  const unsubscribe = session.subscribe((event) => {
-    for (const mapped of adaptPiEvent(event)) emit(mapped);
+  let unsubscribe: (() => void) | undefined;
+  const runtime = await createAgentSessionRuntime(
+    async ({
+      cwd: sessionCwd,
+      agentDir,
+      sessionManager,
+      sessionStartEvent,
+    }) => {
+      const services = await createAgentSessionServices({
+        cwd: sessionCwd,
+        agentDir,
+      });
+      return {
+        ...(await createAgentSessionFromServices({
+          services,
+          sessionManager,
+          ...(sessionStartEvent ? { sessionStartEvent } : {}),
+          ...(options.tools ? { tools: options.tools } : {}),
+        })),
+        services,
+        diagnostics: services.diagnostics,
+      };
+    },
+    {
+      cwd,
+      agentDir: getAgentDir(),
+      sessionManager: SessionManager.create(cwd, options.sessionDir),
+    },
+  );
+
+  const bindSession = async (session: AgentSession): Promise<void> => {
+    unsubscribe?.();
+    await session.bindExtensions({});
+    unsubscribe = session.subscribe((event) => {
+      for (const mapped of adaptPiEvent(event)) emit(mapped);
+    });
+  };
+  runtime.setBeforeSessionInvalidate(() => {
+    unsubscribe?.();
+    unsubscribe = undefined;
   });
+  runtime.setRebindSession(bindSession);
+  await bindSession(runtime.session);
 
   function emit(event: AgentEvent): void {
     for (const handler of handlers) handler(event);
@@ -25,7 +74,7 @@ export async function createPiAgentGateway(
   return {
     async send(prompt) {
       try {
-        await session.prompt(prompt);
+        await runtime.session.prompt(prompt);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         emit({ type: "error", message });
@@ -33,36 +82,41 @@ export async function createPiAgentGateway(
       }
     },
     async cancel() {
-      await session.abort();
+      await runtime.session.abort();
     },
     async listModels(): Promise<ModelInfo[]> {
-      return session.modelRuntime.getModels().map(({ provider, id, name }) => ({
-        provider,
-        id,
-        name,
-      }));
+      return runtime.session.modelRuntime
+        .getModels()
+        .map(({ provider, id, name }) => ({
+          provider,
+          id,
+          name,
+        }));
     },
     currentModel(): ModelInfo | undefined {
-      const model = session.model;
+      const model = runtime.session.model;
       return model
         ? { provider: model.provider, id: model.id, name: model.name }
         : undefined;
     },
     async selectModel(model) {
-      const candidate = session.modelRuntime.getModel(model.provider, model.id);
+      const candidate = runtime.session.modelRuntime.getModel(
+        model.provider,
+        model.id,
+      );
       if (!candidate)
         throw new Error("That model is not in Pi's model catalog.");
-      await session.setModel(candidate, { persist: true });
+      await runtime.session.setModel(candidate, { persist: true });
     },
     listProviders(): ProviderInfo[] {
-      const runtime = session.modelRuntime;
-      return runtime.getRegisteredProviderIds().map((id) => {
-        const provider = runtime.getProvider(id);
+      const modelRuntime = runtime.session.modelRuntime;
+      return modelRuntime.getRegisteredProviderIds().map((id) => {
+        const provider = modelRuntime.getProvider(id);
         const auth = provider?.auth;
         return {
           id,
           name: provider?.name ?? id,
-          configured: runtime.getProviderAuthStatus(id).configured,
+          configured: modelRuntime.getProviderAuthStatus(id).configured,
           authMethods: [
             ...(auth?.apiKey ? [auth.apiKey.name] : []),
             ...(auth?.oauth ? [auth.oauth.name] : []),
@@ -71,31 +125,74 @@ export async function createPiAgentGateway(
       });
     },
     async logout(providerId) {
-      await session.modelRuntime.logout(providerId);
+      await runtime.session.modelRuntime.logout(providerId);
     },
     getThinkingInfo(): ThinkingInfo {
       return {
-        current: session.thinkingLevel,
-        available: session.getAvailableThinkingLevels(),
+        current: runtime.session.thinkingLevel,
+        available: runtime.session.getAvailableThinkingLevels(),
       };
     },
     setThinkingLevel(level) {
-      const available = session.getAvailableThinkingLevels();
+      const available = runtime.session.getAvailableThinkingLevels();
       if (!available.includes(level as (typeof available)[number])) {
         throw new Error("Unsupported thinking level for the selected model.");
       }
-      session.setThinkingLevel(level as (typeof available)[number], {
+      runtime.session.setThinkingLevel(level as (typeof available)[number], {
         persist: true,
       });
+    },
+    async listSessions(): Promise<SessionInfo[]> {
+      return (await SessionManager.list(runtime.cwd, options.sessionDir)).map(
+        (session) => ({
+          id: session.id,
+          path: session.path,
+          ...(session.name ? { name: session.name } : {}),
+          created: session.created,
+          modified: session.modified,
+          messageCount: session.messageCount,
+          firstMessage: session.firstMessage,
+        }),
+      );
+    },
+    currentSession(): CurrentSessionInfo {
+      const session = runtime.session;
+      return {
+        id: session.sessionId,
+        ...(session.sessionFile ? { path: session.sessionFile } : {}),
+        ...(session.sessionName ? { name: session.sessionName } : {}),
+      };
+    },
+    sessionHistory(): SessionMessage[] {
+      return runtime.session.messages.flatMap((message) => {
+        if (message.role !== "user" && message.role !== "assistant") return [];
+        const text =
+          typeof message.content === "string"
+            ? message.content
+            : message.content
+                .filter((part) => part.type === "text")
+                .map((part) => part.text)
+                .join("");
+        return text ? [{ role: message.role, text }] : [];
+      });
+    },
+    async newSession() {
+      await runtime.newSession();
+    },
+    async resumeSession(path) {
+      const result = await runtime.switchSession(path);
+      if (result.cancelled)
+        throw new Error("The session switch was cancelled.");
     },
     subscribe(handler) {
       handlers.add(handler);
       return () => handlers.delete(handler);
     },
     async dispose() {
-      unsubscribe();
+      unsubscribe?.();
+      unsubscribe = undefined;
       handlers.clear();
-      session.dispose();
+      await runtime.dispose();
     },
   };
 }

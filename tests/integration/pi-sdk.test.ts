@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createAgentSession } from "@earendil-works/pi-coding-agent";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  createAgentSession,
+  SessionManager,
+} from "@earendil-works/pi-coding-agent";
 import { createPiAgentGateway } from "../../src/pi/pi-agent-gateway.js";
 
 describe("Pi SDK compatibility", () => {
@@ -20,6 +26,37 @@ describe("Pi SDK compatibility", () => {
       });
     } finally {
       await gateway.dispose();
+    }
+  });
+
+  it("replaces the active persistent session through Pi's runtime", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rook-session-runtime-"));
+    const cwd = join(root, "workspace");
+    const sessionDir = join(root, "sessions");
+    await mkdir(cwd);
+    const fixture = SessionManager.create(cwd, sessionDir);
+    fixture.appendMessage({
+      role: "user",
+      content: "saved test prompt",
+      timestamp: Date.now(),
+    });
+    const gateway = await createPiAgentGateway(cwd, { tools: [], sessionDir });
+    try {
+      const savedSessions = await gateway.listSessions();
+      expect(savedSessions).toHaveLength(1);
+      expect(savedSessions[0]?.firstMessage).toBe("saved test prompt");
+      await gateway.resumeSession(savedSessions[0]!.path);
+      expect(gateway.sessionHistory()).toEqual([
+        { role: "user", text: "saved test prompt" },
+      ]);
+
+      const previousId = gateway.currentSession().id;
+      await gateway.newSession();
+      expect(gateway.currentSession().id).not.toBe(previousId);
+      expect(gateway.sessionHistory()).toEqual([]);
+    } finally {
+      await gateway.dispose();
+      await rm(root, { recursive: true, force: true });
     }
   });
 });

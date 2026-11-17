@@ -85,6 +85,8 @@ function createHome(cwd: string): Text {
     ["/plan", "Chat with tools disabled in this initial shell"],
     ["/build", "Unavailable until tool permissions are implemented"],
     ["/model", "Choose a model from Pi's catalog"],
+    ["/new", "Start a new persistent session"],
+    ["/sessions", "Browse and resume saved sessions"],
     ["/login", "Sign in to a Pi provider"],
     ["/settings", "Adjust thinking level"],
     ["/memory", "Repository memory is not available yet"],
@@ -144,9 +146,11 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   });
   state = reduceAppState(state, { type: "mode_changed", mode: "plan" });
   const initialModel = options.gateway.currentModel();
+  const initialSession = options.gateway.currentSession();
   let modelLabel = initialModel
     ? `${initialModel.provider}/${initialModel.name}`
     : "no model selected";
+  let sessionLabel = initialSession.id.slice(0, 8);
   let settled = false;
   let resolveRun: (() => void) | undefined;
   const toolCards = new Map<string, Text>();
@@ -160,7 +164,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       : "";
     footer.setText(
       truncateToWidth(
-        `${tone(modelLabel, "muted")} · ${tone("PLAN", "blue", true)} · tools disabled${usage}${status} · Ctrl+C exit`,
+        `${tone(modelLabel, "muted")} · ${tone(`S:${sessionLabel}`, "dim")} · ${tone("PLAN", "blue", true)} · tools disabled${usage}${status} · Ctrl+C exit`,
         Math.max(1, terminal.columns),
       ),
     );
@@ -255,7 +259,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/help":
           removeHome();
           appendText(
-            "Available: /help, /login, /logout, /model, /settings, /plan, /build, /memory, /cancel, /exit",
+            "Available: /help, /login, /logout, /model, /settings, /new, /sessions, /resume, /plan, /build, /memory, /cancel, /exit",
             "muted",
           );
           return;
@@ -268,6 +272,13 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           return;
         case "/settings":
           showThinkingMenu();
+          return;
+        case "/new":
+          await startNewSession();
+          return;
+        case "/sessions":
+        case "/resume":
+          await showSessionMenu();
           return;
         case "/plan":
           state = reduceAppState(state, { type: "mode_changed", mode: "plan" });
@@ -363,6 +374,76 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     } catch (error) {
       appendText(errorMessage(error), "error");
     }
+  }
+
+  async function startNewSession(): Promise<void> {
+    try {
+      await options.gateway.newSession();
+      renderCurrentSession();
+      appendText("Started a new persistent session.", "muted");
+    } catch (error) {
+      appendText(errorMessage(error), "error");
+    }
+  }
+
+  async function showSessionMenu(): Promise<void> {
+    try {
+      const sessions = await options.gateway.listSessions();
+      if (sessions.length === 0) {
+        appendText("No saved sessions were found for this workspace.", "muted");
+        return;
+      }
+      const currentPath = options.gateway.currentSession().path;
+      showSelection(
+        "Resume a session",
+        sessions.map((session) => ({
+          value: session.path,
+          label: compactSessionLabel(
+            session.name || session.firstMessage || session.id,
+          ),
+          description: [
+            session.path === currentPath ? "current" : undefined,
+            `${session.messageCount} messages`,
+            session.modified.toLocaleString(),
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        })),
+        async (path) => {
+          try {
+            await options.gateway.resumeSession(path);
+            renderCurrentSession();
+            appendText("Resumed saved session history.", "muted");
+          } catch (error) {
+            appendText(errorMessage(error), "error");
+          }
+        },
+      );
+    } catch (error) {
+      appendText(errorMessage(error), "error");
+    }
+  }
+
+  function renderCurrentSession(): void {
+    removeHome();
+    for (const child of [...transcript.children]) transcript.removeChild(child);
+    toolCards.clear();
+    const session = options.gateway.currentSession();
+    sessionLabel = session.id.slice(0, 8);
+    for (const message of options.gateway.sessionHistory()) {
+      if (message.role === "user") {
+        transcript.addChild(
+          new Text(tone(`› ${message.text}`, "purple"), 2, 0),
+        );
+      } else {
+        transcript.addChild(
+          new Markdown(message.text, 2, 0, markdownTheme, {
+            color: (content) => tone(content, "text"),
+          }),
+        );
+      }
+    }
+    updateFooter();
   }
 
   async function showProviderMenu(action: "login" | "logout"): Promise<void> {
@@ -499,4 +580,12 @@ function formatToolCard(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function compactSessionLabel(value: string): string {
+  const normalized = value
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalized.length > 64 ? `${normalized.slice(0, 61)}…` : normalized;
 }

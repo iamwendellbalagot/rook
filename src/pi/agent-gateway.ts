@@ -25,6 +25,27 @@ export interface ThinkingInfo {
   available: string[];
 }
 
+export interface SessionInfo {
+  id: string;
+  path: string;
+  name?: string;
+  created: Date;
+  modified: Date;
+  messageCount: number;
+  firstMessage: string;
+}
+
+export interface CurrentSessionInfo {
+  id: string;
+  path?: string;
+  name?: string;
+}
+
+export interface SessionMessage {
+  role: "user" | "assistant";
+  text: string;
+}
+
 export interface AgentGateway {
   send(prompt: string): Promise<void>;
   cancel(): Promise<void>;
@@ -35,6 +56,11 @@ export interface AgentGateway {
   logout(providerId: string): Promise<void>;
   getThinkingInfo(): ThinkingInfo;
   setThinkingLevel(level: string): void;
+  listSessions(): Promise<SessionInfo[]>;
+  currentSession(): CurrentSessionInfo;
+  sessionHistory(): SessionMessage[];
+  newSession(): Promise<void>;
+  resumeSession(path: string): Promise<void>;
   subscribe(handler: (event: AgentEvent) => void): () => void;
   dispose(): Promise<void>;
 }

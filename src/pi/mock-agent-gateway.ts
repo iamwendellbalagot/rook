@@ -2,6 +2,8 @@ import type {
   AgentEvent,
   AgentGateway,
   ModelInfo,
+  SessionInfo,
+  SessionMessage,
   ThinkingInfo,
 } from "./agent-gateway.js";
 
@@ -48,6 +50,24 @@ export class MockAgentGateway implements AgentGateway {
   }
 
   setThinkingLevel(): void {}
+
+  async listSessions(): Promise<SessionInfo[]> {
+    return [];
+  }
+
+  currentSession() {
+    return { id: "mock" };
+  }
+
+  sessionHistory(): SessionMessage[] {
+    return [];
+  }
+
+  async newSession(): Promise<void> {}
+
+  async resumeSession(): Promise<void> {
+    throw new Error("The mock gateway has no saved sessions.");
+  }
 
   subscribe(handler: (event: AgentEvent) => void): () => void {
     this.handlers.add(handler);

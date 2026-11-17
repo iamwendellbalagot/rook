@@ -4,12 +4,15 @@ import type {
   AgentEvent,
   AgentGateway,
   ModelInfo,
+  SessionInfo,
+  SessionMessage,
   ThinkingInfo,
 } from "../../src/pi/agent-gateway.js";
 import { createRookTui } from "../../src/tui/rook-tui.js";
 
 class EventGateway implements AgentGateway {
   private handlers = new Set<(event: AgentEvent) => void>();
+  private sessionId = "session-12345678";
 
   async send(): Promise<void> {
     this.emit({ type: "text_delta", text: "draft answer" });
@@ -48,6 +51,24 @@ class EventGateway implements AgentGateway {
   }
 
   setThinkingLevel(): void {}
+
+  async listSessions(): Promise<SessionInfo[]> {
+    return [];
+  }
+
+  currentSession() {
+    return { id: this.sessionId };
+  }
+
+  sessionHistory(): SessionMessage[] {
+    return [];
+  }
+
+  async newSession(): Promise<void> {
+    this.sessionId = "session-87654321";
+  }
+
+  async resumeSession(): Promise<void> {}
 
   subscribe(handler: (event: AgentEvent) => void): () => void {
     this.handlers.add(handler);
@@ -131,6 +152,17 @@ describe("Rook TUI shell", () => {
     await app.submit("/login");
     app.tui.renderNow(true);
     expect(terminal.writes.join("")).toContain("No providers are registered");
+
+    await app.submit("/sessions");
+    app.tui.renderNow(true);
+    expect(terminal.writes.join("")).toContain("No saved sessions were found");
+
+    await app.submit("/new");
+    app.tui.renderNow(true);
+    expect(terminal.writes.join("")).toContain(
+      "Started a new persistent session",
+    );
+    expect(app.tui.render(100).join("\n")).toContain("S:session-");
 
     const writesBeforeResize = terminal.writes.length;
     terminal.resize(60, 20);
