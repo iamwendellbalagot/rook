@@ -2,7 +2,6 @@ import {
   Container,
   Editor,
   HStack,
-  Image,
   Markdown,
   ProcessTerminal,
   SelectList,
@@ -18,9 +17,7 @@ import {
   type TuiMouseEventResult,
   type Terminal,
 } from "@earendil-works/pi-tui";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import type { AppState } from "../app/state.js";
 import { initialAppState, reduceAppState } from "../app/state.js";
 import type {
@@ -40,6 +37,7 @@ import {
   tone,
 } from "./theme.js";
 import { shuffleLoadingPhrases } from "./loading-phrases.js";
+import { HomeBrand } from "./home-brand.js";
 
 const CHECKLIST_SIDEBAR_MIN_WIDTH = 90;
 const CHECKLIST_SIDEBAR_WIDTH = 34;
@@ -543,30 +541,6 @@ class ModalSeparator implements Component {
   }
 
   invalidate(): void {}
-}
-
-const HOME_LOCKUP_BASE64 = readFileSync(
-  resolve(dirname(fileURLToPath(import.meta.url)), "assets", "rook_lockup.png"),
-).toString("base64");
-
-export class HomeBrand implements Component {
-  private readonly image = new Image(
-    HOME_LOCKUP_BASE64,
-    "image/png",
-    { fallbackColor: (text) => tone(text, "dim") },
-    { maxWidthCells: 30, maxHeightCells: 8, filename: "rook_lockup.png" },
-  );
-
-  render(width: number): string[] {
-    return [
-      ...this.image.render(Math.max(1, width - 2)).map((line) => `  ${line}`),
-      `  ${tone("A coding agent that grows with your codebase.".slice(0, Math.max(0, width - 2)), "muted")}`,
-    ];
-  }
-
-  invalidate(): void {
-    this.image.invalidate();
-  }
 }
 
 const HOME_ACTIONS = [
