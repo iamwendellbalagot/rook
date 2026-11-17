@@ -82,13 +82,14 @@ function compactPath(path: string, maxWidth: number): string {
 
 function createHome(cwd: string): Text {
   const commands = [
-    ["/plan", "Chat with tools disabled in this initial shell"],
-    ["/build", "Unavailable until tool permissions are implemented"],
+    ["/plan", "Read and search workspace files without mutations"],
+    ["/build", "Enable policy-gated workspace edits"],
     ["/model", "Choose a model from Pi's catalog"],
     ["/new", "Start a new persistent session"],
     ["/sessions", "Browse and resume saved sessions"],
     ["/login", "Sign in to a Pi provider"],
     ["/settings", "Adjust thinking level"],
+    ["/permissions", "Review recent tool permission decisions"],
     ["/memory", "Repository memory is not available yet"],
     ["/help", "Show available commands"],
   ] as const;
@@ -164,7 +165,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       : "";
     footer.setText(
       truncateToWidth(
-        `${tone(modelLabel, "muted")} · ${tone(`S:${sessionLabel}`, "dim")} · ${tone("PLAN", "blue", true)} · tools disabled${usage}${status} · Ctrl+C exit`,
+        `${tone(modelLabel, "muted")} · ${tone(`S:${sessionLabel}`, "dim")} · ${tone(state.mode.toUpperCase(), state.mode === "plan" ? "blue" : "amber", true)} · ${state.mode === "plan" ? "read-only tools" : "workspace edits enabled"}${usage}${status} · Ctrl+C exit`,
         Math.max(1, terminal.columns),
       ),
     );
@@ -259,7 +260,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/help":
           removeHome();
           appendText(
-            "Available: /help, /login, /logout, /model, /settings, /new, /sessions, /resume, /plan, /build, /memory, /cancel, /exit",
+            "Available: /help, /login, /logout, /model, /settings, /new, /sessions, /resume, /plan, /build, /permissions, /memory, /cancel, /exit",
             "muted",
           );
           return;
@@ -273,6 +274,9 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/settings":
           showThinkingMenu();
           return;
+        case "/permissions":
+          showPermissionDecisions();
+          return;
         case "/new":
           await startNewSession();
           return;
@@ -282,17 +286,46 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           return;
         case "/plan":
           state = reduceAppState(state, { type: "mode_changed", mode: "plan" });
+          options.gateway.setMode("plan");
           removeHome();
-          appendText("Plan mode: tools are disabled in this shell.", "muted");
+          appendText(
+            "Plan mode enabled: workspace reads and file discovery are allowed; mutations and shell execution are blocked.",
+            "muted",
+          );
           updateFooter();
           return;
         case "/build":
+          state = reduceAppState(state, {
+            type: "mode_changed",
+            mode: "build",
+          });
+          options.gateway.setMode("build");
           removeHome();
           appendText(
-            "Build mode is unavailable until tool permissions are implemented.",
-            "error",
+            "Build mode enabled: workspace edits are allowed; shell, content grep, sensitive paths, links, and unknown tools remain blocked.",
+            "muted",
           );
+          updateFooter();
           return;
+        case "/mode": {
+          const requestedMode = prompt.split(/\s+/)[1];
+          if (requestedMode !== "plan" && requestedMode !== "build") {
+            appendText("Usage: /mode plan|build", "error");
+            return;
+          }
+          state = reduceAppState(state, {
+            type: "mode_changed",
+            mode: requestedMode,
+          });
+          options.gateway.setMode(requestedMode);
+          removeHome();
+          appendText(
+            `${requestedMode === "plan" ? "Plan" : "Build"} mode enabled.`,
+            "muted",
+          );
+          updateFooter();
+          return;
+        }
         case "/memory":
           removeHome();
           appendText("Repository memory is not available yet.", "muted");
@@ -421,6 +454,24 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       );
     } catch (error) {
       appendText(errorMessage(error), "error");
+    }
+  }
+
+  function showPermissionDecisions(): void {
+    const decisions = options.gateway.getPermissionDecisions();
+    if (decisions.length === 0) {
+      appendText(
+        "No tool permission decisions have been recorded this session.",
+        "muted",
+      );
+      return;
+    }
+    for (const decision of decisions.slice(-10)) {
+      const result = decision.allowed ? "ALLOWED" : "BLOCKED";
+      appendText(
+        `${result} ${decision.toolName}: ${decision.reason}`,
+        decision.allowed ? "muted" : "error",
+      );
     }
   }
 

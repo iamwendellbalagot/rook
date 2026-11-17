@@ -4,6 +4,8 @@ import type {
   AgentEvent,
   AgentGateway,
   ModelInfo,
+  PermissionDecision,
+  PermissionMode,
   SessionInfo,
   SessionMessage,
   ThinkingInfo,
@@ -13,6 +15,7 @@ import { createRookTui } from "../../src/tui/rook-tui.js";
 class EventGateway implements AgentGateway {
   private handlers = new Set<(event: AgentEvent) => void>();
   private sessionId = "session-12345678";
+  private mode: PermissionMode = "plan";
 
   async send(): Promise<void> {
     this.emit({ type: "text_delta", text: "draft answer" });
@@ -69,6 +72,18 @@ class EventGateway implements AgentGateway {
   }
 
   async resumeSession(): Promise<void> {}
+
+  setMode(mode: PermissionMode): void {
+    this.mode = mode;
+  }
+
+  getPermissionDecisions(): PermissionDecision[] {
+    return [];
+  }
+
+  getActiveTools(): string[] {
+    return this.mode === "build" ? ["read", "edit", "write"] : ["read"];
+  }
 
   subscribe(handler: (event: AgentEvent) => void): () => void {
     this.handlers.add(handler);
@@ -163,6 +178,13 @@ describe("Rook TUI shell", () => {
       "Started a new persistent session",
     );
     expect(app.tui.render(100).join("\n")).toContain("S:session-");
+
+    await app.submit("/build");
+    app.tui.renderNow(true);
+    expect(terminal.writes.join("")).toContain("Build mode enabled");
+    await app.submit("/plan");
+    app.tui.renderNow(true);
+    expect(terminal.writes.join("")).toContain("Plan mode enabled");
 
     const writesBeforeResize = terminal.writes.length;
     terminal.resize(60, 20);

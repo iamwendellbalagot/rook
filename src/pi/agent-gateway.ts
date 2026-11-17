@@ -41,6 +41,15 @@ export interface CurrentSessionInfo {
   name?: string;
 }
 
+export interface PermissionDecision {
+  toolName: string;
+  allowed: boolean;
+  reason: string;
+  timestamp: Date;
+}
+
+export type PermissionMode = "plan" | "build";
+
 export interface SessionMessage {
   role: "user" | "assistant";
   text: string;
@@ -61,6 +70,9 @@ export interface AgentGateway {
   sessionHistory(): SessionMessage[];
   newSession(): Promise<void>;
   resumeSession(path: string): Promise<void>;
+  setMode(mode: PermissionMode): void;
+  getPermissionDecisions(): PermissionDecision[];
+  getActiveTools(): string[];
   subscribe(handler: (event: AgentEvent) => void): () => void;
   dispose(): Promise<void>;
 }

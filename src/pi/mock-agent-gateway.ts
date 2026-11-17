@@ -2,6 +2,8 @@ import type {
   AgentEvent,
   AgentGateway,
   ModelInfo,
+  PermissionDecision,
+  PermissionMode,
   SessionInfo,
   SessionMessage,
   ThinkingInfo,
@@ -67,6 +69,16 @@ export class MockAgentGateway implements AgentGateway {
 
   async resumeSession(): Promise<void> {
     throw new Error("The mock gateway has no saved sessions.");
+  }
+
+  setMode(_mode: PermissionMode): void {}
+
+  getPermissionDecisions(): PermissionDecision[] {
+    return [];
+  }
+
+  getActiveTools(): string[] {
+    return [];
   }
 
   subscribe(handler: (event: AgentEvent) => void): () => void {

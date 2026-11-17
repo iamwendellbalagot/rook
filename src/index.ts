@@ -39,7 +39,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   }
   const gateway = mock
     ? new MockAgentGateway()
-    : await createPiAgentGateway(cwd, prompt ? {} : { tools: [] });
+    : await createPiAgentGateway(cwd);
   let state = reduceAppState(initialAppState(), { type: "startup_complete" });
 
   try {

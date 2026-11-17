@@ -11,18 +11,33 @@ import type {
   AgentGateway,
   CurrentSessionInfo,
   ModelInfo,
+  PermissionDecision,
+  PermissionMode,
   ProviderInfo,
   SessionInfo,
   SessionMessage,
   ThinkingInfo,
 } from "./agent-gateway.js";
 import { adaptPiEvent } from "./event-adapter.js";
+import {
+  createToolPolicyExtension,
+  ToolPolicy,
+} from "../policy/tool-policy.js";
+
+const AVAILABLE_TOOLS = ["read", "find", "ls", "edit", "write"];
+
+function activeToolsFor(mode: PermissionMode): string[] {
+  return mode === "build"
+    ? AVAILABLE_TOOLS
+    : AVAILABLE_TOOLS.filter((name) => name !== "edit" && name !== "write");
+}
 
 export async function createPiAgentGateway(
   cwd = process.cwd(),
-  options: { tools?: string[]; sessionDir?: string } = {},
+  options: { sessionDir?: string } = {},
 ): Promise<AgentGateway> {
   const handlers = new Set<(event: AgentEvent) => void>();
+  const policy = new ToolPolicy(cwd);
   let unsubscribe: (() => void) | undefined;
   const runtime = await createAgentSessionRuntime(
     async ({
@@ -34,13 +49,18 @@ export async function createPiAgentGateway(
       const services = await createAgentSessionServices({
         cwd: sessionCwd,
         agentDir,
+        resourceLoaderOptions: {
+          noExtensions: true,
+          noSkills: true,
+          extensionFactories: [createToolPolicyExtension(policy)],
+        },
       });
       return {
         ...(await createAgentSessionFromServices({
           services,
           sessionManager,
           ...(sessionStartEvent ? { sessionStartEvent } : {}),
-          ...(options.tools ? { tools: options.tools } : {}),
+          tools: AVAILABLE_TOOLS,
         })),
         services,
         diagnostics: services.diagnostics,
@@ -55,6 +75,7 @@ export async function createPiAgentGateway(
 
   const bindSession = async (session: AgentSession): Promise<void> => {
     unsubscribe?.();
+    session.setActiveToolsByName(activeToolsFor(policy.getMode()));
     await session.bindExtensions({});
     unsubscribe = session.subscribe((event) => {
       for (const mapped of adaptPiEvent(event)) emit(mapped);
@@ -141,6 +162,16 @@ export async function createPiAgentGateway(
       runtime.session.setThinkingLevel(level as (typeof available)[number], {
         persist: true,
       });
+    },
+    setMode(mode) {
+      policy.setMode(mode);
+      runtime.session.setActiveToolsByName(activeToolsFor(mode));
+    },
+    getPermissionDecisions(): PermissionDecision[] {
+      return policy.getDecisions();
+    },
+    getActiveTools(): string[] {
+      return runtime.session.getActiveToolNames();
     },
     async listSessions(): Promise<SessionInfo[]> {
       return (await SessionManager.list(runtime.cwd, options.sessionDir)).map(

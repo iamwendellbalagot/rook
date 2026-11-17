@@ -16,7 +16,7 @@ describe("Pi SDK compatibility", () => {
   });
 
   it("exposes Pi's model, provider, and thinking catalogs through the gateway", async () => {
-    const gateway = await createPiAgentGateway(process.cwd(), { tools: [] });
+    const gateway = await createPiAgentGateway(process.cwd());
     try {
       expect(await gateway.listModels()).toEqual(expect.any(Array));
       expect(gateway.listProviders()).toEqual(expect.any(Array));
@@ -24,6 +24,17 @@ describe("Pi SDK compatibility", () => {
         current: expect.any(String),
         available: expect.any(Array),
       });
+      expect(gateway.getActiveTools()).toEqual(
+        expect.arrayContaining(["read", "find", "ls"]),
+      );
+      expect(gateway.getActiveTools()).not.toContain("bash");
+      expect(gateway.getActiveTools()).not.toContain("grep");
+      expect(gateway.getActiveTools()).not.toContain("write");
+      gateway.setMode("build");
+      expect(gateway.getActiveTools()).toContain("write");
+      expect(gateway.getActiveTools()).not.toContain("bash");
+      gateway.setMode("plan");
+      expect(gateway.getActiveTools()).not.toContain("write");
     } finally {
       await gateway.dispose();
     }
@@ -40,7 +51,7 @@ describe("Pi SDK compatibility", () => {
       content: "saved test prompt",
       timestamp: Date.now(),
     });
-    const gateway = await createPiAgentGateway(cwd, { tools: [], sessionDir });
+    const gateway = await createPiAgentGateway(cwd, { sessionDir });
     try {
       const savedSessions = await gateway.listSessions();
       expect(savedSessions).toHaveLength(1);

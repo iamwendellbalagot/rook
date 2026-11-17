@@ -35,24 +35,26 @@ M0 is implemented, but live-provider streaming remains credential-gated and unve
 
 - ROOK-005: added the Rook app state/event reducer for lifecycle, run states, modes, streamed/final messages, tool activity, usage, errors, and shutdown. The headless CLI now uses it to gate prompts and track runs.
 - Focused reducer tests cover startup/auth readiness, idle/running/settled/failed states, duplicate prompt/mode guards, authoritative final messages, tool/usage events, and shutdown.
-- ROOK-006: added a custom `pi-tui` alternate-screen shell with a responsive header, home view, fixed multiline editor/footer, streaming Markdown, basic command handling, and terminal cleanup. Interactive SDK sessions disable all tools until the permission policy lands.
+- ROOK-006: added a custom `pi-tui` alternate-screen shell with a responsive header, home view, fixed multiline editor/footer, streaming Markdown, basic command handling, and terminal cleanup. Interactive tools were initially disabled pending ROOK-010.
 - TUI visual choices follow `tui_references/SCREEN_SPEC.md` and `tokens.json`; the design reference files remain untouched.
 - ROOK-007: mapped public Pi session events for streamed/final assistant text, usage, tool start/end, errors, and aborts. The TUI renders final text authoritatively and shows compact status-only tool rows; raw tool args/results are not exposed.
-- ROOK-008: added Pi-backed model listing/selection, provider status/logout, and thinking-level settings. The TUI exposes `/model`, `/login`, `/logout`, and `/settings`; sign-in follows the documented Pi CLI handoff, while model and thinking changes persist through Pi. Interactive tools remain disabled until ROOK-010.
+- ROOK-008: added Pi-backed model listing/selection, provider status/logout, and thinking-level settings. The TUI exposes `/model`, `/login`, `/logout`, and `/settings`; sign-in follows the documented Pi CLI handoff, while model and thinking changes persist through Pi.
 - ROOK-009: moved the Pi gateway onto `AgentSessionRuntime`, added `/new` and `/sessions`/`/resume`, and rebound session subscriptions/extensions after replacement. Session selection shows saved-session metadata; resuming restores user/assistant text while omitting tool arguments and results.
+- ROOK-010: added a Pi `tool_call` boundary policy. `/plan` allows scoped workspace reads and file discovery; `/build` additionally allows scoped `edit`/`write`. Shell, content grep, sensitive paths, symlink/hardlink paths, unknown tools, external extensions, skills, and concurrent mutations are denied. Pi's grep uses ripgrep `--hidden`, so it stays disabled rather than risk reading hidden credentials. `/permissions` shows recent decisions. Risky operations fail closed rather than prompting for approval.
+- Security scope: this is a host-side policy, not an OS/container sandbox; filesystem checks cannot eliminate races with a hostile concurrent process. Use an isolated container/VM for untrusted repositories.
 
 ### Validation
 
 - `npm run typecheck` — passed.
 - `npx vitest run tests/app/state.test.ts` — passed (5 focused tests).
 - `npx vitest run tests/pi/event-adapter.test.ts tests/pi/mock-agent-gateway.test.ts` — passed (4 tests; event mapping, no raw tool data, and final-message deduplication).
-- `npm test` — passed (5 files, 13 tests).
-- `npm run test:pty` — passed (fake-terminal render, resize, prompt, session command, and cleanup flow).
-- `npm run test:integration` — passed (SDK lifecycle, gateway catalogs, and persistent session list/resume/new/rebind flow).
+- `npm test` — passed (6 files, 19 tests; includes policy traversal, sensitive path, link, tool-hook, mode, and concurrency checks).
+- `npm run test:pty` — passed (fake-terminal render, resize, prompt, mode/session commands, and cleanup flow).
+- `npm run test:integration` — passed (SDK lifecycle, tool allowlist/mode changes, and persistent session list/resume/new/rebind flow).
 - `npm run build` — passed.
 - `node bin/rook.mjs --smoke` — passed with the mock gateway.
 - `npm run lint` — passed.
 
 ### Next
 
-- ROOK-010: enforce plan/build mode and tool approvals at the execution boundary. Do not enable interactive tools before the policy is validated.
+- ROOK-011: implement Git repository identity and snapshots. Preserve ROOK-010's fail-closed policy; do not describe it as a sandbox.
