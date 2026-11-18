@@ -430,6 +430,7 @@ class SearchableModelList implements Component {
     initialProvider: string,
     private readonly onSelect: (value: string) => void,
     private readonly onCancel: () => void,
+    selectFirstModel = false,
   ) {
     this.folders = folders;
     this.initialProvider = initialProvider;
@@ -439,6 +440,12 @@ class SearchableModelList implements Component {
       (row) => row.kind === "model" && row.model.current,
     );
     if (currentModelIndex >= 0) this.selectedIndex = currentModelIndex;
+    else if (selectFirstModel) {
+      const firstModelIndex = this.rows.findIndex(
+        (row) => row.kind === "model",
+      );
+      if (firstModelIndex >= 0) this.selectedIndex = firstModelIndex;
+    }
   }
 
   setFolders(folders: ModelProviderFolder[], query: string): void {
@@ -1529,24 +1536,40 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     }
   }
 
-  async function showModelMenu(): Promise<void> {
+  async function showModelMenu(providerScope?: string): Promise<void> {
     try {
       const models = await options.gateway.listModels();
-      if (models.length === 0) {
+      const scopedModels = providerScope
+        ? models.filter((model) => model.provider === providerScope)
+        : models;
+      if (scopedModels.length === 0) {
         removeHome();
+        const providerName =
+          options.gateway
+            .listProviders()
+            .find((provider) => provider.id === providerScope)?.name ??
+          providerScope;
         appendText(
-          "Pi did not report any models in its current catalog.",
+          providerScope
+            ? `Signed in, but Pi has no available models for ${providerName} yet.`
+            : "Pi did not report any models in its current catalog.",
           "muted",
         );
         return;
       }
-      showModelPicker(models);
+      showModelPicker(scopedModels, providerScope);
     } catch (error) {
       appendText(errorMessage(error), "error");
     }
   }
 
-  function showModelPicker(models: ModelInfo[]): void {
+  function showModelPicker(models: ModelInfo[], providerScope?: string): void {
+    const scopeLabel = providerScope
+      ? (options.gateway
+          .listProviders()
+          .find((provider) => provider.id === providerScope)?.name ??
+        providerScope)
+      : undefined;
     const currentModel = options.gateway.currentModel();
     const sortedModels = [...models].sort(
       (left, right) =>
@@ -1583,7 +1606,10 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     const searchEditor = new Editor(tui, editorTheme, { paddingX: 1 });
     let hideOverlay = (): void => {};
     const initialProvider =
-      currentModel?.provider ?? sortedModels[0]?.provider ?? "";
+      providerScope ??
+      currentModel?.provider ??
+      sortedModels[0]?.provider ??
+      "";
     const list = new SearchableModelList(
       foldersFor(""),
       initialProvider,
@@ -1595,6 +1621,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         if (model) void selectModel(model);
       },
       () => hideOverlay(),
+      providerScope !== undefined,
     );
     const providerCount = new Set(sortedModels.map((model) => model.provider))
       .size;
@@ -1624,7 +1651,15 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       tui.requestRender();
     };
     const content = new VStack([
-      new Text(tone("Choose a model", "text", true), 1, 0),
+      new Text(
+        tone(
+          providerScope ? `Choose a model · ${scopeLabel}` : "Choose a model",
+          "text",
+          true,
+        ),
+        1,
+        0,
+      ),
       modelSummary,
       new Text(tone("⌕  Search by name, provider, or model ID", "dim"), 1, 0),
       searchEditor,
@@ -1958,6 +1993,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     method: ProviderAuthMethod,
   ): Promise<void> {
     const controller = new AbortController();
+    let loginSucceeded = false;
     const dialog = new ProviderAuthDialog(
       tui,
       provider.name,
@@ -1982,6 +2018,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       await options.gateway.login(provider.id, method.type, interaction);
       appendText(`Signed in to ${provider.name}.`, "muted");
       updateFooter();
+      loginSucceeded = true;
     } catch (error) {
       const message = dialog.redact(errorMessage(error));
       appendText(
@@ -2001,6 +2038,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       tui.setFocus(editor);
       updateFooter();
     }
+    if (loginSucceeded) await showModelMenu(provider.id);
   }
 
   function showThinkingMenu(): void {

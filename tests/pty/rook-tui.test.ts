@@ -431,6 +431,20 @@ describe("Rook TUI shell", () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
     app.tui.renderNow(true);
     expect(gateway.receivedLoginSecret).toBe(credential);
+    const screenAfterLogin = app.tui
+      .getScreenLines()
+      .map(stripTerminalSequences)
+      .join("\n");
+    expect(screenAfterLogin).toContain("Choose a model · Anthropic");
+    expect(screenAfterLogin).toContain("Claude Sonnet 4");
+    expect(screenAfterLogin).not.toContain("GPT-4.1");
+    terminal.input("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(gateway.selectedModel).toEqual({
+      provider: "anthropic",
+      id: "claude-sonnet-4",
+      name: "Claude Sonnet 4",
+    });
     expect(
       app.tui.getScreenLines().map(stripTerminalSequences).join("\n"),
     ).not.toContain(credential);
@@ -463,6 +477,89 @@ describe("Rook TUI shell", () => {
     expect(
       app.tui.getScreenLines().map(stripTerminalSequences).join("\n"),
     ).toContain("cancelled");
+    app.stop();
+    await finished;
+  });
+
+  it("preserves the active model when dismissing post-login model selection", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    gateway.selectedModel = {
+      provider: "openai",
+      id: "gpt-4.1",
+      name: "GPT-4.1",
+    };
+    gateway.providers = [
+      {
+        id: "anthropic",
+        name: "Anthropic",
+        configured: false,
+        authMethods: [{ type: "oauth", name: "Claude login" }],
+      },
+    ];
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+      openBrowser: async () => {},
+    });
+    const finished = app.start();
+    await app.submit("/login");
+    terminal.input("\r");
+    for (const character of "temporary credential") terminal.input(character);
+    terminal.input("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    app.tui.renderNow(true);
+    const screen = app.tui
+      .getScreenLines()
+      .map(stripTerminalSequences)
+      .join("\n");
+    expect(screen).toContain("Choose a model · Anthropic");
+    expect(screen).toContain("Claude Sonnet 4");
+    expect(screen).not.toContain("openai/");
+    terminal.input("\u001b");
+    expect(gateway.selectedModel).toEqual({
+      provider: "openai",
+      id: "gpt-4.1",
+      name: "GPT-4.1",
+    });
+    app.stop();
+    await finished;
+  });
+
+  it("reports when a successful login has no selectable models for that provider", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    gateway.models = [];
+    gateway.providers = [
+      {
+        id: "anthropic",
+        name: "Anthropic",
+        configured: false,
+        authMethods: [{ type: "oauth", name: "Claude login" }],
+      },
+    ];
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+      openBrowser: async () => {},
+    });
+    const finished = app.start();
+    await app.submit("/login");
+    terminal.input("\r");
+    for (const character of "temporary credential") terminal.input(character);
+    terminal.input("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    app.tui.renderNow(true);
+    const screen = app.tui
+      .getScreenLines()
+      .map(stripTerminalSequences)
+      .join("\n");
+    expect(screen).toContain(
+      "Signed in, but Pi has no available models for Anthropic",
+    );
+    expect(screen).not.toContain("Choose a model · Anthropic");
     app.stop();
     await finished;
   });
