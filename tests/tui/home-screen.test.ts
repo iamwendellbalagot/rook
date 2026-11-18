@@ -1,8 +1,23 @@
-import { describe, expect, it } from "vitest";
-import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  setCapabilityOverrides,
+  stripTerminalSequences,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
+import { tone } from "../../src/tui/theme.js";
 import { HomeScreenBody } from "../../src/tui/home-screen.js";
 
 describe("home screen body", () => {
+  beforeEach(() => setCapabilityOverrides({ trueColor: true }));
+  afterEach(() => setCapabilityOverrides({}));
+
+  it("uses the requested cyan for the home panel borders", () => {
+    const lines = new HomeScreenBody().render(60);
+    expect(lines[0]).toContain("\x1b[38;2;37;217;255m");
+    expect(lines.at(-1)).toContain("\x1b[38;2;37;217;255m");
+    expect(tone("│", "border")).toContain("\x1b[38;2;37;217;255m");
+  });
+
   it("encloses the brand, tagline, and all four actions in a rounded frame", () => {
     const lines = new HomeScreenBody().render(65).map(stripTerminalSequences);
     expect(lines[0]).toMatch(/^╭━+╮$/);

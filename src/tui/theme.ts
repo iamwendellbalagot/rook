@@ -10,7 +10,7 @@ const palette = {
   text: parseColor("#E9ECF0"),
   muted: parseColor("#A7B2BE"),
   dim: parseColor("#7C8A97"),
-  border: parseColor("#3A4652"),
+  border: parseColor("#25D9FF"),
   green: parseColor("#98DEAC"),
   blue: parseColor("#9BC7ED"),
   cyan: parseColor("#27D8F3"),
