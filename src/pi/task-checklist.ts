@@ -2,6 +2,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 export const TASK_CHECKLIST_TOOL_NAME = "rook_todo";
+export const TASK_CHECKLIST_SESSION_ENTRY = "rook_task_checklist";
 
 export type TaskChecklistStatus = "pending" | "in_progress" | "completed";
 
@@ -31,8 +32,9 @@ export function createTaskChecklistTool(
     name: TASK_CHECKLIST_TOOL_NAME,
     label: "Update task checklist",
     description:
-      "Create or update Rook's visible, in-memory checklist for the current user task. For substantial multi-step tasks, create a concise ordered checklist before doing the work, then resend the full list with statuses updated as you progress. Use pending, in_progress, or completed. Mark an item completed only after finishing it. Do not use this tool for simple questions or one-step requests.",
-    promptSnippet: "Manage the visible checklist for a multi-step user task.",
+      "Create or update Rook's visible checklist for the current user task. It is saved with this session and restored when the session resumes. For substantial multi-step tasks, create a concise ordered checklist before doing the work, then resend the full list with statuses updated as you progress. Use pending, in_progress, or completed. Mark an item completed only after finishing it. Do not use this tool for simple questions or one-step requests.",
+    promptSnippet:
+      "Manage the visible, session-persistent checklist for a multi-step user task.",
     promptGuidelines: [
       "For a substantial multi-step task, initialize Rook's visible checklist before doing the work and keep its statuses current. Do not create a checklist for simple questions or one-step requests.",
     ],
@@ -81,4 +83,37 @@ export function normalizeTaskChecklist(
     ids.add(id);
     return { id, title, status: task.status };
   });
+}
+
+export function restoreTaskChecklist(data: unknown): TaskChecklistItem[] {
+  if (!data || typeof data !== "object" || !("tasks" in data)) return [];
+  const tasks = (data as { tasks?: unknown }).tasks;
+  if (!Array.isArray(tasks)) return [];
+  if (tasks.length === 0) return [];
+  try {
+    return normalizeTaskChecklist(tasks as TaskChecklistItem[]);
+  } catch {
+    return [];
+  }
+}
+
+export function restoreTaskChecklistFromEntries(
+  entries: readonly unknown[],
+): TaskChecklistItem[] {
+  let tasks: TaskChecklistItem[] = [];
+  for (const value of entries) {
+    if (!value || typeof value !== "object") continue;
+    const entry = value as {
+      type?: unknown;
+      customType?: unknown;
+      data?: unknown;
+    };
+    if (
+      entry.type === "custom" &&
+      entry.customType === TASK_CHECKLIST_SESSION_ENTRY
+    ) {
+      tasks = restoreTaskChecklist(entry.data);
+    }
+  }
+  return tasks;
 }

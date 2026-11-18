@@ -4,6 +4,10 @@ import type { AgentEvent } from "../../src/pi/agent-gateway.js";
 const session = vi.hoisted(() => ({
   isIdle: true,
   isStreaming: false,
+  sessionManager: {
+    getBranch: () => [],
+    appendCustomEntry: vi.fn(),
+  },
   prompt: vi.fn(),
   followUp: vi.fn(),
   steer: vi.fn(),
@@ -75,9 +79,25 @@ describe("gateway run lifecycle", () => {
     const gateway = await createPiAgentGateway();
     const events: AgentEvent[] = [];
     gateway.subscribe((event) => events.push(event));
+    events.length = 0;
     await expect(gateway.send("correction", "steer")).rejects.toThrow(
       "only available",
     );
     expect(events).toEqual([]);
+  });
+
+  it("records a checklist reset at the start of a new user task", async () => {
+    const gateway = await createPiAgentGateway();
+    const events: AgentEvent[] = [];
+    gateway.subscribe((event) => events.push(event));
+    events.length = 0;
+
+    await gateway.send("a new task");
+
+    expect(session.sessionManager.appendCustomEntry).toHaveBeenCalledWith(
+      "rook_task_checklist",
+      { tasks: [] },
+    );
+    expect(events).toContainEqual({ type: "todo_updated", tasks: [] });
   });
 });

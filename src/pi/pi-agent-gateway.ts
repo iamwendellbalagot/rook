@@ -45,7 +45,10 @@ import {
 import type { MemoryCaptureManager } from "../memory/capture.js";
 import {
   createTaskChecklistTool,
+  restoreTaskChecklistFromEntries,
+  TASK_CHECKLIST_SESSION_ENTRY,
   TASK_CHECKLIST_TOOL_NAME,
+  type TaskChecklistItem,
 } from "./task-checklist.js";
 import {
   getRookSkillDirectories,
@@ -87,8 +90,13 @@ export async function createPiAgentGateway(
   const policy = new ToolPolicy(cwd);
   const executionConfig = await loadExecutionPolicyConfig(cwd);
   let refreshWorkspaceModels = async (): Promise<void> => {};
-  const taskChecklistTool = createTaskChecklistTool((tasks) => {
+  let checklist: TaskChecklistItem[] = [];
+  let persistChecklist = (tasks: TaskChecklistItem[]): void => {
+    checklist = tasks;
     emit({ type: "todo_updated", tasks });
+  };
+  const taskChecklistTool = createTaskChecklistTool((tasks) => {
+    persistChecklist(tasks);
   });
   let unsubscribe: (() => void) | undefined;
   const runtime = await createAgentSessionRuntime(
@@ -177,6 +185,16 @@ export async function createPiAgentGateway(
     unsubscribe?.();
     session.setActiveToolsByName(activeToolsFor(policy.getMode()));
     await session.bindExtensions({});
+    checklist = restoreTaskChecklistFromEntries(
+      session.sessionManager.getBranch(),
+    );
+    persistChecklist = (tasks) => {
+      checklist = tasks;
+      session.sessionManager.appendCustomEntry(TASK_CHECKLIST_SESSION_ENTRY, {
+        tasks,
+      });
+      emit({ type: "todo_updated", tasks });
+    };
     unsubscribe = session.subscribe((event) => {
       for (const mapped of adaptPiEvent(event)) emit(mapped);
     });
@@ -201,7 +219,7 @@ export async function createPiAgentGateway(
       if (disposition === "normal") activePrompts++;
       try {
         if (disposition === "normal") {
-          emit({ type: "todo_updated", tasks: [] });
+          persistChecklist([]);
           await runtime.session.prompt(prompt, {
             streamingBehavior: "followUp",
           });
@@ -376,12 +394,14 @@ export async function createPiAgentGateway(
     async fork(entryId) {
       const result = await runtime.fork(entryId);
       if (result.cancelled) throw new Error("Fork was cancelled.");
+      persistChecklist([]);
     },
     async compact(customInstructions) {
       await runtime.session.compact(customInstructions);
     },
     async newSession() {
       await runtime.newSession();
+      persistChecklist([]);
     },
     async resumeSession(path) {
       const result = await runtime.switchSession(path);
@@ -390,6 +410,7 @@ export async function createPiAgentGateway(
     },
     subscribe(handler) {
       handlers.add(handler);
+      handler({ type: "todo_updated", tasks: checklist });
       return () => handlers.delete(handler);
     },
     async dispose() {
