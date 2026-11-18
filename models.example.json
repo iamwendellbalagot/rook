@@ -1,0 +1,31 @@
+{
+  "$schema": "https://pi.dev/schemas/models.schema.json",
+  "providers": {
+    "RONE_Models": {
+      "name": "RONE Models",
+      "baseUrl": "https://api.example.com/v1",
+      "api": "openai-completions",
+      "apiKey": "$RDSEC_API_KEY",
+      "models": [
+        {
+          "id": "gpt-5.6-luna-aws",
+          "name": "GPT-5.6 Luna AWS",
+          "contextWindow": 272000,
+          "maxTokens": 128000
+        },
+        {
+          "id": "gpt-6-luna",
+          "name": "GPT-6 Luna AWS",
+          "contextWindow": 1000000,
+          "maxTokens": 128000
+        },
+        {
+          "id": "gpt-6-sol",
+          "name": "GPT-6 Sol AWS",
+          "contextWindow": 1000000,
+          "maxTokens": 128000
+        }
+      ]
+    }
+  }
+}

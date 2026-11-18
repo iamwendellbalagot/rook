@@ -40,6 +40,23 @@ npm run benchmark:fts
 
 To inspect the TUI without credentials, run `node bin/rook.mjs --mock`. Submit a prompt; use `/help` and `/exit`, or press Ctrl+C to leave. To use Pi's configured provider, run `node bin/rook.mjs`; Pi provider authentication and model configuration are inherited, and Rook does not collect credentials. The TUI starts in plan mode; `/build` enables policy-gated workspace edits and approval-gated terminal commands. A one-shot headless prompt is also available with `node bin/rook.mjs "Summarize this repository"`. `npm run smoke` exercises the credential-free mock gateway. The memory benchmark is deterministic and offline; it measures retrieval, not model-task success.
 
+### Workspace model providers
+
+Rook loads an optional workspace-root `models.json` when starting and refreshes its provider definitions whenever `/model` opens. Start with the non-secret example, then edit the endpoint and model definitions for your service:
+
+```sh
+cp models.example.json models.json
+```
+
+`models.json` is git-ignored. Rook merges its providers into Pi's runtime, retaining Pi's built-in models, user-level custom providers, and credentials. Workspace configuration can only reference API keys through environment variables (for example, `$RDSEC_API_KEY`); literal keys and command-based secret resolvers are rejected. Set the variable before starting Rook. For short-lived RONE JWTs, generate a fresh token before launch, then export it as `RDSEC_API_KEY`. The example `RONE_Models` provider shows the OpenAI-compatible endpoint shape and Luna/Sol AWS model definitions; replace its placeholder endpoint with your configured service URL.
+
+For example, after logging in with the RONE CLI, start Rook with a fresh token:
+
+```sh
+export RDSEC_API_KEY="$(rone token generate ai --quiet)"
+node bin/rook.mjs
+```
+
 ### Terminal commands
 
 In `/build`, Rook can use Pi's `bash` tool to run tests, builds, and other terminal commands. Each command requires **Run command once** approval; Deny is selected by default. The prompt shows the command, working directory, and timeout. There is no blanket/session shell grant. Plan mode and non-interactive runs do not allow shell execution. Bash must be installed (Windows users need Bash, for example Git Bash).

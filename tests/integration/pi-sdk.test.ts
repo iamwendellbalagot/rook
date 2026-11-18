@@ -58,6 +58,76 @@ describe("Pi SDK compatibility", () => {
     }
   });
 
+  it("loads ignored workspace providers into Pi's model runtime on picker refresh", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "rook-workspace-model-runtime-"));
+    const previousKey = process.env.ROOK_TEST_API_KEY;
+    process.env.ROOK_TEST_API_KEY = "test-token";
+    await writeFile(
+      join(cwd, "models.json"),
+      JSON.stringify({
+        providers: {
+          RONE_Models: {
+            name: "RONE Models",
+            baseUrl: "https://api.example.com/v1",
+            api: "openai-completions",
+            apiKey: "$ROOK_TEST_API_KEY",
+            models: [{ id: "gpt-6-luna", name: "GPT-6 Luna AWS" }],
+          },
+        },
+      }),
+    );
+    const gateway = await createPiAgentGateway(cwd);
+    try {
+      expect(await gateway.listModels()).toContainEqual({
+        provider: "RONE_Models",
+        id: "gpt-6-luna",
+        name: "GPT-6 Luna AWS",
+      });
+      expect(gateway.listProviders()).toContainEqual(
+        expect.objectContaining({ id: "RONE_Models", name: "RONE Models" }),
+      );
+      await gateway.selectModel({
+        provider: "RONE_Models",
+        id: "gpt-6-luna",
+        name: "GPT-6 Luna AWS",
+      });
+      expect(gateway.currentModel()).toMatchObject({
+        provider: "RONE_Models",
+        id: "gpt-6-luna",
+      });
+
+      await writeFile(
+        join(cwd, "models.json"),
+        JSON.stringify({
+          providers: {
+            RONE_Models: {
+              baseUrl: "https://api.example.com/v1",
+              api: "openai-completions",
+              apiKey: "$ROOK_TEST_API_KEY",
+              models: [{ id: "gpt-6-sol", name: "GPT-6 Sol AWS" }],
+            },
+          },
+        }),
+      );
+      expect(await gateway.listModels()).toContainEqual({
+        provider: "RONE_Models",
+        id: "gpt-6-sol",
+        name: "GPT-6 Sol AWS",
+      });
+      expect(
+        (await gateway.listModels()).some(
+          (model) =>
+            model.provider === "RONE_Models" && model.id === "gpt-6-luna",
+        ),
+      ).toBe(false);
+    } finally {
+      await gateway.dispose();
+      if (previousKey === undefined) delete process.env.ROOK_TEST_API_KEY;
+      else process.env.ROOK_TEST_API_KEY = previousKey;
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("loads the optional memory context extension alongside the tool policy", async () => {
     const directory = await mkdtemp(join(tmpdir(), "rook-memory-extension-"));
     const store = await RookStore.open(join(directory, "state.sqlite"));

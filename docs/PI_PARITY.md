@@ -17,6 +17,7 @@
 | Mock gateway without credentials           | Verified              | `tests/pi/mock-agent-gateway.test.ts`                                             |
 | Real provider prompt                       | Verified              | Single-argument one-shot prompt passed with the user's Pi login                   |
 | Auth, model selection, persistent sessions | Implemented           | Rook TUI uses Pi auth/model APIs and `AgentSessionRuntime`                        |
+| Workspace custom model providers           | Implemented           | Ignored `models.json` providers merge through `ModelRuntime.registerProvider`     |
 | Skills and prompt templates                | Implemented           | Rook-scoped skills only; `/skills`, `/prompts`, native commands                   |
 | Session fork and compaction                | Implemented           | `/fork` uses Pi's before-message fork; `/compact` calls SDK compact               |
 | Steer and follow-up messages               | Implemented           | `/steer` and `/follow-up` queue through Pi while a run is active                  |

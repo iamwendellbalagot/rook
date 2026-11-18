@@ -760,6 +760,11 @@ describe("Rook TUI shell", () => {
   it("opens a centered searchable model picker and selects a filtered model", async () => {
     const terminal = new FakeTerminal();
     const gateway = new EventGateway();
+    gateway.models.push({
+      provider: "RONE_Models",
+      id: "gpt-6-luna",
+      name: "GPT-6 Luna AWS",
+    });
     const app = createRookTui({
       cwd: "/workspace/sample-project",
       gateway,
@@ -780,6 +785,7 @@ describe("Rook TUI shell", () => {
     expect(screen).toContain("Search by name");
     expect(screen).toContain("anthropic/");
     expect(screen).toContain("openai/");
+    expect(screen).toContain("RONE_Models/");
     expect(screen).toContain("Claude Sonnet 4");
     expect(screen).toContain("╭");
     expect(screen).toContain("╰");
@@ -820,6 +826,12 @@ describe("Rook TUI shell", () => {
       id: "claude-sonnet-4",
       name: "Claude Sonnet 4",
     });
+    expect(plainScreen()).not.toContain("Search by name");
+
+    await app.submit("/model");
+    for (const character of "RONE_Models") terminal.input(character);
+    expect(plainScreen()).toContain("GPT-6 Luna AWS");
+    terminal.input("\u001b");
     expect(plainScreen()).not.toContain("Search by name");
 
     await app.submit("/model");

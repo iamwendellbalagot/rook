@@ -36,6 +36,7 @@ import {
   createToolPolicyExtension,
   ToolPolicy,
 } from "../policy/tool-policy.js";
+import { WorkspaceModelConfiguration } from "./workspace-models.js";
 import {
   createMemoryContextExtension,
   type RetrievedMemoryContext,
@@ -84,6 +85,7 @@ export async function createPiAgentGateway(
   const handlers = new Set<(event: AgentEvent) => void>();
   const policy = new ToolPolicy(cwd);
   const executionConfig = await loadExecutionPolicyConfig(cwd);
+  let refreshWorkspaceModels = async (): Promise<void> => {};
   const taskChecklistTool = createTaskChecklistTool((tasks) => {
     emit({ type: "todo_updated", tasks });
   });
@@ -134,6 +136,11 @@ export async function createPiAgentGateway(
           ],
         },
       });
+      const workspaceModels = new WorkspaceModelConfiguration(
+        services.modelRuntime,
+      );
+      await workspaceModels.refresh(sessionCwd);
+      refreshWorkspaceModels = () => workspaceModels.refresh(sessionCwd);
       return {
         ...(await createAgentSessionFromServices({
           services,
@@ -213,6 +220,7 @@ export async function createPiAgentGateway(
       await runtime.session.abort();
     },
     async listModels(): Promise<ModelInfo[]> {
+      await refreshWorkspaceModels();
       return runtime.session.modelRuntime
         .getModels()
         .map(({ provider, id, name }) => ({

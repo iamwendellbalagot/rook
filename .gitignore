@@ -4,4 +4,5 @@ coverage/
 .env
 .env.*
 !.env.example
+models.json
 .DS_Store
