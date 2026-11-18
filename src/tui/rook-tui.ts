@@ -24,7 +24,7 @@ import {
   type GitSnapshot,
   type RepositoryIdentity,
 } from "../repo/workspace.js";
-import type { AppState } from "../app/state.js";
+import type { AppState, RookMode } from "../app/state.js";
 import { initialAppState, reduceAppState } from "../app/state.js";
 import type {
   AgentGateway,
@@ -121,6 +121,7 @@ export interface RookTuiOptions {
   branch?: string;
   repository?: RepositoryIdentity;
   snapshot?: GitSnapshot | null;
+  mode?: RookMode;
   memoryCapture?: MemoryCaptureManager;
   gateway: AgentGateway;
   terminal?: Terminal;
@@ -767,7 +768,10 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   let state: AppState = reduceAppState(initialAppState(), {
     type: "startup_complete",
   });
-  state = reduceAppState(state, { type: "mode_changed", mode: "plan" });
+  state = reduceAppState(state, {
+    type: "mode_changed",
+    mode: options.mode ?? "plan",
+  });
   const initialModel = options.gateway.currentModel();
   let modelLabel = initialModel?.name ?? "no model selected";
   let providerLabel = initialModel?.provider ?? "—";
