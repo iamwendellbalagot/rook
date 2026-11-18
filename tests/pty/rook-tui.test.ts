@@ -47,6 +47,7 @@ class EventGateway implements AgentGateway {
   queuedMessages: { text: string; disposition: string }[] = [];
   sentPrompts: string[] = [];
   reviewCalls = 0;
+  exploreCalls: string[] = [];
   models: ModelInfo[] = [
     { provider: "openai", id: "gpt-4.1", name: "GPT-4.1" },
     {
@@ -102,6 +103,11 @@ class EventGateway implements AgentGateway {
   async reviewGitChanges(): Promise<string> {
     this.reviewCalls += 1;
     return "No actionable findings.";
+  }
+
+  async exploreReadOnly(task: string): Promise<string> {
+    this.exploreCalls.push(task);
+    return "The entry point is src/index.ts.";
   }
 
   getUndoPreview(): string {
@@ -542,6 +548,26 @@ describe("Rook TUI shell", () => {
     expect(gateway.sentPrompts).toEqual([]);
     expect(gateway.modeHistory.at(-1)).toBe("build");
     expect(screen).toContain("No actionable findings.");
+
+    terminal.input("\u0003");
+    await finished;
+  });
+
+  it("runs /explore in fresh read-only context without submitting to the main session", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+
+    await app.submit("/explore Find the request entry point");
+
+    expect(gateway.exploreCalls).toEqual(["Find the request entry point"]);
+    expect(gateway.sentPrompts).toEqual([]);
+    expect(gateway.modeHistory).toEqual([]);
 
     terminal.input("\u0003");
     await finished;

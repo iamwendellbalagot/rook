@@ -116,6 +116,10 @@ export class MockAgentGateway implements AgentGateway {
     return "Code review is unavailable in mock mode.";
   }
 
+  async exploreReadOnly(_task: string): Promise<string> {
+    return "Read-only exploration is unavailable in mock mode.";
+  }
+
   getUndoPreview(): string {
     return "No reversible Rook file edit is available in this session.";
   }

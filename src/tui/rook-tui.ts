@@ -110,6 +110,7 @@ const BUILTIN_SLASH_COMMANDS: SlashCommandSuggestion[] = [
   { command: "/permissions", description: "Review access grants" },
   { command: "/diff", description: "Review current Git changes" },
   { command: "/review", description: "Run a separate read-only code review" },
+  { command: "/explore", description: "Research a question in fresh context" },
   { command: "/undo", description: "Review or restore Rook's last file edit" },
   { command: "/memory", description: "Manage repository memory" },
   { command: "/help", description: "Show available commands" },
@@ -1103,7 +1104,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/help":
           removeHome();
           appendText(
-            "Available: /help, /login, /logout, /model, /settings, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /ask <question>, /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /diff, /review, /undo [confirm], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
+            "Available: /help, /login, /logout, /model, /settings, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /ask <question>, /explore <question>, /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /diff, /review, /undo [confirm], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
             "muted",
           );
           return;
@@ -1142,6 +1143,24 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
             appendText(errorMessage(error), "error");
           }
           return;
+        case "/explore": {
+          const task = prompt.slice("/explore".length).trim();
+          if (!task) {
+            appendText("Usage: /explore <read-only question>", "error");
+            return;
+          }
+          removeHome();
+          appendText("Exploring in a fresh read-only session…", "muted");
+          try {
+            appendText(
+              safeTerminalText(await options.gateway.exploreReadOnly(task)),
+              "muted",
+            );
+          } catch (error) {
+            appendText(errorMessage(error), "error");
+          }
+          return;
+        }
         case "/undo":
           removeHome();
           if (prompt === "/undo") {

@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentEvent } from "../../src/pi/agent-gateway.js";
-import { runReadOnlyReview } from "../../src/pi/read-only-review.js";
+import {
+  buildReadOnlyReviewPrompt,
+  runReadOnlyReview,
+} from "../../src/pi/read-only-review.js";
 
 describe("isolated read-only review", () => {
   it("uses plan mode and treats the diff as untrusted input", async () => {
@@ -25,7 +28,7 @@ describe("isolated read-only review", () => {
         },
         send,
       },
-      "diff payload",
+      buildReadOnlyReviewPrompt("diff payload"),
     );
 
     expect(mode).toHaveBeenCalledWith("plan");
