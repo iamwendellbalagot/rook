@@ -262,17 +262,30 @@ describe("Git-aware memory evidence", () => {
     store.close();
   });
 
-  it("allows explicit user review to re-verify stale evidence with a revision", async () => {
+  it("requires explicit claim review before re-verifying stale evidence", async () => {
     const { root, store, repository, snapshot, memoryId } = await setup();
     await writeFile(
       join(root, "src", "auth.ts"),
       "export const AUTH_MODE = 'permissive';\n",
     );
     await reconcileMemoryEvidence(store, repository, snapshot);
-    const verified = await manuallyVerifyMemory(store, repository, memoryId, {
-      ...snapshot,
-      headCommit: "commit-2",
-    });
+    const currentSnapshot = { ...snapshot, headCommit: "commit-2" };
+    const unreviewed = await manuallyVerifyMemory(
+      store,
+      repository,
+      memoryId,
+      currentSnapshot,
+      false,
+    );
+    expect(unreviewed.verified).toBe(false);
+    expect(store.getMemory(memoryId)?.status).toBe("stale");
+    const verified = await manuallyVerifyMemory(
+      store,
+      repository,
+      memoryId,
+      currentSnapshot,
+      true,
+    );
     expect(verified.verified).toBe(true);
     expect(store.getMemory(memoryId)?.status).toBe("verified");
     expect(store.listMemoryRevisions(memoryId).at(-1)?.actor).toBe("user");
@@ -331,6 +344,7 @@ describe("Git-aware memory evidence", () => {
         { ...repository, id: "other-repo" },
         memoryId,
         null,
+        true,
       ),
     ).toMatchObject({ verified: false });
     expect(

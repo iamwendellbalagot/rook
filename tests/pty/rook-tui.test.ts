@@ -1212,6 +1212,9 @@ describe("Rook TUI shell", () => {
       await app.submit("/memory status");
       await app.submit("/memory detail " + memory.id);
       await app.submit(`/memory verify ${memory.id}`);
+      expect(store.getMemory(memory.id)?.status).toBe("stale");
+      expect(app.tui.render(100).join(" ")).toContain("Review this claim");
+      await app.submit(`/memory verify ${memory.id} confirm`);
       expect(store.getMemory(memory.id)?.status).toBe("verified");
       await app.submit("/memory refresh");
       await app.submit(`/memory forget ${memory.id} confirm`);

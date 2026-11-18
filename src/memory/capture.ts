@@ -186,7 +186,16 @@ export class MemoryCaptureManager {
     return memory ? formatMemoryInspection(memory) : undefined;
   }
 
-  async verify(memoryId: string): Promise<string> {
+  async verify(memoryId: string, confirmReviewed = false): Promise<string> {
+    if (!confirmReviewed) {
+      const detail = this.inspect(memoryId);
+      if (!detail) return "No memory matches that ID in this repository.";
+      return [
+        "Review this claim against its current evidence before confirming:",
+        ...detail,
+        `If the claim is accurate, run /memory verify ${memoryId} confirm. This refreshes evidence hashes; an unchanged file alone does not prove a claim.`,
+      ].join("\n");
+    }
     const snapshot = await captureWorkspaceSnapshot(this.repository);
     this.snapshot = snapshot;
     const result = await manuallyVerifyMemory(
@@ -194,6 +203,7 @@ export class MemoryCaptureManager {
       this.repository,
       memoryId,
       snapshot,
+      true,
     );
     return result.message;
   }
@@ -323,7 +333,7 @@ export function parseRememberPrompt(prompt: string): string | undefined {
 
 export function extractHighSignalStatement(prompt: string): string | undefined {
   const pattern =
-    /(?:we\s+(?:decided|chose|selected|agreed|prefer|fixed)|the\s+(?:project|team)\s+(?:uses|prefers|requires)|the\s+fix\s+(?:is|was)|root\s+cause\s+(?:is|was)|always\s+(?:use|prefer|run)|never\s+(?:use|commit))\b[^\n.!?]{8,500}(?:[.!?]|$)/i;
+    /(?:we\s+(?:decided|chose|selected|agreed|prefer|fixed|use)|(?:this|the)\s+(?:project|team)\s+(?:uses|prefers|requires)|(?:our|the)\s+convention\s+is|the\s+fix\s+(?:is|was)|root\s+cause\s+(?:is|was)|always\s+(?:use|prefer|run)|never\s+(?:use|commit))\b[^\n.!?]{8,500}(?:[.!?]|$)/i;
   const match = pattern.exec(prompt);
   const statement = match?.[0] ? normalizeClaim(match[0]) : undefined;
   return statement && isSafeMemoryContent(statement) ? statement : undefined;
@@ -333,7 +343,7 @@ function classifyKind(statement: string): string {
   if (/\b(?:decided|chose|selected|agreed)\b/i.test(statement))
     return "decision";
   if (/\b(?:fixed|fix|root cause)\b/i.test(statement)) return "fix";
-  if (/\b(?:always|never|prefer|convention)\b/i.test(statement))
+  if (/\b(?:always|never|prefer|convention|we use)\b/i.test(statement))
     return "convention";
   return "architecture";
 }

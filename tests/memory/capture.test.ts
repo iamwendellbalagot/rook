@@ -93,6 +93,16 @@ describe("bounded memory capture", () => {
       ),
     ).toBe("We chose SQLite because schema history needs an audit trail.");
     expect(
+      extractHighSignalStatement(
+        "We use SQLite because schema history needs an audit trail.",
+      ),
+    ).toBe("We use SQLite because schema history needs an audit trail.");
+    expect(
+      extractHighSignalStatement(
+        "The convention is to keep migrations transactional.",
+      ),
+    ).toBe("The convention is to keep migrations transactional.");
+    expect(
       extractHighSignalStatement("Can you explain SQLite to me?"),
     ).toBeUndefined();
     expect(

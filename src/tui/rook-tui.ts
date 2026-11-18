@@ -1339,11 +1339,14 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         return;
       }
       case "verify": {
-        if (!args[0]) {
-          appendText("Usage: /memory verify <memory-id>", "error");
+        if (!args[0] || args.length > 2 || (args[1] && args[1] !== "confirm")) {
+          appendText("Usage: /memory verify <memory-id> [confirm]", "error");
           return;
         }
-        appendText(safeTerminalText(await memory.verify(args[0])), "muted");
+        appendText(
+          safeTerminalText(await memory.verify(args[0], args[1] === "confirm")),
+          "muted",
+        );
         return;
       }
       case "refresh": {
@@ -1405,7 +1408,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       }
       default:
         appendText(
-          "Usage: /memory [status|show|detail <id>|verify <id>|refresh|pause|resume|opt-out|opt-in|pending|confirm <id>|cancel <id>|forget <id> confirm]. Use `remember: <claim>` in a prompt to request a memory, then confirm its pending ID.",
+          "Usage: /memory [status|show|detail <id>|verify <id> [confirm]|refresh|pause|resume|opt-out|opt-in|pending|confirm <id>|cancel <id>|forget <id> confirm]. Review a memory claim and its evidence before running `/memory verify <id> confirm`. Use `remember: <claim>` in a prompt to request a memory, then confirm its pending ID.",
           "muted",
         );
     }

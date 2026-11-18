@@ -148,6 +148,7 @@ export async function manuallyVerifyMemory(
   repository: RepositoryIdentity,
   memoryId: string,
   snapshot: GitSnapshot | null,
+  reviewedClaim: boolean,
 ): Promise<{ verified: boolean; message: string }> {
   const memory = store
     .listMemories(repository.id)
@@ -157,6 +158,13 @@ export async function manuallyVerifyMemory(
       verified: false,
       message: "No memory matches that ID in this repository.",
     };
+  if (!reviewedClaim) {
+    return {
+      verified: false,
+      message:
+        "Review the claim against its evidence and explicitly confirm before verifying it.",
+    };
+  }
   const evidence = memory.evidence.filter(
     (item) => item.path && SOURCE_TYPES_WITH_FILES.has(item.sourceType),
   );
