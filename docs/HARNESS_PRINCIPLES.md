@@ -4,13 +4,13 @@ Rook combines selected harness ideas around Pi; it is not a feature-for-feature 
 
 ## What Rook takes from each harness
 
-| Source      | Principle adopted in Rook                                                               | Rook-specific interpretation                                                                                                                                             |
-| ----------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Pi          | Compose a proven runtime through public APIs and lifecycle hooks.                       | Keep the Pi adapter narrow; reuse model, auth, session, tool, and resource behavior instead of forking the agent loop.                                                   |
-| Aider       | Keep repository context focused; make edits reviewable; close the loop with lint/tests. | Prefer relevant reads and `rook_impact` over indiscriminate repo dumps; inspect diffs and select focused verification. Avoid extra model calls by default.               |
-| Claude Code | Make modes, commands, skills, and lifecycle controls visible and steerable.             | Keep plan/build enforcement at the tool boundary; expose small explicit commands; preserve session continuity and allow the user to steer or stop work.                  |
-| Codex       | Separate technical boundaries from approval policy; keep review and recovery explicit.  | An approval is not a sandbox. Rook must describe host execution honestly, deny by default where it cannot ask, and never silently take Git actions on the user's behalf. |
-| OpenCode    | Keep providers, agents, tools, and permissions composable and inspectable.              | Use Rook-owned interfaces around Pi, keep resource discovery isolated, and make permission decisions visible rather than embedding workflow state in one model prompt.   |
+| Source      | Principle adopted in Rook                                                                                        | Rook-specific interpretation                                                                                                                                                       |
+| ----------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pi          | Compose a proven runtime through public APIs and lifecycle hooks.                                                | Keep the Pi adapter narrow; reuse model, auth, session, tool, and resource behavior instead of forking the agent loop.                                                             |
+| Aider       | Keep repository context focused; separate architecture from editing when useful; close the loop with lint/tests. | Prefer relevant reads and `rook_impact`; `/architect` is explicit and read-only, diffs stay inspectable, and focused verification is selected. Avoid extra model calls by default. |
+| Claude Code | Make modes, commands, skills, and lifecycle controls visible and steerable.                                      | Keep plan/build enforcement at the tool boundary; expose small explicit commands; preserve session continuity and allow the user to steer or stop work.                            |
+| Codex       | Separate technical boundaries from approval policy; keep review and recovery explicit.                           | An approval is not a sandbox. Rook must describe host execution honestly, deny by default where it cannot ask, and never silently take Git actions on the user's behalf.           |
+| OpenCode    | Keep providers, agents, tools, and permissions composable and inspectable.                                       | Use Rook-owned interfaces around Pi, keep resource discovery isolated, and make permission decisions visible rather than embedding workflow state in one model prompt.             |
 
 ## Combined task loop
 
@@ -25,7 +25,7 @@ Rook combines selected harness ideas around Pi; it is not a feature-for-feature 
 
 - No automatic stage, commit, stash, reset, restore, push, deploy, or history rewrite.
 - No claim that host-side tool policy is an OS sandbox. Shell commands run with host permissions; use an external container/VM for untrusted repositories.
-- No automatic second-model/critic pass: extra calls add latency and cost. A separate review workflow should be user-invoked and read-only if added.
+- No automatic second-model/critic pass: extra calls add latency and cost. `/architect`, `/explore`, and `/review` are separate, read-only Pi sessions that run only when explicitly invoked.
 - No executable repository skills, MCP servers, or third-party extensions until their capabilities can be governed by the same policy boundary.
 - No eager whole-repository dump or embedding index. `rook_map` is on-demand, bounded, source/symbol-only, and query-ranked; focused reads/search remain the default.
 
@@ -37,6 +37,7 @@ Rook combines selected harness ideas around Pi; it is not a feature-for-feature 
 - `rook_map` builds a bounded on-demand source/symbol overview, ranks by query and internal importers, and emits no source contents.
 - User-invoked `/review` creates a separate, temporary Pi session in plan mode; it reviews the current Git status/diff without sharing the main conversation or changing the user's active mode. It is not automatic and adds a provider call only when explicitly requested.
 - User-invoked `/explore <question>` uses the same fresh-context, plan-only session pattern for focused repository research, returning a concise answer without adding exploratory tool traces to the main conversation.
+- User-invoked `/architect <task>` produces a concise, read-only implementation proposal in a fresh session. It does not edit, run shell commands, or automatically hand the proposal to the main agent; implementation remains a separate user-directed step.
 - User-facing mode, command, and review controls: `src/tui/rook-tui.ts`.
 - Local evidence-backed repository memory: `src/memory/` and `src/db/`.
 

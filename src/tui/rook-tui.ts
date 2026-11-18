@@ -111,6 +111,10 @@ const BUILTIN_SLASH_COMMANDS: SlashCommandSuggestion[] = [
   { command: "/diff", description: "Review current Git changes" },
   { command: "/review", description: "Run a separate read-only code review" },
   { command: "/explore", description: "Research a question in fresh context" },
+  {
+    command: "/architect",
+    description: "Propose an implementation in fresh context",
+  },
   { command: "/undo", description: "Review or restore Rook's last file edit" },
   { command: "/memory", description: "Manage repository memory" },
   { command: "/help", description: "Show available commands" },
@@ -1104,7 +1108,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/help":
           removeHome();
           appendText(
-            "Available: /help, /login, /logout, /model, /settings, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /ask <question>, /explore <question>, /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /diff, /review, /undo [confirm], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
+            "Available: /help, /login, /logout, /model, /settings, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /ask <question>, /explore <question>, /architect <task>, /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /diff, /review, /undo [confirm], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
             "muted",
           );
           return;
@@ -1154,6 +1158,27 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           try {
             appendText(
               safeTerminalText(await options.gateway.exploreReadOnly(task)),
+              "muted",
+            );
+          } catch (error) {
+            appendText(errorMessage(error), "error");
+          }
+          return;
+        }
+        case "/architect": {
+          const task = prompt.slice("/architect".length).trim();
+          if (!task) {
+            appendText("Usage: /architect <implementation task>", "error");
+            return;
+          }
+          removeHome();
+          appendText(
+            "Preparing a proposal in a fresh read-only session…",
+            "muted",
+          );
+          try {
+            appendText(
+              safeTerminalText(await options.gateway.architectReadOnly(task)),
               "muted",
             );
           } catch (error) {

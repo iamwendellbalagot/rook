@@ -120,6 +120,10 @@ export class MockAgentGateway implements AgentGateway {
     return "Read-only exploration is unavailable in mock mode.";
   }
 
+  async architectReadOnly(_task: string): Promise<string> {
+    return "Read-only architecture proposals are unavailable in mock mode.";
+  }
+
   getUndoPreview(): string {
     return "No reversible Rook file edit is available in this session.";
   }

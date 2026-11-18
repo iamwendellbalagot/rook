@@ -9,23 +9,26 @@
 
 ## M0 smoke coverage
 
-| Capability                                 | Status                | Evidence / limitation                                                             |
-| ------------------------------------------ | --------------------- | --------------------------------------------------------------------------------- |
-| Create/dispose SDK session                 | Verified              | `tests/integration/pi-sdk.test.ts`                                                |
-| Stream text deltas                         | Implemented           | `src/pi/pi-agent-gateway.ts` maps `message_update` text deltas                    |
-| Prompt settles                             | Implemented           | `agent_settled` mapped to Rook event                                              |
-| Mock gateway without credentials           | Verified              | `tests/pi/mock-agent-gateway.test.ts`                                             |
-| Real provider prompt                       | Verified              | Single-argument one-shot prompt passed with the user's Pi login                   |
-| Auth, model selection, persistent sessions | Implemented           | Rook TUI uses Pi auth/model APIs and `AgentSessionRuntime`                        |
-| Workspace custom model providers           | Implemented           | Ignored `models.json` providers merge through `ModelRuntime.registerProvider`     |
-| Skills and prompt templates                | Implemented           | Rook-scoped skills only; `/skills`, `/prompts`, native commands                   |
-| Session fork and compaction                | Implemented           | `/fork` uses Pi's before-message fork; `/compact` calls SDK compact               |
-| Steer and follow-up messages               | Implemented           | `/steer` and `/follow-up` queue through Pi while a run is active                  |
-| Executable extensions, codemode, MCP       | Disabled              | Deliberately excluded from the Rook tool-policy boundary                          |
-| Tool permission sandbox                    | Rook host-side policy | Tool calls are gated; this is not an OS/container sandbox                         |
-| Terminal execution                         | Approval-gated        | Pi bash in build mode only; approve each command, 120s default / 300s max timeout |
-| Plan-mode repository inspection            | Read-only             | `rook_inspect` runs fixed Git operations without exposing arbitrary shell         |
-| Change-impact verification                 | Implemented           | `rook_impact` maps the diff to direct dependents, existing tests, and checks      |
+| Capability                                 | Status                | Evidence / limitation                                                              |
+| ------------------------------------------ | --------------------- | ---------------------------------------------------------------------------------- |
+| Create/dispose SDK session                 | Verified              | `tests/integration/pi-sdk.test.ts`                                                 |
+| Stream text deltas                         | Implemented           | `src/pi/pi-agent-gateway.ts` maps `message_update` text deltas                     |
+| Prompt settles                             | Implemented           | `agent_settled` mapped to Rook event                                               |
+| Mock gateway without credentials           | Verified              | `tests/pi/mock-agent-gateway.test.ts`                                              |
+| Real provider prompt                       | Verified              | Single-argument one-shot prompt passed with the user's Pi login                    |
+| Auth, model selection, persistent sessions | Implemented           | Rook TUI uses Pi auth/model APIs and `AgentSessionRuntime`                         |
+| Workspace custom model providers           | Implemented           | Ignored `models.json` providers merge through `ModelRuntime.registerProvider`      |
+| Skills and prompt templates                | Implemented           | Rook-scoped skills only; `/skills`, `/prompts`, native commands                    |
+| Session fork and compaction                | Implemented           | `/fork` uses Pi's before-message fork; `/compact` calls SDK compact                |
+| Steer and follow-up messages               | Implemented           | `/steer` and `/follow-up` queue through Pi while a run is active                   |
+| Executable extensions, codemode, MCP       | Disabled              | Deliberately excluded from the Rook tool-policy boundary                           |
+| Tool permission sandbox                    | Rook host-side policy | Tool calls are gated; this is not an OS/container sandbox                          |
+| Terminal execution                         | Approval-gated        | Pi bash in build mode only; approve each command, 120s default / 300s max timeout  |
+| Plan-mode repository inspection            | Read-only             | `rook_inspect` runs fixed Git operations without exposing arbitrary shell          |
+| On-demand repository orientation           | Read-only             | `rook_map` emits bounded source/symbol metadata, query-ranked without source dumps |
+| Change-impact verification                 | Implemented           | `rook_impact` maps the diff to direct dependents, existing tests, and checks       |
+| Isolated read-only review/research         | Implemented           | `/review` and `/explore` use temporary plan-mode Pi sessions on explicit request   |
+| Architect/editor separation                | Implemented           | `/architect` returns an explicit read-only proposal; it never auto-applies it      |
 
 ## SDK-vs-CLI setup gaps
 

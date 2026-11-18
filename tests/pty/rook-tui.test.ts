@@ -48,6 +48,7 @@ class EventGateway implements AgentGateway {
   sentPrompts: string[] = [];
   reviewCalls = 0;
   exploreCalls: string[] = [];
+  architectCalls: string[] = [];
   models: ModelInfo[] = [
     { provider: "openai", id: "gpt-4.1", name: "GPT-4.1" },
     {
@@ -108,6 +109,11 @@ class EventGateway implements AgentGateway {
   async exploreReadOnly(task: string): Promise<string> {
     this.exploreCalls.push(task);
     return "The entry point is src/index.ts.";
+  }
+
+  async architectReadOnly(task: string): Promise<string> {
+    this.architectCalls.push(task);
+    return "Proposal: update src/index.ts, then run focused tests.";
   }
 
   getUndoPreview(): string {
@@ -566,6 +572,26 @@ describe("Rook TUI shell", () => {
     await app.submit("/explore Find the request entry point");
 
     expect(gateway.exploreCalls).toEqual(["Find the request entry point"]);
+    expect(gateway.sentPrompts).toEqual([]);
+    expect(gateway.modeHistory).toEqual([]);
+
+    terminal.input("\u0003");
+    await finished;
+  });
+
+  it("runs /architect as an explicit read-only proposal without editing or submitting", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+
+    await app.submit("/architect Add request validation");
+
+    expect(gateway.architectCalls).toEqual(["Add request validation"]);
     expect(gateway.sentPrompts).toEqual([]);
     expect(gateway.modeHistory).toEqual([]);
 
