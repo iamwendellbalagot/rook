@@ -107,6 +107,7 @@ describe("Pi OAuth callback page build patch", () => {
   it("loads all design resources as embedded local data", async () => {
     const design = await loadRookOAuthDesign();
     expect(design.css).toContain(".editorial-frame");
+    expect(design.css).toContain("zoom: 0.8");
     expect(design.traveler).toMatch(/^data:image\/webp;base64,/);
     expect(design.scarf).toMatch(/^data:image\/png;base64,/);
     expect(design.castle).toMatch(/^data:image\/png;base64,/);
