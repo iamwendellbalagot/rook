@@ -7,7 +7,7 @@ export interface PiOAuthPageOptions {
 
 export function renderRookOAuthPage(options: PiOAuthPageOptions): string;
 
-export function patchPiOAuthBundle(source: string): {
+export function patchPiOAuthPageModule(source: string): {
   source: string;
   changed: boolean;
 };

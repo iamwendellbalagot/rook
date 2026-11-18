@@ -1,31 +1,31 @@
 import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
-import { patchPiOAuthBundle } from "../../scripts/patch-pi-oauth-page.mjs";
+import { patchPiOAuthPageModule } from "../../scripts/patch-pi-oauth-page.mjs";
 
 const upstreamFixture = `const LOGO_SVG = "pi";
 function escapeHtml(value){return value.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;")}
-function renderPage(options){return "old Pi page"}
-function oauthSuccessHtml(message){return renderPage({title:"Authentication successful",heading:"Authentication successful",message})}
+function renderPage(options) { return "old Pi page" }
+export function oauthSuccessHtml(message){return renderPage({title:"Authentication successful",heading:"Authentication successful",message})}
 async function startOAuthCallbackServer(){return "unchanged OAuth logic"}`;
 
 describe("Pi OAuth callback page build patch", () => {
   it("replaces only the callback renderer and is idempotent", () => {
-    const first = patchPiOAuthBundle(upstreamFixture);
+    const first = patchPiOAuthPageModule(upstreamFixture);
     expect(first.changed).toBe(true);
     expect(first.source).toContain('data-rook-auth-page="true"');
     expect(first.source).toContain("function oauthSuccessHtml(message)");
     expect(first.source).toContain('return "unchanged OAuth logic"');
 
-    const second = patchPiOAuthBundle(first.source);
+    const second = patchPiOAuthPageModule(first.source);
     expect(second).toEqual({ source: first.source, changed: false });
   });
 
   it("renders branded success and error pages with escaped dynamic text", () => {
-    const patched = patchPiOAuthBundle(upstreamFixture).source;
+    const patched = patchPiOAuthPageModule(upstreamFixture).source;
     const rendererSource = patched.slice(
       patched.indexOf("function renderPage(options)"),
       patched.indexOf(
-        "function oauthSuccessHtml(",
+        "\nexport function oauthSuccessHtml(",
         patched.indexOf("function renderPage(options)"),
       ),
     );
@@ -66,12 +66,12 @@ describe("Pi OAuth callback page build patch", () => {
     expect(error).not.toContain("<script>");
   });
 
-  it("fails loudly when Pi changes the bundled callback template", () => {
-    expect(() => patchPiOAuthBundle("unrecognized Pi bundle")).toThrow(
+  it("fails loudly when Pi changes the callback template", () => {
+    expect(() => patchPiOAuthPageModule("unrecognized Pi module")).toThrow(
       "Expected exactly one Pi OAuth callback page template; found 0",
     );
     expect(() =>
-      patchPiOAuthBundle(`${upstreamFixture} ${upstreamFixture}`),
+      patchPiOAuthPageModule(`${upstreamFixture} ${upstreamFixture}`),
     ).toThrow("found 2");
   });
 });

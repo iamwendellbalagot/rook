@@ -5,15 +5,12 @@ import { dirname, resolve } from "node:path";
 const EXPECTED_PI_VERSION = "1.5.2";
 const PACKAGE_ROOT = resolve(
   dirname(fileURLToPath(import.meta.url)),
-  "../node_modules/@earendil-works/pi-coding-agent",
+  "../node_modules/@earendil-works/pi-ai",
 );
 const PACKAGE_JSON = resolve(PACKAGE_ROOT, "package.json");
-const CALLBACK_BUNDLE = resolve(
-  PACKAGE_ROOT,
-  "dist/bundle/chunks/openai-codex.js",
-);
-const START_MARKER = "function renderPage(options){";
-const END_MARKER = "function oauthSuccessHtml(";
+const OAUTH_PAGE_MODULE = resolve(PACKAGE_ROOT, "dist/utils/oauth-page.js");
+const START_MARKER = "function renderPage(options) {";
+const END_MARKER = "\nexport function oauthSuccessHtml(";
 
 export function renderRookOAuthPage(options) {
   const title = escapeHtml(options.title);
@@ -60,9 +57,12 @@ export function renderRookOAuthPage(options) {
 </html>`;
 }
 
-export function patchPiOAuthBundle(source) {
+export function patchPiOAuthPageModule(source) {
   const startCount = source.split(START_MARKER).length - 1;
-  if (startCount === 0 && source.includes('data-rook-auth-page="true"')) {
+  if (
+    (startCount === 0 || startCount === 1) &&
+    source.includes('data-rook-auth-page="true"')
+  ) {
     return { source, changed: false };
   }
   if (startCount !== 1) {
@@ -81,7 +81,7 @@ export function patchPiOAuthBundle(source) {
   const end = source.indexOf(END_MARKER, start + START_MARKER.length);
   if (end < 0) {
     throw new Error(
-      "Could not find the end of Pi's OAuth callback page template. Pi may have changed its bundle.",
+      "Could not find the end of Pi's OAuth callback page template. Pi may have changed its module.",
     );
   }
 
@@ -100,12 +100,12 @@ export async function patchInstalledPiOAuthPage() {
   const packageInfo = JSON.parse(await readFile(PACKAGE_JSON, "utf8"));
   if (packageInfo.version !== EXPECTED_PI_VERSION) {
     throw new Error(
-      `Rook's Pi OAuth-page patch targets @earendil-works/pi-coding-agent ${EXPECTED_PI_VERSION}, but found ${packageInfo.version}. Review the patch before upgrading Pi.`,
+      `Rook's OAuth-page patch targets @earendil-works/pi-ai ${EXPECTED_PI_VERSION}, but found ${packageInfo.version}. Review the patch before upgrading Pi.`,
     );
   }
-  const source = await readFile(CALLBACK_BUNDLE, "utf8");
-  const result = patchPiOAuthBundle(source);
-  if (result.changed) await writeFile(CALLBACK_BUNDLE, result.source);
+  const source = await readFile(OAUTH_PAGE_MODULE, "utf8");
+  const result = patchPiOAuthPageModule(source);
+  if (result.changed) await writeFile(OAUTH_PAGE_MODULE, result.source);
 }
 
 if (
