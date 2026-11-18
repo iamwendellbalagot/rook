@@ -26,7 +26,7 @@ describe("home dashboard", () => {
   beforeEach(() => setCapabilityOverrides({ trueColor: true, images: null }));
   afterEach(() => setCapabilityOverrides({}));
 
-  it("shows the existing brand and title with the mountain scene at top right", () => {
+  it("shows the mountain at the left of the existing brand and title", () => {
     const dashboard = new HomeScreenBody();
     dashboard.setDashboardData(data);
     const lines = dashboard.render(160);
@@ -42,6 +42,23 @@ describe("home dashboard", () => {
     expect(lines.slice(0, 7).every((line) => visibleWidth(line) <= 160)).toBe(
       true,
     );
+    const mountainStart = plain[1]!.search(/[▄▀█]/);
+    const brandStart = plain[1]!.indexOf("██  ██");
+    expect(mountainStart).toBeGreaterThanOrEqual(0);
+    expect(brandStart).toBeGreaterThan(mountainStart);
+    expect(plain[0]).toBe("");
+  });
+
+  it("hides the mountain below 120 columns and preserves the brand", () => {
+    const dashboard = new HomeScreenBody();
+    dashboard.setDashboardData(data);
+    const lines = dashboard.render(119);
+    const screen = lines.map(stripTerminalSequences);
+    expect(screen.join("\n")).toContain(
+      "A coding agent that grows with your codebase.",
+    );
+    expect(lines.join("")).not.toContain("\x1b[38;5;");
+    expect(screen[0]).toBe("");
   });
 
   it("uses the shared border color for dashboard panels", () => {

@@ -269,6 +269,7 @@ export class HomeScreenBody implements Component {
           )
         : [];
     return [
+      "",
       ...hero,
       "",
       ...mode,
@@ -279,9 +280,8 @@ export class HomeScreenBody implements Component {
   }
 
   private renderHero(width: number): string[] {
-    const artWidth =
-      width >= 120 ? Math.min(76, width - 50) : width >= 90 ? width - 50 : 0;
-    const brandWidth = Math.min(48, width - artWidth - (artWidth ? 2 : 0));
+    const artWidth = width >= 120 ? Math.min(76, width - 54) : 0;
+    const brandWidth = Math.min(48, width - artWidth - (artWidth ? 4 : 0));
     const brand = this.brand.render(brandWidth);
     const mountains =
       artWidth >= 36 ? mountainLines(artWidth, getTerminalColorMode()) : [];
@@ -290,7 +290,7 @@ export class HomeScreenBody implements Component {
     return Array.from({ length: rows }, (_, row) => {
       const left = row >= brandOffset ? brand[row - brandOffset]! : "";
       const right = mountains[row] ?? "";
-      return `${left}${" ".repeat(Math.max(0, brandWidth - visibleWidth(left)))}${artWidth ? "  " : ""}${right}`;
+      return `${right}${" ".repeat(artWidth ? 4 : 0)}${left}${" ".repeat(Math.max(0, brandWidth - visibleWidth(left)))}`;
     });
   }
 

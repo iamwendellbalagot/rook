@@ -592,6 +592,7 @@ describe("Rook TUI shell", () => {
     expect(homeScreen.join("\n")).toContain("/build");
     expect(homeScreen.join("\n")).toContain("feature/ui");
     expect(homeScreen.join("\n")).toContain("sample-project");
+    expect(homeScreen.join("\n")).toContain("/workspace/sample-project");
 
     await app.submit("/build");
     expect(app.tui.render(100).join("\n")).toContain("/build");
