@@ -1,7 +1,8 @@
-// Development-only artwork conversion; no Swift/PNG dependency at runtime.
+// Development-only legacy lockup conversion and current wordmark stencil generation;
+// the chess rook icon in home-brand-art.ts is hand-drawn. No runtime dependency.
 // swift scripts/generate-home-brand.swift <rook_lockup.png> [preview.png]
 // swift scripts/generate-home-brand.swift --wordmark <rook_wordmark.png>
-// Prints seven rows of mask/foreground/background cells for home-brand.ts.
+// The legacy lockup path prints seven rows of mask/foreground/background cells.
 import AppKit
 
 if CommandLine.arguments[1] == "--wordmark" {

@@ -6,7 +6,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { HomeBrand } from "../../src/tui/home-brand.js";
 import {
-  HOME_BRAND_CELLS,
+  HOME_ROOK_PIXELS,
   HOME_WORDMARK_PIXELS,
 } from "../../src/tui/home-brand-art.js";
 
@@ -14,49 +14,44 @@ describe("home brand", () => {
   beforeEach(() => setCapabilityOverrides({ trueColor: true, images: null }));
   afterEach(() => setCapabilityOverrides({}));
 
-  it("renders finer Braille contours and solid fills without image protocols", () => {
+  it("renders the icon and wordmark in solid pixels without image protocols", () => {
     const lines = new HomeBrand().render(120);
     expect(lines).toHaveLength(8);
     expect(lines.slice(0, 7).map(visibleWidth)).toEqual(Array(7).fill(48));
     const artwork = lines.slice(0, 7).join("\n");
     expect(artwork).toContain("\x1b[38;2;");
     expect(artwork).toContain("\x1b[48;2;");
-    expect(artwork).toMatch(/[\u2801-\u28FF]/);
+    expect(artwork).not.toMatch(/[\u2800-\u28FF]/);
     expect(artwork).toContain("█");
-    expect(artwork).toContain("▟");
+    expect(artwork).toContain("▀");
+    expect(artwork).toContain("▄");
     expect(artwork).not.toMatch(/\x1b_G|1337;File|\.png|NaN|undefined/);
     expect(lines.at(-1)).toContain(
       "A coding agent that grows with your codebase.",
     );
   });
 
-  it("packs the artwork into valid 2×4 masks without enlarging the lockup", () => {
-    expect(HOME_BRAND_CELLS).toHaveLength(7);
-    for (const row of HOME_BRAND_CELLS) {
-      const cells = row.split(" ");
-      expect(cells).toHaveLength(36);
-      for (const cell of cells) {
-        expect(cell).toMatch(
-          /^(?:-|[0-9A-F]{2}\/[0-9A-F]{6}\/(?:[0-9A-F]{6}|-))$/,
-        );
-      }
-    }
+  it("keeps the crenellated rook at fourteen solid pixels wide", () => {
+    expect(HOME_ROOK_PIXELS).toHaveLength(14);
+    expect(HOME_ROOK_PIXELS.every((row) => /^[.12]{14}$/.test(row))).toBe(true);
+    expect(HOME_ROOK_PIXELS[0]).toBe("..11..11..11..");
+    expect(HOME_ROOK_PIXELS.at(-1)).toBe(".111111111111.");
   });
 
-  it("preserves the reviewed tower, orbit, and star contours", () => {
+  it("renders a crenellated top, tower, and flared base beside the title", () => {
     const contours = new HomeBrand()
       .render(60)
       .slice(0, 7)
       .map((line) => stripTerminalSequences(line).slice(0, 16).trimEnd());
 
     expect(contours).toEqual([
-      "       ⣀▟⣇⣀",
-      "     ⢀⣀⡉⢹⡏⢁⣀⡀",
-      "     ▐⠹⣷⠏⠹▟⠉▌⣀⣀⡀",
-      "     ⠹⡈⠒⠒⠒⠒⢡⠋⢉⣽⠇",
-      "  ⢀⣴⠞▜⠇▌⠰⠆⠇⡘⡶▀⠁",
-      "  ⠿▙⢤⣾⢀⠓⣠⣄⢀⡘⣇",
-      "    ⣾⠚⠩▀▀▀▀⠍⠓⣦",
+      "    ██  ██  ██",
+      "    ██████████",
+      "     ████████",
+      "      █▀▀▀▀█",
+      "      ██████",
+      "    ▄████████▄",
+      "   ████████████",
     ]);
   });
 
