@@ -290,7 +290,8 @@ export class HomeScreenBody implements Component {
     return Array.from({ length: rows }, (_, row) => {
       const left = row >= brandOffset ? brand[row - brandOffset]! : "";
       const right = mountains[row] ?? "";
-      return `${right}${" ".repeat(artWidth ? 4 : 0)}${left}${" ".repeat(Math.max(0, brandWidth - visibleWidth(left)))}`;
+      const brandAndGap = `${left}${" ".repeat(Math.max(4, width - visibleWidth(left) - artWidth))}`;
+      return `${brandAndGap}${right}`;
     });
   }
 

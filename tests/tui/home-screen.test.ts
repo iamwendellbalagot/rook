@@ -26,7 +26,7 @@ describe("home dashboard", () => {
   beforeEach(() => setCapabilityOverrides({ trueColor: true, images: null }));
   afterEach(() => setCapabilityOverrides({}));
 
-  it("shows the mountain at the left of the existing brand and title", () => {
+  it("keeps the existing brand left of the mountain scene", () => {
     const dashboard = new HomeScreenBody();
     dashboard.setDashboardData(data);
     const lines = dashboard.render(160);
@@ -42,10 +42,12 @@ describe("home dashboard", () => {
     expect(lines.slice(0, 7).every((line) => visibleWidth(line) <= 160)).toBe(
       true,
     );
-    const mountainStart = plain[1]!.search(/[▄▀█]/);
     const brandStart = plain[1]!.indexOf("██  ██");
+    const mountainStart = plain[1]!.indexOf("▄");
     expect(mountainStart).toBeGreaterThanOrEqual(0);
-    expect(brandStart).toBeGreaterThan(mountainStart);
+    expect(brandStart).toBeGreaterThanOrEqual(0);
+    expect(mountainStart).toBeGreaterThan(brandStart);
+    expect(mountainStart - (brandStart + 29)).toBeGreaterThanOrEqual(4);
     expect(plain[0]).toBe("");
   });
 
