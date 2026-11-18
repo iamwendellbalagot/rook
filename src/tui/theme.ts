@@ -5,6 +5,7 @@ import {
   type EditorTheme,
   type MarkdownTheme,
 } from "@earendil-works/pi-tui";
+import { highlightCode } from "./syntax-highlight.js";
 
 const palette = {
   text: parseColor("#E9ECF0"),
@@ -41,6 +42,7 @@ export const editorTheme: EditorTheme = {
 export const selectListTheme = editorTheme.selectList;
 
 export const markdownTheme: MarkdownTheme = {
+  highlightCode: (code, language) => highlightCode(code, language, tone),
   heading: (text) => tone(text, "text", true),
   link: (text) => tone(text, "blue"),
   linkUrl: (text) => tone(text, "dim"),
