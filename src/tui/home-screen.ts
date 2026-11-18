@@ -296,7 +296,7 @@ export class HomeScreenBody implements Component {
 
   private renderMode(width: number): string[] {
     const plan = this.data.mode === "plan";
-    const left = `${tone("MODE", "muted", true)}  ${plan ? color("▶ /plan", "#25D9FF", true) : tone("/plan", "muted")}  ${tone("Analyze and plan · read-only", "text")}`;
+    const left = `${plan ? color("▶ /plan", "#25D9FF", true) : tone("/plan", "muted")}  ${tone("Analyze and plan · read-only", "text")}`;
     const right = `${!plan ? color("⚒ /build", "#25D9FF", true) : tone("/build", "muted")}  ${tone("Implement · approved shell", "text")}`;
     const text =
       width < 90

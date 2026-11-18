@@ -80,6 +80,14 @@ class FooterShortcuts implements Component {
   invalidate(): void {}
 }
 
+class BottomMargin implements Component {
+  render(width: number): string[] {
+    return [" ".repeat(Math.max(0, width))];
+  }
+
+  invalidate(): void {}
+}
+
 const BUILTIN_SLASH_COMMANDS: SlashCommandSuggestion[] = [
   { command: "/plan", description: "Enable read-only mode" },
   { command: "/build", description: "Enable workspace edits" },
@@ -708,6 +716,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         shortcuts.render(width).length -
         footerDivider.render(width).length -
         footer.render(width).length -
+        bottomMargin.render(width).length -
         slashSuggestions.render(width).length -
         (terminal.columns < CHECKLIST_SIDEBAR_MIN_WIDTH
           ? compactChecklist.render(width).length
@@ -719,6 +728,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   const footer = new Text("", 1, 0);
   const footerDivider = new Text("", 1, 0);
   const shortcuts = new FooterShortcuts();
+  const bottomMargin = new BottomMargin();
   const bottom = new VStack([
     slashSuggestions,
     {
@@ -733,6 +743,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     shortcuts,
     footerDivider,
     footer,
+    bottomMargin,
   ]);
   const screenContent = new VStack([
     { component: header, basis: "auto", shrink: 0 },
@@ -1929,6 +1940,14 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         tui.requestRender();
         return { consume: true };
       }
+    }
+    if (matchesKey(data, "shift+tab")) {
+      const mode = state.mode === "plan" ? "build" : "plan";
+      state = reduceAppState(state, { type: "mode_changed", mode });
+      options.gateway.setMode(mode);
+      updateHomeDashboard();
+      updateFooter();
+      return { consume: true };
     }
     if (matchesKey(data, "ctrl+c") || matchesKey(data, "escape")) {
       if (state.runState === "running") {

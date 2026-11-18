@@ -193,4 +193,12 @@ describe("home dashboard", () => {
     });
     expect(selected).toBe("build");
   });
+
+  it("renders the selected mode without a redundant mode label", () => {
+    const dashboard = new HomeScreenBody();
+    dashboard.setDashboardData(data);
+    const screen = dashboard.render(100).map(stripTerminalSequences).join("\n");
+    expect(screen).toContain("▶ /plan  Analyze and plan · read-only");
+    expect(screen).not.toContain("MODE  ▶");
+  });
 });

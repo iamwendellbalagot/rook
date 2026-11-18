@@ -735,6 +735,7 @@ describe("Rook TUI shell", () => {
     expect(footer).toContain("GPT-5");
     expect(footer).toContain("openai");
     expect(footer).toContain("PLAN (read-only)");
+    expect(screen.at(-1)).toMatch(/^\s+$/);
     terminal.input("\u0003");
     await finished;
   });
@@ -790,15 +791,19 @@ describe("Rook TUI shell", () => {
       terminal,
     });
     const finished = app.start();
-    await app.submit("/build");
-    const screen = app.tui.render(100).map(stripTerminalSequences).join("\n");
-    expect(screen).toContain("/plan");
-    expect(screen).toContain("/build");
-    expect(screen).not.toContain("Build mode enabled");
-    await app.submit("/plan");
-    expect(
-      app.tui.render(100).map(stripTerminalSequences).join("\n"),
-    ).toContain("/plan");
+    const screen = (): string =>
+      app.tui.render(100).map(stripTerminalSequences).join("\n");
+    expect(screen()).toContain("▶ /plan  Analyze and plan · read-only");
+    terminal.input("\u001b[Z");
+    expect(screen()).toContain("⚒ /build  Implement · approved shell");
+    expect(screen()).toContain("QUICK ACTIONS");
+    expect(screen()).toContain("BUILD  │");
+    expect(gateway.getActiveTools()).toContain("edit");
+    terminal.input("\u001b[Z");
+    expect(screen()).toContain("▶ /plan  Analyze and plan · read-only");
+    expect(screen()).toContain("QUICK ACTIONS");
+    expect(screen()).toContain("PLAN  │");
+    expect(gateway.getActiveTools()).not.toContain("edit");
 
     terminal.input("\u0003");
     await finished;
