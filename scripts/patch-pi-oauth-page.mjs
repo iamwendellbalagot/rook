@@ -9,6 +9,10 @@ const PACKAGE_ROOT = resolve(
 );
 const PACKAGE_JSON = resolve(PACKAGE_ROOT, "package.json");
 const OAUTH_PAGE_MODULE = resolve(PACKAGE_ROOT, "dist/utils/oauth-page.js");
+const DESIGN_ROOT = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../assets/rook-oauth-page",
+);
 const START_MARKER = "function renderPage(options) {";
 const END_MARKER = "\nexport function oauthSuccessHtml(";
 
@@ -18,53 +22,104 @@ export function renderRookOAuthPage(options) {
   const message = escapeHtml(options.message);
   const details = options.details ? escapeHtml(options.details) : "";
   const success = options.title === "Authentication successful";
-  const icon =
-    '<svg viewBox="0 0 64 64" role="img" aria-label="Rook"><path d="M14 52h36v-5H46V32h5V17h-8v7h-7v-7h-8v7h-7v-7h-8v15h5v15h-4v5Zm9-5V32h18v15H23Z" fill="currentColor"/><path d="M18 12h7v5h-7zm14 0h7v5h-7zm14 0h7v5h-7z" fill="currentColor"/></svg>';
+  const statusLabel = success ? "SIGN-IN COMPLETE" : "SIGN-IN ISSUE";
+  const handoff = success
+    ? "You can close this tab and return to Rook."
+    : "Return to Rook and try signing in again.";
 
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="color-scheme" content="dark">
-  <title>${title} · Rook</title>
-  <style>
-    :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #101820; color: #e9ecf0; }
-    * { box-sizing: border-box; }
-    body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: radial-gradient(ellipse at 50% 0%, #1b3441 0, #101820 58%); }
-    main { width: min(100%, 520px); padding: 42px; border: 1px solid #36505c; border-radius: 20px; background: #151f27; box-shadow: 0 24px 80px #0006; }
-    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 34px; color: #27d8f3; }
-    .brand svg { width: 38px; height: 38px; }
-    .brand span { color: #e9ecf0; font-size: 17px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
-    .status { margin: 0 0 10px; color: ${success ? "#98deac" : "#f09ba5"}; font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
-    h1 { margin: 0 0 12px; font-size: clamp(25px, 6vw, 32px); line-height: 1.2; }
-    p { margin: 0; color: #a7b2be; font-size: 15px; line-height: 1.7; }
-    .details { margin-top: 16px; padding: 12px 14px; border-radius: 8px; background: #0d151b; color: #a7b2be; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
-    .close { margin-top: 28px; color: #7c8a97; font-size: 13px; }
-    @media (max-width: 480px) { main { padding: 30px 24px; } }
-  </style>
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#fbf6f0">
+  <meta name="description" content="Rook authentication status. Return to your terminal to continue.">
+  <link rel="icon" type="image/png" href="${design.favicon}">
+  <title>${title} — Rook</title>
+  <style>${design.css}</style>
 </head>
 <body>
-  <main data-rook-auth-page="true">
-    <div class="brand">${icon}<span>Rook</span></div>
-    <p class="status">${success ? "Sign-in complete" : "Sign-in issue"}</p>
-    <h1>${heading}</h1>
-    <p>${message}</p>
-    ${details ? `<div class="details">${details}</div>` : ""}
-    ${success ? '<p class="close">You can close this tab and return to Rook.</p>' : ""}
-  </main>
+  <div class="sheet">
+    <div class="editorial-frame" data-rook-auth-page="editorial-v1">
+      <header class="running-head" aria-label="Page header">
+        <span>ROOK</span>
+        <span>[ AUTHENTICATION ]</span>
+      </header>
+      <div class="registration registration--tl" aria-hidden="true"></div>
+      <div class="registration registration--tr" aria-hidden="true"></div>
+      <div class="registration registration--bl" aria-hidden="true"></div>
+      <div class="registration registration--br" aria-hidden="true"></div>
+      <main class="layout">
+        <aside class="index-column" aria-label="Rook identity">
+          <span class="index-cross" aria-hidden="true"></span>
+          <p class="index-label">ROOK</p>
+          <span class="index-dash" aria-hidden="true"></span>
+          <p class="index-stack">CODE<br>PLAN<br>BUILD<br>LEARN</p>
+        </aside>
+        <div class="visual-column">
+          <picture class="artwork">
+            <img src="${design.traveler}" alt="A pixel-art traveler in a red scarf looks toward snowy mountains beneath an open sky." width="487" height="727">
+          </picture>
+          <img class="scarf-extension" src="${design.scarf}" alt="" aria-hidden="true" width="118" height="125">
+          <p class="art-caption">FIG. 01 <span>—</span> A NEW JOURNEY BEGINS</p>
+        </div>
+        <section class="content-column" aria-labelledby="page-title">
+          <div class="brand" aria-label="Rook">
+            <img class="brand-emblem" src="${design.emblem}" alt="" width="192" height="249">
+            <div class="brand-name">
+              <img class="brand-wordmark" src="${design.wordmark}" alt="Rook" width="418" height="174">
+              <span class="brand-period" aria-hidden="true"></span>
+            </div>
+          </div>
+          <div class="ornamental-rule" aria-hidden="true"><span>✧</span></div>
+          <div class="message">
+            <p class="status-label${success ? "" : " status-label--error"}">${statusLabel}</p>
+            <h1 id="page-title">${heading}</h1>
+            <p class="summary">${message}</p>
+            ${details ? `<div class="details">${details}</div>` : ""}
+            <div class="handoff-note" role="note">
+              <svg class="info-icon" width="27" height="27" viewBox="0 0 28 28" role="img" aria-label="Information">
+                <circle cx="14" cy="14" r="11.5" fill="none" stroke="currentColor" stroke-width="1.8"/>
+                <circle cx="14" cy="8.2" r="1.25" fill="currentColor"/>
+                <path d="M14 12.8v7.4m-2.15-7.4h2.15" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" fill="none"/>
+              </svg>
+              <span>${handoff}</span>
+            </div>
+          </div>
+        </section>
+      </main>
+      <img class="castle-engraving" src="${design.castle}" alt="" aria-hidden="true" width="333" height="317">
+    </div>
+  </div>
 </body>
 </html>`;
 }
 
-export function patchPiOAuthPageModule(source) {
-  const startCount = source.split(START_MARKER).length - 1;
-  if (
-    (startCount === 0 || startCount === 1) &&
-    source.includes('data-rook-auth-page="true"')
-  ) {
-    return { source, changed: false };
+const DESIGN_FILES = {
+  css: ["styles.css", "text/css"],
+  traveler: ["traveler-scene.webp", "image/webp"],
+  scarf: ["scarf-extension.png", "image/png"],
+  castle: ["castle-engraving.png", "image/png"],
+  emblem: ["rook-emblem.png", "image/png"],
+  wordmark: ["rook-wordmark-dark.png", "image/png"],
+  favicon: ["favicon.png", "image/png"],
+};
+
+export async function loadRookOAuthDesign() {
+  const design = {};
+  for (const [key, [filename, mediaType]] of Object.entries(DESIGN_FILES)) {
+    const content = await readFile(resolve(DESIGN_ROOT, filename));
+    design[key] =
+      key === "css"
+        ? content.toString("utf8")
+        : `data:${mediaType};base64,${content.toString("base64")}`;
   }
+  return design;
+}
+
+export function patchPiOAuthPageModule(source, design) {
+  const startCount = source.split(START_MARKER).length - 1;
   if (startCount !== 1) {
     throw new Error(
       `Expected exactly one Pi OAuth callback page template; found ${startCount}. Pi may have changed its bundled template.`,
@@ -89,11 +144,12 @@ export function patchPiOAuthPageModule(source) {
   // on Pi's existing escapeHtml helper and doesn't touch OAuth control flow.
   const renderedFunction = renderRookOAuthPage
     .toString()
-    .replace("renderRookOAuthPage", "renderPage");
-  return {
-    source: `${source.slice(0, start)}${renderedFunction}${source.slice(end)}`,
-    changed: true,
-  };
+    .replace(
+      "function renderRookOAuthPage(options) {",
+      `function renderPage(options) {\nconst design = ${JSON.stringify(design)};`,
+    );
+  const patchedSource = `${source.slice(0, start)}${renderedFunction}${source.slice(end)}`;
+  return { source: patchedSource, changed: patchedSource !== source };
 }
 
 export async function patchInstalledPiOAuthPage() {
@@ -104,7 +160,8 @@ export async function patchInstalledPiOAuthPage() {
     );
   }
   const source = await readFile(OAUTH_PAGE_MODULE, "utf8");
-  const result = patchPiOAuthPageModule(source);
+  const design = await loadRookOAuthDesign();
+  const result = patchPiOAuthPageModule(source, design);
   if (result.changed) await writeFile(OAUTH_PAGE_MODULE, result.source);
 }
 

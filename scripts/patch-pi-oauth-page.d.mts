@@ -5,9 +5,24 @@ export interface PiOAuthPageOptions {
   details?: string;
 }
 
+export interface PiOAuthDesign {
+  css: string;
+  traveler: string;
+  scarf: string;
+  castle: string;
+  emblem: string;
+  wordmark: string;
+  favicon: string;
+}
+
 export function renderRookOAuthPage(options: PiOAuthPageOptions): string;
 
-export function patchPiOAuthPageModule(source: string): {
+export function loadRookOAuthDesign(): Promise<PiOAuthDesign>;
+
+export function patchPiOAuthPageModule(
+  source: string,
+  design: PiOAuthDesign,
+): {
   source: string;
   changed: boolean;
 };
