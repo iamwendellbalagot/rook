@@ -8,7 +8,6 @@ import { MemoryCaptureManager } from "./memory/capture.js";
 import { resolveWorkspace } from "./repo/workspace.js";
 import { createRookTui } from "./tui/rook-tui.js";
 import { initialAppState, reduceAppState, type AppState } from "./app/state.js";
-import type { RookMode } from "./app/state.js";
 import {
   installSkills,
   listInstalledSkills,
@@ -19,57 +18,24 @@ import {
 export function parseCliArguments(
   args: string[],
   defaultCwd = process.cwd(),
-): {
-  cwd: string;
-  prompt: string;
-  mock: boolean;
-  smoke: boolean;
-  noMemory: boolean;
-  mode?: RookMode;
-  model?: string;
-} {
+): { cwd: string; prompt: string; mock: boolean; smoke: boolean } {
   const mock = args.includes("--mock") || args.includes("--smoke");
   const smoke = args.includes("--smoke");
-  let cwd = defaultCwd;
-  let mode: RookMode | undefined;
-  let model: string | undefined;
-  let noMemory = false;
-  const prompt: string[] = [];
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index]!;
-    if (arg === "--mock" || arg === "--smoke") continue;
-    if (arg === "--no-memory") {
-      noMemory = true;
-      continue;
-    }
-    if (arg === "--cwd" || arg === "--mode" || arg === "--model") {
-      const value = args[++index];
-      if (!value || value.startsWith("--"))
-        throw new Error(`${arg} requires a value.`);
-      if (arg === "--cwd") cwd = value;
-      else if (arg === "--mode") {
-        if (value !== "plan" && value !== "build")
-          throw new Error("--mode must be 'plan' or 'build'.");
-        mode = value;
-      } else {
-        if (!/^[^/\s]+\/[^/\s]+$/.test(value))
-          throw new Error("--model must use PROVIDER/MODEL format.");
-        model = value;
-      }
-      continue;
-    }
-    if (arg.startsWith("-")) throw new Error(`Unknown option '${arg}'.`);
-    prompt.push(arg);
-  }
-  return {
-    cwd,
-    prompt: prompt.join(" ") || (smoke ? "smoke test" : ""),
-    mock,
-    smoke,
-    noMemory,
-    ...(mode ? { mode } : {}),
-    ...(model ? { model } : {}),
-  };
+  const cwdIndex = args.indexOf("--cwd");
+  const cwdArgument = cwdIndex === -1 ? undefined : args[cwdIndex + 1];
+  if (cwdIndex !== -1 && !cwdArgument) throw new Error("--cwd requires a path");
+  const cwd = cwdArgument ?? defaultCwd;
+  const prompt =
+    args
+      .filter(
+        (arg, index) =>
+          arg !== "--mock" &&
+          arg !== "--smoke" &&
+          arg !== "--cwd" &&
+          (cwdIndex === -1 || index !== cwdIndex + 1),
+      )
+      .join(" ") || (smoke ? "smoke test" : "");
+  return { cwd, prompt, mock, smoke };
 }
 
 export async function main(args = process.argv.slice(2)): Promise<void> {
@@ -87,7 +53,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   }
   if (args.includes("--help") || args.includes("-h")) {
     console.log(
-      "Usage: rook [--cwd PATH] [--mode plan|build] [--model PROVIDER/MODEL] [--no-memory] [--mock] [PROMPT]\n       rook skills [list|install|remove] ...\n\nStart the Rook TUI, send a one-shot prompt, or manage Rook-scoped skills.",
+      "Usage: rook [--cwd PATH] [--mock] [PROMPT]\n       rook skills [list|install|remove] ...\n\nStart the Rook TUI, send a one-shot prompt, or manage Rook-scoped skills.",
     );
     return;
   }
@@ -96,12 +62,12 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     return;
   }
 
-  const { cwd, prompt, mock, noMemory, mode, model } = parseCliArguments(args);
+  const { cwd, prompt, mock } = parseCliArguments(args);
   if (!prompt && !stdin.isTTY) {
     throw new Error("Pass a prompt argument when running non-interactively.");
   }
   const workspace = mock ? undefined : await resolveWorkspace(cwd);
-  const store = workspace && !noMemory ? await RookStore.open() : undefined;
+  const store = workspace ? await RookStore.open() : undefined;
   try {
     let memoryCapture: MemoryCaptureManager | undefined;
     if (workspace && store) {
@@ -132,13 +98,10 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
           ...(memoryContext ? { memoryContext } : {}),
           ...(memoryCapture ? { memoryCapture } : {}),
         });
-    if (mode) gateway.setMode(mode);
-    if (model) await selectModel(gateway, model);
     await runApplication({
       cwd,
       prompt,
       gateway,
-      ...(mode ? { mode } : {}),
       ...(workspace ? { workspace } : {}),
       ...(memoryCapture ? { memoryCapture } : {}),
     });
@@ -206,23 +169,6 @@ async function runSkillCommand(args: string[]): Promise<void> {
   );
 }
 
-async function selectModel(
-  gateway: AgentGateway,
-  selection: string,
-): Promise<void> {
-  const [provider, id] = selection.split("/", 2);
-  const models = await gateway.listModels();
-  const model = models.find(
-    (candidate) => candidate.provider === provider && candidate.id === id,
-  );
-  if (!model) {
-    throw new Error(
-      `Model '${selection}' is unavailable. Use /model to review configured models.`,
-    );
-  }
-  await gateway.selectModel(model);
-}
-
 function parseSkillCommandOptions(args: string[]): {
   value?: string;
   cwd: string;
@@ -263,7 +209,6 @@ async function runApplication(options: {
   cwd: string;
   prompt: string;
   gateway: AgentGateway;
-  mode?: RookMode;
   workspace?: Awaited<ReturnType<typeof resolveWorkspace>>;
   memoryCapture?: MemoryCaptureManager;
 }): Promise<void> {
@@ -292,7 +237,6 @@ async function runApplication(options: {
       ...(options.memoryCapture
         ? { memoryCapture: options.memoryCapture }
         : {}),
-      ...(options.mode ? { mode: options.mode } : {}),
     });
     await app.start();
     await options.memoryCapture?.flush();
