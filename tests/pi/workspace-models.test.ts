@@ -52,9 +52,35 @@ describe("workspace model providers", () => {
         id: "gpt-6-luna",
         name: "GPT-6 Luna AWS",
         contextWindow: 128000,
+        maxTokens: 16384,
+        input: ["text"],
+        reasoning: false,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        baseUrl: "https://api.example.com/v1",
+        api: "openai-completions",
       });
       expect(runtime.getRegisteredProviderIds()).toContain("RONE_Models");
       expect(runtime.getModels().length).toBeGreaterThan(1);
+
+      const model = runtime.getModel("RONE_Models", "gpt-6-luna");
+      let requestSent = false;
+      const response = await runtime
+        .streamSimple(
+          model!,
+          { messages: [] },
+          {
+            apiKey: "test-token",
+            fetch: async () => {
+              requestSent = true;
+              return new Response(JSON.stringify({ error: "test response" }), {
+                status: 500,
+              });
+            },
+          },
+        )
+        .result();
+      expect(requestSent).toBe(true);
+      expect(response.errorMessage).not.toContain("includes");
 
       await writeFile(
         configPath,

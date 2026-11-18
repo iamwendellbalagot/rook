@@ -5,13 +5,19 @@ type ProviderConfiguration = Parameters<ModelRuntime["registerProvider"]>[1];
 
 interface WorkspaceModel {
   id: string;
-  name?: string;
-  api?: string;
-  baseUrl?: string;
-  reasoning?: boolean;
-  input?: ("text" | "image")[];
-  contextWindow?: number;
-  maxTokens?: number;
+  name: string;
+  api: string;
+  baseUrl: string;
+  reasoning: boolean;
+  input: ("text" | "image")[];
+  cost: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+  };
+  contextWindow: number;
+  maxTokens: number;
 }
 
 interface WorkspaceProvider {
@@ -114,7 +120,7 @@ function validateProvider(
       throw new Error(`Provider '${providerId}' models must be an array.`);
     }
     provider.models = value.models.map((model, index) =>
-      validateModel(providerId, model, index),
+      validateModel(providerId, model, index, provider),
     );
   }
   if (!provider.baseUrl && !provider.models?.length) {
@@ -129,35 +135,44 @@ function validateModel(
   providerId: string,
   value: unknown,
   index: number,
+  provider: WorkspaceProvider,
 ): WorkspaceModel {
   if (!isRecord(value)) {
     throw new Error(`Provider '${providerId}' model ${index + 1} is invalid.`);
   }
-  const model: WorkspaceModel = { id: requireString(value.id, "model id") };
-  if (value.name !== undefined)
-    model.name = requireString(value.name, "model name");
-  if (value.api !== undefined)
-    model.api = requireString(value.api, "model api");
-  if (value.baseUrl !== undefined) {
-    model.baseUrl = requireHttpUrl(value.baseUrl, "model baseUrl");
-  }
+  const id = requireString(value.id, "model id");
+  const name =
+    value.name === undefined ? id : requireString(value.name, "model name");
+  const api =
+    value.api === undefined
+      ? provider.api
+      : requireString(value.api, "model api");
+  const baseUrl =
+    value.baseUrl === undefined
+      ? provider.baseUrl
+      : requireHttpUrl(value.baseUrl, "model baseUrl");
+  if (!api) throw new Error(`Model '${id}' must define an API.`);
+  if (!baseUrl) throw new Error(`Model '${id}' must define a baseUrl.`);
+
+  let reasoning = false;
   if (value.reasoning !== undefined) {
     if (typeof value.reasoning !== "boolean") {
-      throw new Error(`Model '${model.id}' reasoning must be a boolean.`);
+      throw new Error(`Model '${id}' reasoning must be a boolean.`);
     }
-    model.reasoning = value.reasoning;
+    reasoning = value.reasoning;
   }
+  let input: ("text" | "image")[] = ["text"];
   if (value.input !== undefined) {
     if (
       !Array.isArray(value.input) ||
       !value.input.every((item) => item === "text" || item === "image")
     ) {
-      throw new Error(
-        `Model '${model.id}' input must contain text and/or image.`,
-      );
+      throw new Error(`Model '${id}' input must contain text and/or image.`);
     }
-    model.input = value.input;
+    input = value.input;
   }
+  let contextWindow = 128000;
+  let maxTokens = 16384;
   for (const field of ["contextWindow", "maxTokens"] as const) {
     const number = value[field];
     if (number !== undefined) {
@@ -166,14 +181,23 @@ function validateModel(
         !Number.isFinite(number) ||
         number <= 0
       ) {
-        throw new Error(
-          `Model '${model.id}' ${field} must be a positive number.`,
-        );
+        throw new Error(`Model '${id}' ${field} must be a positive number.`);
       }
-      model[field] = number;
+      if (field === "contextWindow") contextWindow = number;
+      else maxTokens = number;
     }
   }
-  return model;
+  return {
+    id,
+    name,
+    api,
+    baseUrl,
+    reasoning,
+    input,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow,
+    maxTokens,
+  };
 }
 
 function requireString(value: unknown, field: string): string {
