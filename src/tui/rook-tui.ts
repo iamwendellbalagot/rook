@@ -24,7 +24,7 @@ import {
   type GitSnapshot,
   type RepositoryIdentity,
 } from "../repo/workspace.js";
-import type { AppState } from "../app/state.js";
+import type { AppState, RookMode } from "../app/state.js";
 import { initialAppState, reduceAppState } from "../app/state.js";
 import type {
   AgentGateway,
@@ -93,6 +93,7 @@ const BUILTIN_SLASH_COMMANDS: SlashCommandSuggestion[] = [
   { command: "/plan", description: "Enable read-only mode" },
   { command: "/build", description: "Enable workspace edits" },
   { command: "/mode", description: "Set plan or build mode" },
+  { command: "/ask", description: "Ask a read-only one-turn question" },
   { command: "/model", description: "Choose a model" },
   { command: "/login", description: "Sign in to a provider" },
   { command: "/logout", description: "Sign out of a provider" },
@@ -1066,6 +1067,8 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     const prompt = text.trim();
     if (!prompt) return;
     const command = prompt.split(/\s+/, 1)[0];
+    let inferencePrompt = prompt;
+    let restoreMode: RookMode | undefined;
     const canQueueInput = command === "/steer" || command === "/follow-up";
     if (
       (activeInference || options.gateway.isRunning()) &&
@@ -1099,10 +1102,19 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/help":
           removeHome();
           appendText(
-            "Available: /help, /login, /logout, /model, /settings, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /diff, /undo [confirm], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
+            "Available: /help, /login, /logout, /model, /settings, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /ask <question>, /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /diff, /undo [confirm], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
             "muted",
           );
           return;
+        case "/ask": {
+          inferencePrompt = prompt.slice("/ask".length).trim();
+          if (!inferencePrompt) {
+            appendText("Usage: /ask <read-only question>", "error");
+            return;
+          }
+          restoreMode = state.mode;
+          break;
+        }
         case "/diff":
           removeHome();
           try {
@@ -1247,6 +1259,10 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     }
 
     removeHome();
+    if (restoreMode) {
+      options.gateway.setMode("plan");
+      state = reduceAppState(state, { type: "mode_changed", mode: "plan" });
+    }
     state = reduceAppState(state, { type: "prompt_submitted" });
     if (state.runState !== "running") return;
     appendText(`› ${prompt}`, "user");
@@ -1258,7 +1274,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     startLoadingStatus(true);
     updateFooter();
     try {
-      await options.gateway.send(prompt);
+      await options.gateway.send(inferencePrompt);
       if (state.runState === "running") {
         state = reduceAppState(state, {
           type: "run_state",
@@ -1286,6 +1302,13 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       finishInference(inference);
       activeResponse = undefined;
       activeResponseText = "";
+      if (restoreMode) {
+        options.gateway.setMode(restoreMode);
+        state = reduceAppState(state, {
+          type: "mode_changed",
+          mode: restoreMode,
+        });
+      }
       updateFooter();
     }
   };

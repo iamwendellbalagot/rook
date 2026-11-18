@@ -56,6 +56,7 @@ class EventGateway implements AgentGateway {
   ];
   selectedModel: ModelInfo | undefined;
   selectedThinkingLevel: string | undefined;
+  modeHistory: PermissionMode[] = [];
   forkedEntry?: string;
   compactedInstructions: string | undefined = undefined;
   private finishPendingRun: (() => void) | undefined = undefined;
@@ -186,6 +187,7 @@ class EventGateway implements AgentGateway {
 
   setMode(mode: PermissionMode): void {
     this.mode = mode;
+    this.modeHistory.push(mode);
   }
 
   getPermissionDecisions(): PermissionDecision[] {
@@ -487,6 +489,26 @@ describe("Rook TUI shell", () => {
     expect(screen).toContain("src/example.ts");
     expect(screen).toContain("Diff vs HEAD");
     expect(gateway.sentPrompts).toEqual([]);
+
+    terminal.input("\u0003");
+    await finished;
+  });
+
+  it("runs /ask as a read-only one-turn question and restores build mode", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+
+    await app.submit("/build");
+    await app.submit("/ask Where is the main entry point?");
+
+    expect(gateway.sentPrompts).toEqual(["Where is the main entry point?"]);
+    expect(gateway.modeHistory.slice(-2)).toEqual(["plan", "build"]);
 
     terminal.input("\u0003");
     await finished;
