@@ -21,6 +21,9 @@ import type {
   ModelInfo,
   PermissionDecision,
   PermissionMode,
+  ProviderAuthInteraction,
+  ProviderAuthType,
+  ProviderInfo,
   SessionInfo,
   SessionMessage,
   ThinkingInfo,
@@ -59,6 +62,9 @@ class EventGateway implements AgentGateway {
   ];
   selectedModel: ModelInfo | undefined;
   selectedThinkingLevel: string | undefined;
+  providers: ProviderInfo[] = [];
+  receivedLoginSecret: string | undefined;
+  failLoginWithCredential = false;
   modeHistory: PermissionMode[] = [];
   forkedEntry?: string;
   compactedInstructions: string | undefined = undefined;
@@ -136,8 +142,33 @@ class EventGateway implements AgentGateway {
     this.selectedModel = model;
   }
 
-  listProviders(): [] {
-    return [];
+  listProviders(): ProviderInfo[] {
+    return this.providers;
+  }
+
+  async login(
+    providerId: string,
+    authType: ProviderAuthType,
+    interaction: ProviderAuthInteraction,
+  ): Promise<void> {
+    if (!this.providers.some((provider) => provider.id === providerId))
+      throw new Error("Unknown fake provider.");
+    if (authType === "oauth") {
+      interaction.notify({
+        type: "device_code",
+        userCode: "WXYZ-1234",
+        verificationUri: "https://login.example.test/device",
+      });
+    }
+    this.receivedLoginSecret = await interaction.prompt({
+      type: "secret",
+      message: "Provider credential",
+      signal: interaction.signal,
+    });
+    if (this.failLoginWithCredential)
+      throw new Error(
+        `Provider rejected credential ${this.receivedLoginSecret}`,
+      );
   }
 
   async logout(): Promise<void> {}
@@ -347,6 +378,82 @@ describe("Rook TUI shell", () => {
     const cancelled = gateway.externalAccessPrompt!(request);
     terminal.input("\u0003");
     expect(await cancelled).toBe("deny");
+    app.stop();
+    await finished;
+  });
+
+  it("signs in from the TUI without echoing credentials into the transcript", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    gateway.providers = [
+      {
+        id: "anthropic",
+        name: "Anthropic",
+        configured: false,
+        authMethods: [
+          { type: "oauth", name: "Claude Pro/Max", isSubscription: true },
+        ],
+      },
+    ];
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    await app.submit("/login");
+    terminal.input("\r");
+    app.tui.renderNow(true);
+    expect(
+      app.tui.getScreenLines().map(stripTerminalSequences).join("\n"),
+    ).toContain("WXYZ-1234");
+
+    const credential = "sk-test-credential-not-for-display";
+    for (const character of credential) terminal.input(character);
+    app.tui.renderNow(true);
+    const screenWhileTyping = app.tui
+      .getScreenLines()
+      .map(stripTerminalSequences)
+      .join("\n");
+    expect(screenWhileTyping).not.toContain(credential);
+    expect(screenWhileTyping).toContain("•");
+
+    terminal.input("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    app.tui.renderNow(true);
+    expect(gateway.receivedLoginSecret).toBe(credential);
+    expect(
+      app.tui.getScreenLines().map(stripTerminalSequences).join("\n"),
+    ).not.toContain(credential);
+    expect(terminal.writes.join("")).not.toContain(credential);
+    expect(terminal.writes.join("")).toContain("Signed in to Anthropic.");
+
+    gateway.failLoginWithCredential = true;
+    await app.submit("/login");
+    terminal.input("\r");
+    for (const character of credential) terminal.input(character);
+    terminal.input("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    app.tui.renderNow(true);
+    expect(
+      app.tui.getScreenLines().map(stripTerminalSequences).join("\n"),
+    ).not.toContain(credential);
+    expect(terminal.writes.join("")).not.toContain(credential);
+    expect(
+      app.tui.getScreenLines().map(stripTerminalSequences).join("\n"),
+    ).toContain("[redacted]");
+
+    gateway.failLoginWithCredential = false;
+    gateway.receivedLoginSecret = undefined;
+    await app.submit("/login");
+    terminal.input("\r");
+    terminal.input("\u0003");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    app.tui.renderNow(true);
+    expect(gateway.receivedLoginSecret).toBeUndefined();
+    expect(
+      app.tui.getScreenLines().map(stripTerminalSequences).join("\n"),
+    ).toContain("cancelled");
     app.stop();
     await finished;
   });

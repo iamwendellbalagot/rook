@@ -16,6 +16,8 @@ import type {
   ModelInfo,
   PermissionDecision,
   PermissionMode,
+  ProviderAuthInteraction,
+  ProviderAuthType,
   ProviderInfo,
   SessionInfo,
   SessionMessage,
@@ -302,11 +304,54 @@ export async function createPiAgentGateway(
           name: provider?.name ?? id,
           configured: modelRuntime.getProviderAuthStatus(id).configured,
           authMethods: [
-            ...(auth?.apiKey ? [auth.apiKey.name] : []),
-            ...(auth?.oauth ? [auth.oauth.name] : []),
+            ...(auth?.apiKey?.login
+              ? [{ type: "api_key" as const, name: auth.apiKey.name }]
+              : []),
+            ...(auth?.oauth
+              ? [
+                  {
+                    type: "oauth" as const,
+                    name: auth.oauth.name,
+                    ...(auth.oauth.isSubscription === undefined
+                      ? {}
+                      : { isSubscription: auth.oauth.isSubscription }),
+                    ...(auth.oauth.loginLabel
+                      ? { loginLabel: auth.oauth.loginLabel }
+                      : {}),
+                  },
+                ]
+              : []),
           ],
         };
       });
+    },
+    async login(
+      providerId: string,
+      authType: ProviderAuthType,
+      interaction: ProviderAuthInteraction,
+    ) {
+      await runtime.session.modelRuntime.login(
+        providerId,
+        authType,
+        interaction,
+        {
+          getDeviceId: () =>
+            runtime.session.settingsManager.getOrCreateDeviceId(),
+          agentName: "Rook",
+        },
+      );
+      try {
+        await runtime.session.modelRuntime.refresh({
+          providers: [providerId],
+          signal: AbortSignal.any([
+            interaction.signal,
+            AbortSignal.timeout(15_000),
+          ]),
+        });
+        await refreshWorkspaceModels();
+      } catch {
+        // Credentials are already saved; dynamic catalogs can retry on next start.
+      }
     },
     async logout(providerId) {
       await runtime.session.modelRuntime.logout(providerId);

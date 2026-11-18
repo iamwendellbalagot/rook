@@ -21,7 +21,7 @@ npm run build
 node bin/rook.mjs --mock
 ```
 
-The project is still in early development and is not yet published as an npm release. For provider-backed use, configure Pi using its own documented authentication flow; never put provider secrets in the repository or command history.
+The project is still in early development and is not yet published as an npm release. For provider-backed use, sign in with `/login` from the Rook TUI. Pi stores credentials in its user-level auth store; never put provider secrets in the repository or command history.
 
 ## Development
 
@@ -38,7 +38,7 @@ npm run benchmark:memory
 npm run benchmark:fts
 ```
 
-To inspect the TUI without credentials, run `node bin/rook.mjs --mock`. Submit a prompt; use `/help` and `/exit`, or press Ctrl+C to leave. To use Pi's configured provider, run `node bin/rook.mjs`; Pi provider authentication and model configuration are inherited, and Rook does not collect credentials. The TUI starts in plan mode; `/build` enables policy-gated workspace edits and approval-gated terminal commands. A one-shot headless prompt is also available with `node bin/rook.mjs "Summarize this repository"`. `npm run smoke` exercises the credential-free mock gateway. The memory benchmark is deterministic and offline; it measures retrieval, not model-task success.
+To inspect the TUI without credentials, run `node bin/rook.mjs --mock`. Submit a prompt; use `/help` and `/exit`, or press Ctrl+C to leave. To use a provider, run `node bin/rook.mjs` and use `/login` to choose a supported OAuth subscription/account flow or API-key flow in Rook; `/logout` removes a provider credential. Provider and model configuration are inherited from Pi, and authentication is handled by Pi's runtime. The TUI starts in plan mode; `/build` enables policy-gated workspace edits and approval-gated terminal commands. A one-shot headless prompt is also available with `node bin/rook.mjs "Summarize this repository"`. `npm run smoke` exercises the credential-free mock gateway. The memory benchmark is deterministic and offline; it measures retrieval, not model-task success.
 
 Repository memory is conservative: high-signal user statements linked to successful workspace reads become reviewable candidates, and `remember:` claims require confirmation. `/memory verify <id>` displays the claim and evidence; inspect them before `/memory verify <id> confirm`. File hashes establish evidence freshness, not claim truth. Confirmed, relevant memories can be injected into later prompts and are withheld after their evidence changes until reviewed again.
 

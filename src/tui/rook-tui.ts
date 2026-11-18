@@ -31,6 +31,9 @@ import type {
   ExternalAccessChoice,
   ExternalAccessRequest,
   ModelInfo,
+  ProviderInfo,
+  ProviderAuthInteraction,
+  ProviderAuthMethod,
 } from "../pi/agent-gateway.js";
 import type { TaskChecklistItem } from "../pi/task-checklist.js";
 import type { MemoryCaptureManager } from "../memory/capture.js";
@@ -46,6 +49,7 @@ import { HomeScreenBody } from "./home-screen.js";
 import { PromptEditor } from "./prompt-editor.js";
 import { InferenceStatsLine } from "./inference-stats.js";
 import { InferenceTimings } from "./inference-timings.js";
+import { ProviderAuthDialog } from "./provider-auth-dialog.js";
 
 const CHECKLIST_SIDEBAR_MIN_WIDTH = 90;
 const CHECKLIST_SIDEBAR_WIDTH = 34;
@@ -679,6 +683,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   let acceptingSlashSuggestion = false;
   let dismissedSuggestionText: string | undefined;
   let modalInputHandler: ((data: string) => void) | undefined;
+  let modalInputCaptureAll = false;
 
   const suggestionsFor = (text: string): SlashCommandSuggestion[] => {
     const query = text.trimStart();
@@ -1874,17 +1879,55 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       );
       return;
     }
+    if (action === "login") {
+      const loginOptions = providers.flatMap((provider) =>
+        provider.authMethods.map((method) => ({ provider, method })),
+      );
+      if (!loginOptions.length) {
+        removeHome();
+        appendText(
+          "No registered provider exposes an interactive sign-in method.",
+          "muted",
+        );
+        return;
+      }
+      showSelection(
+        "Choose provider sign-in method",
+        loginOptions.map(({ provider, method }) => ({
+          value: JSON.stringify({ providerId: provider.id, type: method.type }),
+          label: `${provider.name} · ${method.loginLabel ?? method.name}`,
+          description:
+            method.type === "oauth"
+              ? method.isSubscription === false
+                ? "OAuth account sign-in"
+                : "OAuth subscription sign-in"
+              : "API key sign-in",
+        })),
+        async (value) => {
+          const selected = JSON.parse(value) as {
+            providerId: string;
+            type: ProviderAuthMethod["type"];
+          };
+          const provider = providers.find(
+            (candidate) => candidate.id === selected.providerId,
+          );
+          const method = provider?.authMethods.find(
+            (candidate) => candidate.type === selected.type,
+          );
+          if (provider && method) await runProviderLogin(provider, method);
+        },
+      );
+      return;
+    }
     showSelection(
-      action === "login"
-        ? "Pi providers · sign-in options"
-        : "Select provider to log out",
+      "Select provider to log out",
       providers.map((provider) => ({
         value: provider.id,
         label: provider.name,
         description: provider.configured
           ? "configured in Pi"
           : provider.authMethods.length
-            ? `not configured · ${provider.authMethods.join(", ")}`
+            ? `not configured · ${provider.authMethods.map((method) => method.name).join(", ")}`
             : "not configured",
       })),
       async (providerId) => {
@@ -1892,13 +1935,6 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           (candidate) => candidate.id === providerId,
         );
         if (!provider) return;
-        if (action === "login") {
-          appendText(
-            `Sign in to ${provider.name} with Pi: exit Rook, run \`pi\`, and use Pi's /login flow. Then restart Rook.`,
-            "muted",
-          );
-          return;
-        }
         try {
           await options.gateway.logout(providerId);
           appendText(`Logged out of ${provider.name} in Pi.`, "muted");
@@ -1907,6 +1943,53 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         }
       },
     );
+  }
+
+  async function runProviderLogin(
+    provider: ProviderInfo,
+    method: ProviderAuthMethod,
+  ): Promise<void> {
+    const controller = new AbortController();
+    const dialog = new ProviderAuthDialog(tui, provider.name, () =>
+      controller.abort(),
+    );
+    const handleAuthInput = (data: string): void => dialog.handleInput(data);
+    modalInputHandler = handleAuthInput;
+    modalInputCaptureAll = true;
+    try {
+      const interaction: ProviderAuthInteraction = {
+        signal: controller.signal,
+        prompt: (prompt) =>
+          dialog.prompt({
+            ...prompt,
+            signal: prompt.signal
+              ? AbortSignal.any([controller.signal, prompt.signal])
+              : controller.signal,
+          }),
+        notify: (event) => dialog.notify(event),
+      };
+      await options.gateway.login(provider.id, method.type, interaction);
+      appendText(`Signed in to ${provider.name}.`, "muted");
+      updateFooter();
+    } catch (error) {
+      const message = dialog.redact(errorMessage(error));
+      appendText(
+        controller.signal.aborted || message === "Login cancelled"
+          ? `Sign-in to ${provider.name} cancelled.`
+          : `Sign-in to ${provider.name} failed: ${message}`,
+        controller.signal.aborted || message === "Login cancelled"
+          ? "muted"
+          : "error",
+      );
+    } finally {
+      dialog.close();
+      if (modalInputHandler === handleAuthInput) {
+        modalInputHandler = undefined;
+        modalInputCaptureAll = false;
+      }
+      tui.setFocus(editor);
+      updateFooter();
+    }
   }
 
   function showThinkingMenu(): void {
@@ -1965,6 +2048,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       overlay.hide();
       if (modalInputHandler === handleSelectionInput) {
         modalInputHandler = undefined;
+        modalInputCaptureAll = false;
       }
       tui.setFocus(editor);
     };
@@ -1977,6 +2061,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       onCancel?.();
     };
     modalInputHandler = handleSelectionInput;
+    modalInputCaptureAll = false;
     tui.setFocus(list);
     return hide;
   }
@@ -2037,6 +2122,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   tui.addInputListener((data) => {
     if (modalInputHandler) {
       if (
+        modalInputCaptureAll ||
         matchesKey(data, "up") ||
         matchesKey(data, "down") ||
         matchesKey(data, "pageUp") ||

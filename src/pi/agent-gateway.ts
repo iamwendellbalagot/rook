@@ -26,7 +26,50 @@ export interface ProviderInfo {
   id: string;
   name: string;
   configured: boolean;
-  authMethods: string[];
+  authMethods: ProviderAuthMethod[];
+}
+
+export type ProviderAuthType = "api_key" | "oauth";
+
+export interface ProviderAuthMethod {
+  type: ProviderAuthType;
+  name: string;
+  isSubscription?: boolean;
+  loginLabel?: string;
+}
+
+export type ProviderAuthPrompt =
+  | {
+      type: "text" | "secret" | "manual_code";
+      message: string;
+      placeholder?: string;
+      signal?: AbortSignal;
+    }
+  | {
+      type: "select";
+      message: string;
+      options: { id: string; label: string; description?: string }[];
+      signal?: AbortSignal;
+    };
+
+export type ProviderAuthEvent =
+  | { type: "info"; message: string; links?: { url: string; label?: string }[] }
+  | { type: "auth_url"; url: string; instructions?: string }
+  | {
+      type: "device_code";
+      userCode: string;
+      verificationUri: string;
+      openBrowserOnConfirm?: boolean;
+      copyCodeOnConfirm?: boolean;
+      intervalSeconds?: number;
+      expiresInSeconds?: number;
+    }
+  | { type: "progress"; message: string };
+
+export interface ProviderAuthInteraction {
+  signal: AbortSignal;
+  prompt(prompt: ProviderAuthPrompt): Promise<string>;
+  notify(event: ProviderAuthEvent): void;
 }
 
 export interface ThinkingInfo {
@@ -109,6 +152,11 @@ export interface AgentGateway {
   currentModel(): ModelInfo | undefined;
   selectModel(model: ModelInfo): Promise<void>;
   listProviders(): ProviderInfo[];
+  login(
+    providerId: string,
+    authType: ProviderAuthType,
+    interaction: ProviderAuthInteraction,
+  ): Promise<void>;
   logout(providerId: string): Promise<void>;
   getThinkingInfo(): ThinkingInfo;
   setThinkingLevel(level: string): void;

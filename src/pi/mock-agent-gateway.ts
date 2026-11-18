@@ -6,6 +6,8 @@ import type {
   ModelInfo,
   PermissionDecision,
   PermissionMode,
+  ProviderAuthInteraction,
+  ProviderAuthType,
   SessionInfo,
   SessionMessage,
   ThinkingInfo,
@@ -52,6 +54,14 @@ export class MockAgentGateway implements AgentGateway {
 
   listProviders(): [] {
     return [];
+  }
+
+  async login(
+    _providerId: string,
+    _authType: ProviderAuthType,
+    _interaction: ProviderAuthInteraction,
+  ): Promise<void> {
+    throw new Error("The mock gateway has no provider credentials.");
   }
 
   async logout(): Promise<void> {

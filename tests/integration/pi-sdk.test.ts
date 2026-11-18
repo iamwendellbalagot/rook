@@ -22,7 +22,15 @@ describe("Pi SDK compatibility", () => {
     const gateway = await createPiAgentGateway(process.cwd());
     try {
       expect(await gateway.listModels()).toEqual(expect.any(Array));
-      expect(gateway.listProviders()).toEqual(expect.any(Array));
+      const providers = gateway.listProviders();
+      expect(providers).toEqual(expect.any(Array));
+      for (const provider of providers) {
+        expect(provider.authMethods).toEqual(expect.any(Array));
+        for (const method of provider.authMethods) {
+          expect(method.type).toMatch(/^(api_key|oauth)$/);
+          expect(method.name).toEqual(expect.any(String));
+        }
+      }
       expect(gateway.getThinkingInfo()).toMatchObject({
         current: expect.any(String),
         available: expect.any(Array),
