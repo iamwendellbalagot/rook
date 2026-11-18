@@ -2,7 +2,7 @@
 
 ## Current state
 
-- Preparing the current source as a local-only `v0.1.0` Git archive backup; no remote release or push.
+- Created a local-only `v0.1.0` Git release tag and standard source ZIP at `../rook-v0.1.0.zip`. ZIP validation passed; no password, remote release, or push.
 - M0 (ROOK-001 through ROOK-004) is implemented: TypeScript/ESM scaffold, pinned Pi 1.5.2 adapter, mock gateway, parity matrix, CLI smoke path, and CI workflow.
 - ROOK-005 is implemented: a tested app state/event reducer is wired into the headless CLI.
 - ROOK-006 is implemented: the custom `pi-tui` shell renders Home and streamed Markdown; tools were initially kept disabled pending the enforced policy.
