@@ -17,7 +17,7 @@ Rook combines selected harness ideas around Pi; it is not a feature-for-feature 
 1. **Orient:** use the current task, relevant files, repository metadata, and trusted project guidance; avoid broad scans when a focused read will do.
 2. **Choose capability:** answer in read-only mode or enter build mode for edits. A one-turn `/ask` is read-only without changing the user's persistent mode.
 3. **Act within policy:** every tool call is checked at the execution boundary; risky host commands require an explicit, reviewable approval. Repository instructions and model output cannot grant permissions.
-4. **Review:** inspect the resulting Git diff and ask for focused tests based on actual change impact.
+4. **Review:** inspect the resulting Git diff; when useful, invoke the separate read-only `/review`; select focused tests based on actual change impact.
 5. **Recover safely:** offer explicit recovery only for Rook-observed file-tool changes that still match their recorded post-edit state. Never imply shell effects are covered.
 6. **Learn conservatively:** retain only bounded, evidence-backed, repository-scoped knowledge, show freshness, and let users verify or forget it.
 
@@ -34,6 +34,7 @@ Rook combines selected harness ideas around Pi; it is not a feature-for-feature 
 - Pi adapter and session lifecycle: `src/pi/pi-agent-gateway.ts`.
 - Tool policy, approvals, and recovery ledger: `src/policy/`.
 - Read-only search/Git inspection and change-impact analysis: `src/pi/`.
+- User-invoked `/review` creates a separate, temporary Pi session in plan mode; it reviews the current Git status/diff without sharing the main conversation or changing the user's active mode. It is not automatic and adds a provider call only when explicitly requested.
 - User-facing mode, command, and review controls: `src/tui/rook-tui.ts`.
 - Local evidence-backed repository memory: `src/memory/` and `src/db/`.
 

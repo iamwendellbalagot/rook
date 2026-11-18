@@ -46,6 +46,7 @@ class EventGateway implements AgentGateway {
   externalGrants: ExternalAccessGrant[] = [];
   queuedMessages: { text: string; disposition: string }[] = [];
   sentPrompts: string[] = [];
+  reviewCalls = 0;
   models: ModelInfo[] = [
     { provider: "openai", id: "gpt-4.1", name: "GPT-4.1" },
     {
@@ -96,6 +97,11 @@ class EventGateway implements AgentGateway {
 
   async inspectGitChanges(): Promise<string> {
     return "Git status\n M src/example.ts\n\nDiff vs HEAD\n+change";
+  }
+
+  async reviewGitChanges(): Promise<string> {
+    this.reviewCalls += 1;
+    return "No actionable findings.";
   }
 
   getUndoPreview(): string {
@@ -509,6 +515,33 @@ describe("Rook TUI shell", () => {
 
     expect(gateway.sentPrompts).toEqual(["Where is the main entry point?"]);
     expect(gateway.modeHistory.slice(-2)).toEqual(["plan", "build"]);
+
+    terminal.input("\u0003");
+    await finished;
+  });
+
+  it("runs /review through the separate read-only review path", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+
+    await app.submit("/build");
+    await app.submit("/review");
+
+    const screen = app.tui
+      .render(100)
+      .map(stripTerminalSequences)
+      .join(" ")
+      .replace(/\s+/g, " ");
+    expect(gateway.reviewCalls).toBe(1);
+    expect(gateway.sentPrompts).toEqual([]);
+    expect(gateway.modeHistory.at(-1)).toBe("build");
+    expect(screen).toContain("No actionable findings.");
 
     terminal.input("\u0003");
     await finished;

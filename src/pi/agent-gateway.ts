@@ -125,6 +125,7 @@ export interface AgentGateway {
   resumeSession(path: string): Promise<void>;
   setMode(mode: PermissionMode): void;
   inspectGitChanges(): Promise<string>;
+  reviewGitChanges(): Promise<string>;
   getUndoPreview(): string;
   undoLastFileChange(): Promise<string>;
   getPermissionDecisions(): PermissionDecision[];

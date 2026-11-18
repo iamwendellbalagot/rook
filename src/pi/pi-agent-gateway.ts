@@ -41,6 +41,7 @@ import {
   ToolPolicy,
 } from "../policy/tool-policy.js";
 import { WorkspaceModelConfiguration } from "./workspace-models.js";
+import { runReadOnlyReview } from "./read-only-review.js";
 import {
   createMemoryContextExtension,
   type RetrievedMemoryContext,
@@ -57,6 +58,9 @@ import {
   getRookSkillDirectories,
   isWithinRookSkillDirectories,
 } from "../skills/manager.js";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const AVAILABLE_TOOLS = ["read", "find", "ls", "edit", "write", "bash"];
 const PLAN_TOOLS = [
@@ -326,6 +330,48 @@ export async function createPiAgentGateway(
     },
     async inspectGitChanges() {
       return inspectGitWorkspace(cwd);
+    },
+    async reviewGitChanges() {
+      const selectedModel = runtime.session.model;
+      if (!selectedModel) {
+        throw new Error("Select a model before requesting a code review.");
+      }
+      let changes: string;
+      try {
+        changes = inspectGitWorkspace(cwd);
+      } catch {
+        return "Read-only Git review is unavailable outside a Git repository.";
+      }
+      const sessionDir = await mkdtemp(join(tmpdir(), "rook-review-session-"));
+      let reviewer: AgentGateway | undefined;
+      try {
+        reviewer = await createPiAgentGateway(cwd, { sessionDir });
+        reviewer.setMode("plan");
+        const reviewModel = (await reviewer.listModels()).find(
+          (model) =>
+            model.provider === selectedModel.provider &&
+            model.id === selectedModel.id,
+        );
+        if (!reviewModel) {
+          throw new Error(
+            "The selected model is unavailable to the review session.",
+          );
+        }
+        const reviewerModel = reviewer.currentModel();
+        if (
+          reviewerModel?.provider !== selectedModel.provider ||
+          reviewerModel?.id !== selectedModel.id
+        ) {
+          await reviewer.selectModel(reviewModel);
+        }
+        return await runReadOnlyReview(reviewer, changes);
+      } finally {
+        try {
+          await reviewer?.dispose();
+        } finally {
+          await rm(sessionDir, { recursive: true, force: true });
+        }
+      }
     },
     getUndoPreview() {
       return policy.getUndoPreview();
