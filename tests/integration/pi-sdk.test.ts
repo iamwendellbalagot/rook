@@ -31,6 +31,24 @@ describe("Pi SDK compatibility", () => {
           expect(method.name).toEqual(expect.any(String));
         }
       }
+      expect(
+        providers.find((provider) => provider.id === "anthropic")?.authMethods,
+      ).toContainEqual(
+        expect.objectContaining({
+          type: "oauth",
+          name: "Anthropic (Claude Pro/Max)",
+          isSubscription: true,
+        }),
+      );
+      expect(
+        providers.find((provider) => provider.id === "openai")?.authMethods,
+      ).toContainEqual(
+        expect.objectContaining({
+          type: "oauth",
+          name: "OpenAI (ChatGPT subscription)",
+          isSubscription: true,
+        }),
+      );
       expect(gateway.getThinkingInfo()).toMatchObject({
         current: expect.any(String),
         available: expect.any(Array),

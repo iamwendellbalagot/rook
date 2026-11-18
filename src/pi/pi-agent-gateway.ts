@@ -296,8 +296,8 @@ export async function createPiAgentGateway(
     },
     listProviders(): ProviderInfo[] {
       const modelRuntime = runtime.session.modelRuntime;
-      return modelRuntime.getRegisteredProviderIds().map((id) => {
-        const provider = modelRuntime.getProvider(id);
+      return modelRuntime.getProviders().map((provider) => {
+        const id = provider.id;
         const auth = provider?.auth;
         return {
           id,
