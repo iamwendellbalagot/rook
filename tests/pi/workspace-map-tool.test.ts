@@ -66,4 +66,13 @@ describe("workspace symbol map", () => {
       "within the workspace",
     );
   });
+
+  it("keeps subdirectory mapping paths relative to the workspace root", async () => {
+    const root = await fixture();
+    const output = JSON.stringify(await run(root, { path: "src" }));
+    expect(output).toContain("src/entry.ts");
+    expect(output).toContain("src/lib.ts");
+    expect(output).toContain("src/unrelated.ts");
+    expect(output).not.toContain("src/src/");
+  });
 });

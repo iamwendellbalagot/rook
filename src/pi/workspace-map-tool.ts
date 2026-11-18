@@ -166,25 +166,25 @@ async function listCandidateFiles(
 }
 
 function gitCandidateFiles(root: string, target: string): string[] | undefined {
+  const targetRelative = relative(root, target).split(sep).join("/");
+  const prefix = targetRelative ? `${targetRelative}/` : "";
   try {
     const output = execFileSync(
       "git",
       ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
       {
-        cwd: target,
+        cwd: root,
         encoding: "buffer",
         timeout: 3000,
         maxBuffer: 8 * 1024 * 1024,
       },
     );
-    const prefix = target === root ? "" : `${relative(root, target)}${sep}`;
     return output
       .toString("utf8")
       .split("\0")
       .filter(Boolean)
-      .map((path) => (prefix ? resolve(target, path) : resolve(root, path)))
-      .filter((path) => isWithin(root, path) && isSourceFile(path))
-      .map((path) => relative(root, path));
+      .filter((path) => path.startsWith(prefix))
+      .filter((path) => isSourceFile(path));
   } catch {
     return undefined;
   }
