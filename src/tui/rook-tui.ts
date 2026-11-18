@@ -617,7 +617,9 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         component: checklistSidebar,
         basis: CHECKLIST_SIDEBAR_WIDTH,
         shrink: 0,
-        visible: ({ width }) => width >= CHECKLIST_SIDEBAR_MIN_WIDTH,
+        visible: ({ width }) =>
+          width >= CHECKLIST_SIDEBAR_MIN_WIDTH &&
+          !transcript.children.includes(home),
       },
     ],
     { gap: 1, align: "start" },
@@ -769,6 +771,39 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     );
     tui.requestRender();
   };
+  const updateHomeDashboard = (): void => {
+    const memoryStatus = options.memoryCapture?.status();
+    const snapshot = options.snapshot;
+    home.setDashboardData({
+      cwd: resolve(options.cwd),
+      ...(options.branch ? { branch: options.branch } : {}),
+      ...(options.repository
+        ? {
+            repositoryName: options.repository.displayName,
+            repositoryId: options.repository.id,
+          }
+        : {}),
+      mode: state.mode,
+      ...(memoryStatus ? { memoryCount: memoryStatus.total } : {}),
+      ...(snapshot
+        ? { snapshotDirty: snapshot.dirtyFingerprint !== null }
+        : {}),
+      recentActivity: options.gateway
+        .sessionHistory()
+        .filter((message) => message.role === "user")
+        .slice(-5)
+        .reverse(),
+      onModeChange: (mode) => {
+        if (state.mode === mode) return;
+        state = reduceAppState(state, { type: "mode_changed", mode });
+        options.gateway.setMode(mode);
+        updateHomeDashboard();
+        updateFooter();
+      },
+    });
+    tui.requestRender();
+  };
+  updateHomeDashboard();
   updateFooter();
 
   function startLoadingStatus(reset = false): void {
@@ -943,6 +978,16 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     if (transcript.children.includes(home)) transcript.removeChild(home);
   };
 
+  const openHome = (): void => {
+    if (!transcript.children.includes(home)) {
+      for (const child of [...transcript.children])
+        transcript.removeChild(child);
+      transcript.addChild(home);
+    }
+    updateHomeDashboard();
+    tui.requestRender();
+  };
+
   const submitPrompt = async (text: string): Promise<void> => {
     const prompt = text.trim();
     if (!prompt) return;
@@ -1048,11 +1093,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/plan":
           state = reduceAppState(state, { type: "mode_changed", mode: "plan" });
           options.gateway.setMode("plan");
-          removeHome();
-          appendText(
-            "Plan mode enabled: workspace reads, file discovery, and read-only Git inspection are available; outside-folder reads require approval, while mutations and shell execution are blocked.",
-            "muted",
-          );
+          openHome();
           updateFooter();
           return;
         case "/build":
@@ -1061,11 +1102,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
             mode: "build",
           });
           options.gateway.setMode("build");
-          removeHome();
-          appendText(
-            "Build mode enabled: workspace edits and diff-aware test planning are available; terminal commands require one-time approval and run on your host, not in a sandbox. Outside-folder file tools require separate approval; sensitive paths, links, and unknown tools remain blocked for file tools.",
-            "muted",
-          );
+          openHome();
           updateFooter();
           return;
         case "/mode": {
@@ -1079,11 +1116,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
             mode: requestedMode,
           });
           options.gateway.setMode(requestedMode);
-          removeHome();
-          appendText(
-            `${requestedMode === "plan" ? "Plan" : "Build"} mode enabled.`,
-            "muted",
-          );
+          openHome();
           updateFooter();
           return;
         }
@@ -1618,6 +1651,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         );
       }
     }
+    updateHomeDashboard();
     updateFooter();
   }
 

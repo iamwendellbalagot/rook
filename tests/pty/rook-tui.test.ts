@@ -481,7 +481,6 @@ describe("Rook TUI shell", () => {
     let lines = screen();
     expectGutters(lines);
     expect(lines[0]).toMatch(/^  rook/);
-    expect(lines.find((line) => line.includes("╭━"))).toMatch(/^  ╭/);
     expect(lines.find((line) => line.includes("╭─"))).toMatch(/^  ╭─+╮  $/);
     expect(lines.some((line) => line.includes("S:session-"))).toBe(true);
     await app.submit("hello");
@@ -585,20 +584,20 @@ describe("Rook TUI shell", () => {
     expect(terminal.writes.join("")).toContain(
       "A coding agent that grows with your codebase.",
     );
-    expect(terminal.writes.join("")).toContain(
-      "Think through a task before making",
-    );
-    expect(terminal.writes.join("")).toContain("View what Rook knows");
+    expect(terminal.writes.join("")).toContain("/plan");
+    expect(terminal.writes.join("")).toContain("/build");
+    expect(terminal.writes.join("")).toContain("feature/ui");
     const homeScreen = app.tui.getScreenLines().map(stripTerminalSequences);
-    const frameTop = homeScreen.findIndex((line) => line.includes("╭"));
-    const frameBottom = homeScreen.findIndex((line) => line.includes("╰"));
-    const helpRow = homeScreen.findIndex((line) => line.includes("/help"));
-    expect(frameTop).toBeGreaterThan(0);
-    expect(helpRow).toBeGreaterThan(frameTop);
-    expect(frameBottom).toBeGreaterThan(helpRow);
-    expect(
-      homeScreen.findIndex((line) => line.includes("S:session-")),
-    ).toBeGreaterThan(frameBottom);
+    expect(homeScreen.join("\n")).toContain("/plan");
+    expect(homeScreen.join("\n")).toContain("/build");
+    expect(homeScreen.join("\n")).toContain("feature/ui");
+    expect(homeScreen.join("\n")).toContain("sample-project");
+
+    await app.submit("/build");
+    expect(app.tui.render(100).join("\n")).toContain("/build");
+    expect(app.tui.render(100).join("\n")).not.toContain("Build mode enabled");
+    await app.submit("/plan");
+    expect(app.tui.render(100).join("\n")).toContain("/plan");
 
     await app.submit("hello");
     app.tui.renderNow(true);
@@ -702,6 +701,29 @@ describe("Rook TUI shell", () => {
     await finished;
     expect(terminal.stopped).toBe(1);
     expect(gateway.externalAccessPrompt).toBeUndefined();
+  });
+
+  it("keeps the dashboard visible when switching modes", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    await app.submit("/build");
+    const screen = app.tui.render(100).map(stripTerminalSequences).join("\n");
+    expect(screen).toContain("/plan");
+    expect(screen).toContain("/build");
+    expect(screen).not.toContain("Build mode enabled");
+    await app.submit("/plan");
+    expect(
+      app.tui.render(100).map(stripTerminalSequences).join("\n"),
+    ).toContain("/plan");
+
+    terminal.input("\u0003");
+    await finished;
   });
 
   it("shows a Rook loading phrase until response text starts", async () => {

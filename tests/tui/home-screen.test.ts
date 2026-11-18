@@ -7,76 +7,154 @@ import {
 import { tone } from "../../src/tui/theme.js";
 import { HomeScreenBody } from "../../src/tui/home-screen.js";
 
-describe("home screen body", () => {
-  beforeEach(() => setCapabilityOverrides({ trueColor: true }));
+const data = {
+  cwd: "/workspace/sample-project",
+  repositoryName: "sample-project",
+  repositoryId: "repo-12345678",
+  branch: "feature/dashboard",
+  mode: "plan" as const,
+  memoryCount: 12,
+  snapshotDirty: false,
+  recentActivity: [
+    { role: "user" as const, text: "Implement project memory indexing" },
+    { role: "user" as const, text: "Refactor agent harness" },
+    { role: "user" as const, text: "Plan: change-impact testing" },
+  ],
+};
+
+describe("home dashboard", () => {
+  beforeEach(() => setCapabilityOverrides({ trueColor: true, images: null }));
   afterEach(() => setCapabilityOverrides({}));
 
-  it("uses the requested cyan for the home panel borders", () => {
-    const lines = new HomeScreenBody().render(60);
-    expect(lines[0]).toContain("\x1b[38;2;141;219;255m");
-    expect(lines.at(-1)).toContain("\x1b[38;2;141;219;255m");
+  it("shows the existing brand and title with the mountain scene at top right", () => {
+    const dashboard = new HomeScreenBody();
+    dashboard.setDashboardData(data);
+    const lines = dashboard.render(160);
+    const plain = lines.map(stripTerminalSequences);
+    expect(plain.join("\n")).toContain(
+      "A coding agent that grows with your codebase.",
+    );
+    expect(plain.some((line) => line.includes("/"))).toBe(true);
+    expect(lines.join("")).toContain("\x1b[38;2;");
+    expect(lines.join("")).toContain("\x1b[48;2;");
+    expect(plain.join("\n")).toContain("PROJECT CONTEXT");
+    expect(plain.join("\n")).toContain("feature/dashboard");
+    expect(lines.slice(0, 7).every((line) => visibleWidth(line) <= 160)).toBe(
+      true,
+    );
+  });
+
+  it("uses the shared border color for dashboard panels", () => {
+    const dashboard = new HomeScreenBody();
+    dashboard.setDashboardData(data);
+    const lines = dashboard.render(120);
+    expect(lines.some((line) => line.includes(tone("╭", "border", true)))).toBe(
+      true,
+    );
     expect(tone("│", "border")).toContain("\x1b[38;2;141;219;255m");
   });
 
-  it("encloses the brand, tagline, and all four actions in a rounded frame", () => {
-    const lines = new HomeScreenBody().render(65).map(stripTerminalSequences);
-    expect(lines[0]).toMatch(/^╭━+╮$/);
-    expect(lines.at(-1)).toMatch(/^╰━+╯$/);
-    expect(lines.slice(1, -1).every((line) => /^┃.*┃$/.test(line))).toBe(true);
-    expect(lines.every((line) => visibleWidth(line) === 65)).toBe(true);
-    const screen = lines.join("\n");
-    expect(screen).toContain("A coding agent that grows with your codebase.");
-    for (const command of ["/plan", "/build", "/memory", "/help"]) {
-      const row = lines.findIndex((line) => line.includes(command));
-      expect(row).toBeGreaterThan(0);
-      expect(row).toBeLessThan(lines.length - 1);
+  it("adapts layout from three panels to stacked panels and compact mode", () => {
+    const dashboard = new HomeScreenBody();
+    dashboard.setDashboardData(data);
+    const wide = dashboard.render(160).map(stripTerminalSequences).join("\n");
+    expect(wide).toContain("QUICK ACTIONS");
+    expect(wide).toContain("RECENT ACTIVITY");
+    expect(wide).toContain("PROJECT CONTEXT");
+    for (const width of [120, 100, 80, 60, 40, 8, 1]) {
+      expect(
+        dashboard.render(width).every((line) => visibleWidth(line) <= width),
+      ).toBe(true);
     }
-    const descriptions = [
-      "Think through",
-      "Make and apply",
-      "View what",
-      "Show all",
-    ];
     expect(
-      descriptions.map((description) =>
-        lines.find((line) => line.includes(description))!.indexOf(description),
-      ),
-    ).toEqual([17, 17, 17, 17]);
+      dashboard.render(80).map(stripTerminalSequences).join("\n"),
+    ).toContain("PROJECT");
+    expect(
+      dashboard.render(60).map(stripTerminalSequences).join("\n"),
+    ).toContain("/plan");
   });
 
-  it("uses bold heavy strokes without changing the panel's dimensions", () => {
-    const lines = new HomeScreenBody().render(65);
-    expect(lines).toHaveLength(17);
-    expect(lines[0]).toContain("\x1b[1m");
-    expect(lines[1]).toContain("\x1b[1m");
-    expect(lines.at(-1)).toContain("\x1b[1m");
-    expect(lines.every((line) => visibleWidth(line) === 65)).toBe(true);
+  it("includes real session activity and avoids raw control sequences", () => {
+    const dashboard = new HomeScreenBody();
+    dashboard.setDashboardData({
+      ...data,
+      recentActivity: [
+        { role: "user", text: "Check\u001b[31m suspicious \u0007 output" },
+      ],
+    });
+    const screen = dashboard.render(160).map(stripTerminalSequences).join("\n");
+    expect(screen).toContain("Check suspicious output");
+    expect(screen).not.toContain("\u001b");
   });
 
-  it.each([0, 1, 4, 6, 12, 30, 48, 60, 80, 120])(
-    "fits within %i columns",
-    (width) => {
-      const lines = new HomeScreenBody().render(width);
-      expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
-    },
-  );
-
-  it("wraps action descriptions instead of losing them on narrow terminals", () => {
-    const lines = new HomeScreenBody().render(38).map(stripTerminalSequences);
-    const content = lines
-      .slice(1, -1)
-      .map((line) => line.slice(1, -1).trim())
-      .join(" ");
-    expect(content).toContain("Think through a task before making changes");
-    expect(content).toContain("View what Rook knows about this repository");
-    expect(content).toContain("Show all commands");
+  it("renders plain-text mountain art when color output is unavailable", () => {
+    const dashboard = new HomeScreenBody();
+    dashboard.setDashboardData(data);
+    setCapabilityOverrides({ trueColor: false, images: null });
+    const previousTerm = process.env.TERM;
+    const previousNoColor = process.env.NO_COLOR;
+    process.env.TERM = "dumb";
+    process.env.NO_COLOR = "1";
+    try {
+      const screen = dashboard
+        .render(160)
+        .map(stripTerminalSequences)
+        .join("\n");
+      expect(screen).toContain("/\\");
+    } finally {
+      if (previousTerm === undefined) delete process.env.TERM;
+      else process.env.TERM = previousTerm;
+      if (previousNoColor === undefined) delete process.env.NO_COLOR;
+      else process.env.NO_COLOR = previousNoColor;
+    }
   });
 
-  it("caps the panel width on wide terminals and survives invalidation", () => {
-    const body = new HomeScreenBody();
-    const lines = body.render(160);
-    expect(visibleWidth(lines[0]!)).toBe(76);
-    body.invalidate();
-    expect(body.render(160)).toEqual(lines);
+  it("uses an indexed 16-color palette when true color is unavailable", () => {
+    const dashboard = new HomeScreenBody();
+    dashboard.setDashboardData(data);
+    const previousTerm = process.env.TERM;
+    const previousColor = process.env.COLORTERM;
+    const previousNoColor = process.env.NO_COLOR;
+    process.env.TERM = "xterm";
+    delete process.env.COLORTERM;
+    delete process.env.NO_COLOR;
+    setCapabilityOverrides({ trueColor: false, images: null });
+    try {
+      const screen = dashboard.render(160).join("");
+      expect(screen).toContain("\x1b[38;5;");
+      expect(screen).toContain("\x1b[48;5;");
+    } finally {
+      if (previousTerm === undefined) delete process.env.TERM;
+      else process.env.TERM = previousTerm;
+      if (previousColor === undefined) delete process.env.COLORTERM;
+      else process.env.COLORTERM = previousColor;
+      if (previousNoColor === undefined) delete process.env.NO_COLOR;
+      else process.env.NO_COLOR = previousNoColor;
+    }
+  });
+
+  it("switches the home mode by clicking the mode bar", () => {
+    const dashboard = new HomeScreenBody();
+    let selected: string | undefined;
+    dashboard.setDashboardData({
+      ...data,
+      onModeChange: (mode) => {
+        selected = mode;
+      },
+    });
+    dashboard.handleMouse?.({
+      type: "click",
+      button: "left",
+      x: 80,
+      y: 8,
+      screenX: 80,
+      screenY: 10,
+      width: 160,
+      height: 40,
+      shift: false,
+      alt: false,
+      ctrl: false,
+    });
+    expect(selected).toBe("build");
   });
 });
