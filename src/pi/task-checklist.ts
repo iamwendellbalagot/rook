@@ -32,15 +32,15 @@ export function createTaskChecklistTool(
     name: TASK_CHECKLIST_TOOL_NAME,
     label: "Update task checklist",
     description:
-      "Create or update Rook's visible checklist for the current user task. It is saved with this session and restored when the session resumes. For substantial multi-step tasks, create a concise ordered checklist before doing the work, then resend the full list with statuses updated as you progress. Use pending, in_progress, or completed. Mark an item completed only after finishing it. Do not use this tool for simple questions or one-step requests.",
+      "Create or update Rook's visible checklist for the current user task. It is saved with this session and restored when the session resumes. For substantial multi-step tasks, create a concise ordered checklist before doing the work, then resend the full list with statuses updated as you progress. Use pending, in_progress, or completed. Mark an item completed only after finishing it. Send an empty tasks array to clear a completed or unrelated checklist. Do not use this tool for simple questions or one-step requests unless clearing an old checklist.",
     promptSnippet:
       "Manage the visible, session-persistent checklist for a multi-step user task.",
     promptGuidelines: [
-      "For a substantial multi-step task, initialize Rook's visible checklist before doing the work and keep its statuses current. Do not create a checklist for simple questions or one-step requests.",
+      "Keep an incomplete checklist across ordinary prompts when the user is continuing that task. For a substantial new task, replace it with a concise ordered checklist and keep statuses current; send an empty tasks array to clear a completed or unrelated checklist. Do not create a checklist for simple questions or one-step requests unless clearing an old checklist.",
     ],
     parameters: Type.Object(
       {
-        tasks: Type.Array(taskSchema, { minItems: 1, maxItems: 12 }),
+        tasks: Type.Array(taskSchema, { maxItems: 12 }),
       },
       { additionalProperties: false },
     ),
@@ -54,7 +54,9 @@ export function createTaskChecklistTool(
         content: [
           {
             type: "text",
-            text: `Checklist updated (${completed}/${tasks.length} complete).`,
+            text: tasks.length
+              ? `Checklist updated (${completed}/${tasks.length} complete).`
+              : "Checklist cleared.",
           },
         ],
         details: { taskCount: tasks.length, completedCount: completed },
@@ -66,8 +68,8 @@ export function createTaskChecklistTool(
 export function normalizeTaskChecklist(
   tasks: TaskChecklistItem[],
 ): TaskChecklistItem[] {
-  if (tasks.length < 1 || tasks.length > 12) {
-    throw new Error("A Rook checklist must contain between 1 and 12 tasks.");
+  if (tasks.length > 12) {
+    throw new Error("A Rook checklist must contain at most 12 tasks.");
   }
   const ids = new Set<string>();
   return tasks.map((task) => {

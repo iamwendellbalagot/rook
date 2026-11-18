@@ -59,6 +59,25 @@ describe("Rook task checklist", () => {
     ).toThrow("Duplicate checklist task ID 'same'.");
   });
 
+  it("accepts an empty checklist as an explicit clear", async () => {
+    let update: unknown;
+    const tool = createTaskChecklistTool((tasks) => {
+      update = tasks;
+    });
+    const result = await tool.execute(
+      "call-clear",
+      { tasks: [] },
+      undefined,
+      undefined,
+      {} as never,
+    );
+
+    expect(update).toEqual([]);
+    expect(result.content).toEqual([
+      { type: "text", text: "Checklist cleared." },
+    ]);
+  });
+
   it("restores the latest branch-local state and treats an empty snapshot as cleared", () => {
     const first = [
       { id: "inspect", title: "Inspect", status: "completed" as const },

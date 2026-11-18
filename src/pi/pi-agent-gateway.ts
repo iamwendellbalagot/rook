@@ -91,6 +91,7 @@ export async function createPiAgentGateway(
   const executionConfig = await loadExecutionPolicyConfig(cwd);
   let refreshWorkspaceModels = async (): Promise<void> => {};
   let checklist: TaskChecklistItem[] = [];
+  let clearChecklistWhenBinding = false;
   let persistChecklist = (tasks: TaskChecklistItem[]): void => {
     checklist = tasks;
     emit({ type: "todo_updated", tasks });
@@ -185,9 +186,9 @@ export async function createPiAgentGateway(
     unsubscribe?.();
     session.setActiveToolsByName(activeToolsFor(policy.getMode()));
     await session.bindExtensions({});
-    checklist = restoreTaskChecklistFromEntries(
-      session.sessionManager.getBranch(),
-    );
+    checklist = clearChecklistWhenBinding
+      ? []
+      : restoreTaskChecklistFromEntries(session.sessionManager.getBranch());
     persistChecklist = (tasks) => {
       checklist = tasks;
       session.sessionManager.appendCustomEntry(TASK_CHECKLIST_SESSION_ENTRY, {
@@ -195,6 +196,7 @@ export async function createPiAgentGateway(
       });
       emit({ type: "todo_updated", tasks });
     };
+    emit({ type: "todo_updated", tasks: checklist });
     unsubscribe = session.subscribe((event) => {
       for (const mapped of adaptPiEvent(event)) emit(mapped);
     });
@@ -219,7 +221,12 @@ export async function createPiAgentGateway(
       if (disposition === "normal") activePrompts++;
       try {
         if (disposition === "normal") {
-          persistChecklist([]);
+          if (
+            checklist.length > 0 &&
+            checklist.every((task) => task.status === "completed")
+          ) {
+            persistChecklist([]);
+          }
           await runtime.session.prompt(prompt, {
             streamingBehavior: "followUp",
           });
@@ -392,9 +399,14 @@ export async function createPiAgentGateway(
       return runtime.session.getUserMessagesForForking();
     },
     async fork(entryId) {
-      const result = await runtime.fork(entryId);
-      if (result.cancelled) throw new Error("Fork was cancelled.");
-      persistChecklist([]);
+      clearChecklistWhenBinding = true;
+      try {
+        const result = await runtime.fork(entryId);
+        if (result.cancelled) throw new Error("Fork was cancelled.");
+        persistChecklist([]);
+      } finally {
+        clearChecklistWhenBinding = false;
+      }
     },
     async compact(customInstructions) {
       await runtime.session.compact(customInstructions);
