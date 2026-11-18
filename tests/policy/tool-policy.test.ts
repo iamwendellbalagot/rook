@@ -177,6 +177,89 @@ describe("ToolPolicy", () => {
     expect((await policy.check("custom_tool", {}, "c1")).allowed).toBe(false);
   });
 
+  it("allows MCP in plan mode after approval and scopes session grants by server", async () => {
+    const policy = new ToolPolicy(await workspace());
+    let prompts = 0;
+    policy.setExternalAccessPrompt(async (request) => {
+      prompts++;
+      expect(request.access).toBe("mcp");
+      if (request.access !== "mcp") return "deny";
+      if (request.serverName !== "docs") return "deny";
+      if (request.toolName === "mcp__docs__search") {
+        expect(request.inputSummary).toContain("[redacted]");
+      }
+      return "session";
+    });
+
+    expect(
+      (
+        await policy.check(
+          "mcp__docs__search",
+          { query: "Pi SDK", apiToken: "secret-value" },
+          "mcp1",
+        )
+      ).allowed,
+    ).toBe(true);
+    expect(prompts).toBe(1);
+    expect((await policy.check("mcp__docs__fetch", {}, "mcp2")).allowed).toBe(
+      true,
+    );
+    expect(
+      (await policy.check("mcp__github__create_issue", {}, "mcp3")).allowed,
+    ).toBe(false);
+    expect(prompts).toBe(2);
+
+    policy.clearMcpSessionGrants();
+    expect((await policy.check("mcp__docs__fetch", {}, "mcp4")).allowed).toBe(
+      true,
+    );
+    expect(prompts).toBe(3);
+  });
+
+  it("honors explicit MCP requests and denials without prompting", async () => {
+    const policy = new ToolPolicy(await workspace());
+    let prompts = 0;
+    policy.setExternalAccessPrompt(async () => {
+      prompts++;
+      return "deny";
+    });
+
+    policy.setMcpUserAuthorization(
+      "Use mcp__docs__search to find the SDK docs.",
+    );
+    expect(
+      (await policy.check("mcp__docs__search", {}, "explicit")).allowed,
+    ).toBe(true);
+    expect(prompts).toBe(0);
+    expect(
+      (await policy.check("mcp__docs__fetch", {}, "other-explicit-tool"))
+        .allowed,
+    ).toBe(false);
+    expect(prompts).toBe(1);
+
+    policy.setMcpUserAuthorization("Do not use MCP for this task.");
+    expect(
+      (await policy.check("mcp__docs__search", {}, "negated")).allowed,
+    ).toBe(false);
+    expect(prompts).toBe(1);
+
+    policy.setMcpUserAuthorization("Please use MCP for this task.");
+    expect(
+      (await policy.check("mcp__docs__search", {}, "broad-explicit")).allowed,
+    ).toBe(true);
+    expect(prompts).toBe(1);
+    policy.setMcpUserAuthorization("Maybe use MCP if needed.");
+    expect(
+      (await policy.check("mcp__docs__search", {}, "uncertain")).allowed,
+    ).toBe(false);
+    expect(prompts).toBe(2);
+    policy.clearMcpUserAuthorization();
+    expect(
+      (await policy.check("mcp__docs__search", {}, "cleared")).allowed,
+    ).toBe(false);
+    expect(prompts).toBe(3);
+  });
+
   it("allows only structured Git inspection in plan mode and impact analysis in build mode", async () => {
     const policy = new ToolPolicy(await workspace());
     expect(

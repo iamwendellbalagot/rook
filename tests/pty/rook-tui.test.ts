@@ -1207,6 +1207,26 @@ describe("Rook TUI shell", () => {
     terminal.input("\r");
     await expect(deniedRequest).resolves.toBe("deny");
 
+    const mcpRequest = gateway.externalAccessPrompt?.({
+      toolName: "mcp__docs__search",
+      serverName: "docs",
+      access: "mcp",
+      inputSummary: '{"query":"Rook MCP"}',
+    });
+    expect(mcpRequest).toBeDefined();
+    app.tui.renderNow(true);
+    const mcpScreen = app.tui.render(100).join("\n");
+    expect(mcpScreen).toContain("Rook recommends an MCP call");
+    expect(mcpScreen).toContain("mcp__docs__search");
+    expect(mcpScreen).toContain("outside Rook's workspace policy");
+    terminal.input("\u001b[B");
+    terminal.input("\u001b[B");
+    expect(app.tui.render(100).join("\n")).toContain(
+      "3. [Allow server docs for this session]",
+    );
+    terminal.input("\r");
+    await expect(mcpRequest).resolves.toBe("session");
+
     gateway.externalGrants.push({
       id: "grant-123",
       path: "/Users/test/Downloads",

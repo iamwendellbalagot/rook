@@ -200,6 +200,16 @@ class ExternalAccessPromptPanel implements Component {
   ) {}
 
   private choices(): { choice: ExternalAccessChoice; label: string }[] {
+    if (this.request?.access === "mcp") {
+      return [
+        { choice: "deny", label: "Deny MCP call" },
+        { choice: "once", label: "Allow this call once" },
+        {
+          choice: "session",
+          label: `Allow server ${safeTerminalText(this.request.serverName)} for this session`,
+        },
+      ];
+    }
     if (this.request?.access === "execute") {
       return [
         { choice: "deny", label: "Deny" },
@@ -236,41 +246,64 @@ class ExternalAccessPromptPanel implements Component {
     if (!this.request || width <= 0) return [];
     const operation = this.request.access;
     let body =
-      this.request.access === "execute"
+      this.request.access === "mcp"
         ? [
-            tone("Run terminal command · bash", "amber", true),
+            tone(
+              `Rook recommends an MCP call · ${safeTerminalText(this.request.serverName)}`,
+              "amber",
+              true,
+            ),
             ...wrapTextWithAnsi(
               tone(
-                "Runs on your host, NOT sandboxed: can access files outside the project, credentials, and network.",
+                "This external MCP server may access data or perform actions outside Rook's workspace policy.",
                 "amber",
               ),
               width,
             ),
             ...wrapTextWithAnsi(
-              `Command: ${JSON.stringify(this.request.command)}`,
+              `Tool: ${safeTerminalText(this.request.toolName)}`,
               width,
             ),
             ...wrapTextWithAnsi(
-              `Cwd: ${JSON.stringify(this.request.path)}`,
+              `Arguments: ${safeTerminalText(this.request.inputSummary)}`,
               width,
             ),
-            `Timeout: ${this.request.timeoutSeconds}s · output: 2000 lines / 50 KiB to model`,
           ]
-        : [
-            tone(
-              `External ${operation} access · ${safeTerminalText(this.request.toolName)}`,
-              "amber",
-              true,
-            ),
-            `${tone("Path:", "muted")} ${compactPath(
-              safeTerminalText(this.request.path),
-              Math.max(1, width - visibleWidth("Path: ")),
-            )}`,
-            `${tone("Folder:", "muted")} ${compactPath(
-              safeTerminalText(this.request.folderPath),
-              Math.max(1, width - visibleWidth("Folder: ")),
-            )}`,
-          ];
+        : this.request.access === "execute"
+          ? [
+              tone("Run terminal command · bash", "amber", true),
+              ...wrapTextWithAnsi(
+                tone(
+                  "Runs on your host, NOT sandboxed: can access files outside the project, credentials, and network.",
+                  "amber",
+                ),
+                width,
+              ),
+              ...wrapTextWithAnsi(
+                `Command: ${JSON.stringify(this.request.command)}`,
+                width,
+              ),
+              ...wrapTextWithAnsi(
+                `Cwd: ${JSON.stringify(this.request.path)}`,
+                width,
+              ),
+              `Timeout: ${this.request.timeoutSeconds}s · output: 2000 lines / 50 KiB to model`,
+            ]
+          : [
+              tone(
+                `External ${operation} access · ${safeTerminalText(this.request.toolName)}`,
+                "amber",
+                true,
+              ),
+              `${tone("Path:", "muted")} ${compactPath(
+                safeTerminalText(this.request.path),
+                Math.max(1, width - visibleWidth("Path: ")),
+              )}`,
+              `${tone("Folder:", "muted")} ${compactPath(
+                safeTerminalText(this.request.folderPath),
+                Math.max(1, width - visibleWidth("Folder: ")),
+              )}`,
+            ];
     this.canApproveShell = body.length + 3 <= this.availableRows();
     if (this.request.access === "execute" && !this.canApproveShell) {
       body = wrapTextWithAnsi(
@@ -1125,7 +1158,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/help":
           removeHome();
           appendText(
-            "Available: /help, /login, /logout, /model, /settings, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /ask <question>, /explore <question>, /architect <task>, /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /diff, /review, /undo [confirm], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
+            "Available: /help, /login, /logout, /model, /settings, /mcp, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /ask <question>, /explore <question>, /architect <task>, /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /diff, /review, /undo [confirm], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
             "muted",
           );
           return;
@@ -1872,7 +1905,9 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     appendText(
       operation === "execute"
         ? "bash requests approval to run a terminal command on your host."
-        : `${pending.request.toolName} requests ${operation} access to ${safeTerminalText(pending.request.path)}.`,
+        : operation === "mcp"
+          ? `Rook recommends calling MCP tool ${safeTerminalText(pending.request.toolName)}; approval is required before the external call.`
+          : `${pending.request.toolName} requests ${operation} access to ${safeTerminalText(pending.request.path)}.`,
       "muted",
     );
   }

@@ -44,6 +44,9 @@ export class ToolPolicy {
   private readonly shellCommands = new Map<string, string>();
   private readonly successfulChecks = new Map<string, number>();
   private readonly externalGrants: ExternalAccessGrant[] = [];
+  private readonly mcpSessionGrants = new Set<string>();
+  private explicitMcpAuthorization: Set<string> | "all" | undefined;
+  private mcpUserDenied = false;
   private externalAccessPrompt:
     | ((request: ExternalAccessRequest) => Promise<ExternalAccessChoice>)
     | undefined = undefined;
@@ -108,6 +111,20 @@ export class ToolPolicy {
     if (index < 0) return false;
     this.externalGrants.splice(index, 1);
     return true;
+  }
+
+  setMcpUserAuthorization(prompt: string): void {
+    this.explicitMcpAuthorization = explicitMcpTools(prompt);
+    this.mcpUserDenied = explicitlyDeniesMcp(prompt);
+  }
+
+  clearMcpUserAuthorization(): void {
+    this.explicitMcpAuthorization = undefined;
+    this.mcpUserDenied = false;
+  }
+
+  clearMcpSessionGrants(): void {
+    this.mcpSessionGrants.clear();
   }
 
   async check(
@@ -214,6 +231,58 @@ export class ToolPolicy {
     } else if (toolName === "powershell") {
       reason =
         "PowerShell is not enabled; use the approved bash tool in /build mode.";
+    } else if (toolName === "codemode") {
+      reason =
+        "Allowed Pi code-mode wrapper; nested tool calls remain policy checked.";
+      allowed = true;
+    } else if (toolName === "tool_search") {
+      reason =
+        "Allowed MCP tool discovery; invoking a discovered server tool still requires authorization.";
+      allowed = true;
+    } else if (toolName.startsWith("mcp__")) {
+      const match = /^mcp__([a-zA-Z0-9_-]+)__([a-zA-Z0-9_.-]+)$/.exec(toolName);
+      if (!match) {
+        reason = "Malformed MCP tool name; MCP call is denied.";
+      } else if (this.mcpUserDenied) {
+        reason = "MCP use denied by the user's prompt.";
+      } else if (
+        this.explicitMcpAuthorization === "all" ||
+        this.explicitMcpAuthorization?.has(toolName) ||
+        this.mcpSessionGrants.has(match[1]!)
+      ) {
+        reason = "Allowed MCP call by explicit user request or session grant.";
+        allowed = true;
+      } else {
+        const prompt = this.externalAccessPrompt;
+        if (!prompt) {
+          reason =
+            "MCP use requires user approval; no interactive approval handler is available.";
+        } else {
+          try {
+            const choice = await prompt({
+              toolName,
+              serverName: match[1]!,
+              access: "mcp",
+              inputSummary: summarizeMcpInput(input),
+            });
+            if (choice === "once") {
+              reason = "Allowed this MCP call once with user approval.";
+              allowed = true;
+            } else if (choice === "session") {
+              this.mcpSessionGrants.add(match[1]!);
+              reason = `Allowed MCP server ${match[1]} for this session.`;
+              allowed = true;
+            } else {
+              reason = "MCP call denied by the user.";
+            }
+          } catch (error) {
+            reason =
+              error instanceof Error
+                ? `MCP call denied: ${error.message}`
+                : "MCP approval failed; call denied.";
+          }
+        }
+      }
     } else {
       reason = "This tool is not classified by Rook and is denied by default.";
     }
@@ -409,6 +478,52 @@ export class ToolPolicy {
   private invalidateChecks(): void {
     this.changeVersion++;
     this.successfulChecks.clear();
+  }
+}
+
+function explicitMcpTools(prompt: string): Set<string> | "all" | undefined {
+  if (
+    /\b(?:not sure|unsure|uncertain|whether|maybe|might|consider)\b[\s\S]{0,50}\b(?:use|call|invoke|query|ask|run)\b[\s\S]{0,40}\bmcp\b/i.test(
+      prompt,
+    )
+  )
+    return undefined;
+  const action = /\b(?:use|call|invoke|query|ask|run)\b/i.exec(prompt);
+  const names = [...prompt.matchAll(/\bmcp__[a-z0-9_-]+__[a-z0-9_.-]+\b/gi)];
+  const requestedNames = names
+    .filter((match) => action && match.index! >= action.index)
+    .map(([name]) => name!);
+  if (action && requestedNames.length > 0) {
+    return new Set(requestedNames);
+  }
+  if (/\b(?:use|call|invoke|query|ask|run)\b[\s\S]{0,40}\bmcp\b/i.test(prompt))
+    return "all";
+  return undefined;
+}
+
+function explicitlyDeniesMcp(prompt: string): boolean {
+  return (
+    /\b(?:don't|do not|never|avoid)\s+(?:use|call|invoke|query|run)\b[\s\S]{0,40}\b(?:mcp\b|mcp__[a-z0-9_-]+__[a-z0-9_.-]+\b)/i.test(
+      prompt,
+    ) || /\bavoid\s+mcp\b/i.test(prompt)
+  );
+}
+
+function summarizeMcpInput(input: Record<string, unknown>): string {
+  try {
+    const serialized = JSON.stringify(input, (key, value: unknown) => {
+      if (
+        /(?:secret|token|password|authorization|api.?key|credential)/i.test(key)
+      )
+        return "[redacted]";
+      if (typeof value === "string") {
+        return value.length > 200 ? `${value.slice(0, 197)}...` : value;
+      }
+      return value;
+    });
+    return (serialized ?? "{}").slice(0, 800);
+  } catch {
+    return "<unavailable>";
   }
 }
 

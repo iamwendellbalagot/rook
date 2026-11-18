@@ -114,6 +114,12 @@ export type ExternalAccessRequest =
       access: "execute";
       command: string;
       timeoutSeconds: number;
+    }
+  | {
+      toolName: string;
+      serverName: string;
+      access: "mcp";
+      inputSummary: string;
     };
 
 export type ExternalAccessChoice = "once" | "session" | "deny";

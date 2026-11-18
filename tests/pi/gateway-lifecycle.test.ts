@@ -18,6 +18,7 @@ const fixture = vi.hoisted(() => {
     followUp: vi.fn(),
     steer: vi.fn(),
     abort: vi.fn(),
+    getAllTools: vi.fn(() => []),
     setActiveToolsByName: vi.fn(),
     bindExtensions: vi.fn(),
     subscribe: vi.fn(() => () => {}),

@@ -4,6 +4,9 @@ import {
   createAgentSessionServices,
   getAgentDir,
   SessionManager,
+  createCodemodeExtension,
+  createMcpExtension,
+  createToolSearchExtension,
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
 import type {
@@ -89,6 +92,21 @@ function activeToolsFor(mode: PermissionMode): string[] {
   return [...(mode === "build" ? BUILD_TOOLS : PLAN_TOOLS)];
 }
 
+function activeToolsForSession(
+  session: AgentSession,
+  mode: PermissionMode,
+): string[] {
+  const mcpTools = session
+    .getAllTools()
+    .map((tool) => tool.name)
+    .filter((name) => name.startsWith("mcp__"));
+  return [
+    ...activeToolsFor(mode),
+    ...(mcpTools.length > 0 ? ["codemode", "tool_search"] : []),
+    ...mcpTools,
+  ];
+}
+
 export async function createPiAgentGateway(
   cwd = process.cwd(),
   options: {
@@ -145,6 +163,9 @@ export async function createPiAgentGateway(
             };
           },
           extensionFactories: [
+            createCodemodeExtension(),
+            createToolSearchExtension(),
+            createMcpExtension(),
             createToolPolicyExtension(policy),
             createExecutionPolicyExtension(
               () => policy.getMode(),
@@ -176,6 +197,8 @@ export async function createPiAgentGateway(
             "rook_map",
             "rook_impact",
             TASK_CHECKLIST_TOOL_NAME,
+            "codemode",
+            "tool_search",
           ],
           customTools: [
             taskChecklistTool,
@@ -199,8 +222,11 @@ export async function createPiAgentGateway(
 
   const bindSession = async (session: AgentSession): Promise<void> => {
     unsubscribe?.();
-    session.setActiveToolsByName(activeToolsFor(policy.getMode()));
     await session.bindExtensions({});
+    session.setActiveToolsByName(
+      activeToolsForSession(session, policy.getMode()),
+    );
+    policy.clearMcpSessionGrants();
     checklist = clearChecklistWhenBinding
       ? []
       : restoreTaskChecklistFromEntries(session.sessionManager.getBranch());
@@ -233,6 +259,7 @@ export async function createPiAgentGateway(
       return activePrompts > 0 || !runtime.session.isIdle;
     },
     async send(prompt, disposition = "normal") {
+      policy.setMcpUserAuthorization(prompt);
       if (disposition === "normal") activePrompts++;
       try {
         if (disposition === "normal") {
@@ -263,6 +290,7 @@ export async function createPiAgentGateway(
         if (disposition === "normal") emit({ type: "error", message });
         throw new Error(message);
       } finally {
+        policy.clearMcpUserAuthorization();
         if (disposition === "normal") activePrompts--;
       }
     },
@@ -377,7 +405,9 @@ export async function createPiAgentGateway(
           "Wait for the active run to finish before changing mode.",
         );
       policy.setMode(mode);
-      runtime.session.setActiveToolsByName(activeToolsFor(mode));
+      runtime.session.setActiveToolsByName(
+        activeToolsForSession(runtime.session, mode),
+      );
     },
     async inspectGitChanges() {
       return inspectGitWorkspace(cwd);
@@ -534,6 +564,7 @@ export async function createPiAgentGateway(
       }
       if (!command.startsWith("/")) return false;
       const name = command.slice(1);
+      if (name === "mcp") return true;
       return runtime.session.resourceLoader
         .getPrompts()
         .prompts.some((template) => template.name === name);

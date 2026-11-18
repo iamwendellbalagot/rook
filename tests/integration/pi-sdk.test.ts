@@ -236,7 +236,7 @@ describe("Pi SDK compatibility", () => {
     }
   });
 
-  it("loads only Rook-managed skills while leaving extensions disabled", async () => {
+  it("loads Rook-managed skills and only selected Pi built-in extensions", async () => {
     const root = await mkdtemp(join(tmpdir(), "rook-pi-resources-"));
     const cwd = join(root, "workspace");
     const sessionDir = join(root, "sessions");
@@ -289,6 +289,7 @@ describe("Pi SDK compatibility", () => {
       expect(gateway.isResourceCommand("/review this diff")).toBe(true);
       expect(gateway.getActiveTools()).not.toContain("bash");
       expect(gateway.getActiveTools()).not.toContain("codemode");
+      expect(gateway.isResourceCommand("/mcp")).toBe(true);
     } finally {
       await gateway?.dispose();
       if (previousRookHome === undefined) delete process.env.ROOK_HOME;
