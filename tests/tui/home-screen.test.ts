@@ -38,7 +38,7 @@ describe("home dashboard", () => {
   beforeEach(() => setCapabilityOverrides({ trueColor: true, images: null }));
   afterEach(() => setCapabilityOverrides({}));
 
-  it("keeps the existing brand left of the mountain scene", () => {
+  it("centers the brand with flanking line-and-diamond ornaments", () => {
     const dashboard = new HomeScreenBody();
     dashboard.setDashboardData(data);
     const lines = dashboard.render(160);
@@ -54,16 +54,19 @@ describe("home dashboard", () => {
     expect(lines.slice(0, 7).every((line) => visibleWidth(line) <= 160)).toBe(
       true,
     );
-    const brandStart = plain[1]!.indexOf("██  ██");
-    const mountainStart = plain[1]!.indexOf("▄");
-    expect(mountainStart).toBeGreaterThanOrEqual(0);
-    expect(brandStart).toBeGreaterThanOrEqual(0);
-    expect(mountainStart).toBeGreaterThan(brandStart);
-    expect(mountainStart - (brandStart + 29)).toBeGreaterThanOrEqual(4);
+    const hero = plain.slice(0, 8).join("\n");
+    expect(hero).toContain("◇");
+    expect(hero).toContain("─");
+    expect(hero).not.toContain("/\\");
+    const ornamentRow = plain.find((line) => line.includes("◇"))!;
+    expect(ornamentRow.indexOf("◇")).toBeLessThan(ornamentRow.indexOf("█"));
+    expect(plain[8]!.trim()).toBe(
+      "A coding agent that grows with your codebase.",
+    );
     expect(plain[0]).toBe("");
   });
 
-  it("hides the mountain below 120 columns and preserves the brand", () => {
+  it("keeps the centered brand within narrower terminal widths", () => {
     const dashboard = new HomeScreenBody();
     dashboard.setDashboardData(data);
     const lines = dashboard.render(119);
@@ -123,7 +126,7 @@ describe("home dashboard", () => {
     expect(screen).not.toContain("\u001b");
   });
 
-  it("renders plain-text mountain art when color output is unavailable", () => {
+  it("keeps the branded hero and omits scenic art without color output", () => {
     const dashboard = new HomeScreenBody();
     dashboard.setDashboardData(data);
     setCapabilityOverrides({ trueColor: false, images: null });
@@ -136,7 +139,8 @@ describe("home dashboard", () => {
         .render(160)
         .map(stripTerminalSequences)
         .join("\n");
-      expect(screen).toContain("/\\");
+      expect(screen).toContain("▀████▀");
+      expect(screen).not.toContain("/\\");
     } finally {
       if (previousTerm === undefined) delete process.env.TERM;
       else process.env.TERM = previousTerm;

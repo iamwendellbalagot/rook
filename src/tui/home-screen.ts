@@ -1,13 +1,10 @@
 import {
-  getCapabilities,
   getTerminalColorMode,
-  indexedColor,
   parseColor,
   styleText,
   truncateToWidth,
   visibleWidth,
   type Component,
-  type TerminalColorMode,
 } from "@earendil-works/pi-tui";
 import type { PermissionMode } from "../pi/agent-gateway.js";
 import { HomeBrand } from "./home-brand.js";
@@ -22,35 +19,6 @@ const QUICK_ACTIONS = [
   ["/help", "Show all commands"],
 ] as const;
 
-const MOUNTAIN_WIDTH = 72;
-const MOUNTAIN_HEIGHT = 14;
-type Pixel = " " | "d" | "m" | "b" | "i" | "w" | "o" | "*" | "p";
-type ColorLevel = "256" | "16" | "plain";
-
-// ANSI 256-color indices: night sky, layered ridges, snow, moon, stars, pines.
-const COLORS_256: Record<Pixel, number> = {
-  " ": 17,
-  d: 18,
-  m: 19,
-  b: 20,
-  i: 39,
-  w: 231,
-  o: 153,
-  "*": 87,
-  p: 18,
-};
-const COLORS_16: Record<Pixel, number> = {
-  " ": 0,
-  d: 0,
-  m: 4,
-  b: 4,
-  i: 12,
-  w: 15,
-  o: 14,
-  "*": 11,
-  p: 4,
-};
-
 export interface HomeDashboardData {
   cwd: string;
   branch?: string;
@@ -61,128 +29,6 @@ export interface HomeDashboardData {
   snapshotDirty?: boolean;
   recentActivity: { subject: string; files: string[]; fileCount: number }[];
   onModeChange?: (mode: PermissionMode) => void;
-}
-
-function makeMountain(): Pixel[][] {
-  const pixels = Array.from({ length: MOUNTAIN_HEIGHT }, () =>
-    Array.from({ length: MOUNTAIN_WIDTH }, (): Pixel => " "),
-  );
-  const put = (x: number, y: number, pixel: Pixel): void => {
-    if (x >= 0 && x < MOUNTAIN_WIDTH && y >= 0 && y < MOUNTAIN_HEIGHT)
-      pixels[y]![x] = pixel;
-  };
-  const peak = (center: number, top: number, left: number, right: number) => {
-    for (let y = top; y < MOUNTAIN_HEIGHT; y++) {
-      const radius = (y - top) * 2;
-      for (
-        let x = Math.max(left, center - radius);
-        x <= Math.min(right, center + radius);
-        x++
-      ) {
-        const distance = Math.abs(x - center);
-        put(x, y, distance < radius / 2 ? "d" : "m");
-        if (distance <= Math.max(1, radius - 2) && y <= top + 6) put(x, y, "i");
-      }
-      put(center, top, "w");
-      if (top + 1 < MOUNTAIN_HEIGHT) {
-        put(center - 1, top + 1, "w");
-        put(center + 1, top + 1, "w");
-      }
-    }
-  };
-
-  // Moon behind a layered mountain range.
-  for (let y = 1; y <= 6; y++) {
-    for (let x = 47; x <= 54; x++) {
-      const dx = x - 50;
-      const dy = y - 3;
-      if (dx * dx + dy * dy <= 12) put(x, y, "o");
-    }
-  }
-  peak(14, 7, 0, 30);
-  peak(33, 3, 12, 58);
-  peak(49, 6, 34, 68);
-  peak(63, 8, 52, 71);
-
-  for (const [x, y] of [
-    [4, 3],
-    [9, 1],
-    [27, 2],
-    [41, 4],
-    [59, 1],
-    [68, 4],
-  ])
-    put(x!, y!, "*");
-  for (const [x, y, height] of [
-    [59, 9, 4],
-    [63, 8, 5],
-    [67, 9, 4],
-    [70, 8, 5],
-  ]) {
-    for (let row = 0; row < height!; row++) {
-      const radius = Math.floor(row / 2);
-      for (let dx = -radius; dx <= radius; dx++) put(x! + dx, y! + row, "p");
-    }
-  }
-  return pixels;
-}
-
-const MOUNTAIN = makeMountain();
-const ART_CACHE = new Map<string, string[]>();
-
-function colorLevel(): ColorLevel {
-  const capabilities = getCapabilities();
-  if (process.env.TERM === "dumb") return "plain";
-  if (capabilities.trueColor) return "256";
-  const term = process.env.TERM ?? "";
-  return process.env.NO_COLOR !== undefined || !/256color/i.test(term)
-    ? "16"
-    : "256";
-}
-
-function mountainLines(width: number, mode: TerminalColorMode): string[] {
-  const level = colorLevel();
-  if (level === "plain") {
-    const ascii = [
-      "                 *                 *",
-      "            /\\        /\\              /\\",
-      "     /\\   /  \\ /\\  /  \\   /\\     /  \\ /\\",
-      "____/  \\_/    V   V    \\_/  \\__/    V   \\__",
-    ];
-    return ascii.map((line) =>
-      truncateToWidth(line, width, "").padStart(width, " "),
-    );
-  }
-
-  const cacheKey = `${level}:${mode}`;
-  let lines = ART_CACHE.get(cacheKey);
-  if (!lines) {
-    const palette = level === "256" ? COLORS_256 : COLORS_16;
-    lines = Array.from({ length: MOUNTAIN_HEIGHT / 2 }, (_, row) => {
-      const top = MOUNTAIN[row * 2]!;
-      const bottom = MOUNTAIN[row * 2 + 1]!;
-      return Array.from({ length: MOUNTAIN_WIDTH }, (_, x) =>
-        top[x] === " " && bottom[x] === " "
-          ? " "
-          : top[x] === " "
-            ? styleText("▄", { fg: indexedColor(palette[bottom[x]!]) }, mode)
-            : bottom[x] === " "
-              ? styleText("▀", { fg: indexedColor(palette[top[x]!]) }, mode)
-              : styleText(
-                  "▀",
-                  {
-                    fg: indexedColor(palette[top[x]!]),
-                    bg: indexedColor(palette[bottom[x]!]),
-                  },
-                  mode,
-                ),
-      ).join("");
-    });
-    ART_CACHE.set(cacheKey, lines);
-  }
-  return lines.map((line) =>
-    truncateToWidth(line, width, "").padStart(width, " "),
-  );
 }
 
 function safeText(value: string): string {
@@ -279,19 +125,7 @@ export class HomeScreenBody implements Component {
   }
 
   private renderHero(width: number): string[] {
-    const artWidth = width >= 120 ? Math.min(76, width - 54) : 0;
-    const brandWidth = Math.min(48, width - artWidth - (artWidth ? 4 : 0));
-    const brand = this.brand.render(brandWidth);
-    const mountains =
-      artWidth >= 36 ? mountainLines(artWidth, getTerminalColorMode()) : [];
-    const rows = Math.max(brand.length, mountains.length);
-    const brandOffset = rows - brand.length;
-    return Array.from({ length: rows }, (_, row) => {
-      const left = row >= brandOffset ? brand[row - brandOffset]! : "";
-      const right = mountains[row] ?? "";
-      const brandAndGap = `${left}${" ".repeat(Math.max(4, width - visibleWidth(left) - artWidth))}`;
-      return `${brandAndGap}${right}`;
-    });
+    return this.brand.render(width);
   }
 
   private renderMode(width: number): string[] {

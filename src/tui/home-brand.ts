@@ -50,10 +50,9 @@ function logoLines(mode: TerminalColorMode): string[] {
       mode,
     );
     const titleOffset = icon.length - wordmark.length;
-    const divider = tone("│", "border");
     lines = icon.map((row, index) => {
       const title = wordmark[index - titleOffset];
-      return `${row} ${title ? divider : " "} ${title ?? " ".repeat(29)}`;
+      return `${row} ${title ?? " ".repeat(29)}`;
     });
     logoCache.set(mode, lines);
   }
@@ -64,20 +63,43 @@ export class HomeBrand implements Component {
   render(width: number): string[] {
     const mode = getTerminalColorMode();
     const logo = logoLines(mode);
-    const availableWidth = Math.max(0, width - 2);
+    const logoWidth = visibleWidth(logo[0]!);
+    const availableWidth = Math.max(0, width);
     const lines =
-      availableWidth >= visibleWidth(logo[0]!)
+      availableWidth >= logoWidth
         ? logo
         : availableWidth >= 29
           ? wordmarkLines(mode)
           : [tone("rook", "text", true) + tone(".", "cyan", true)];
+    const contentWidth = visibleWidth(lines[0]!);
+    const centered = lines.map((line) => {
+      const padding = Math.max(0, Math.floor((width - visibleWidth(line)) / 2));
+      return " ".repeat(padding) + line;
+    });
+    if (width >= 64 && contentWidth + 6 <= width) {
+      const ruleLength = Math.floor((width - contentWidth - 6) / 2);
+      const centerRow = Math.floor((centered.length - 1) / 2);
+      centered[centerRow] =
+        `${tone("─".repeat(ruleLength), "cyan")} ${tone("◇", "cyan", true)} ` +
+        lines[centerRow]! +
+        ` ${tone("◇", "cyan", true)} ${tone("─".repeat(ruleLength), "cyan")}`;
+      const linePadding = Math.max(
+        0,
+        Math.floor((width - visibleWidth(centered[centerRow]!)) / 2),
+      );
+      centered[centerRow] = " ".repeat(linePadding) + centered[centerRow]!;
+    }
+    const tagline = tone(
+      "A coding agent that grows with your codebase.",
+      "muted",
+    );
+    const taglinePadding = Math.max(
+      0,
+      Math.floor((width - visibleWidth(tagline)) / 2),
+    );
     return [
-      ...lines.map((line) => truncateToWidth(`  ${line}`, width, "")),
-      truncateToWidth(
-        `  ${tone("A coding agent that grows with your codebase.", "muted")}`,
-        width,
-        "",
-      ),
+      ...centered.map((line) => truncateToWidth(line, width, "")),
+      truncateToWidth(" ".repeat(taglinePadding) + tagline, width, ""),
     ];
   }
 

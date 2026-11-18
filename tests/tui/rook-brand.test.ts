@@ -17,7 +17,9 @@ describe("home brand", () => {
   it("renders the icon and wordmark in solid pixels without image protocols", () => {
     const lines = new HomeBrand().render(120);
     expect(lines).toHaveLength(8);
-    expect(lines.slice(0, 7).map(visibleWidth)).toEqual(Array(7).fill(48));
+    expect(lines.slice(0, 7).every((line) => visibleWidth(line) <= 120)).toBe(
+      true,
+    );
     const artwork = lines.slice(0, 7).join("\n");
     expect(artwork).toContain("\x1b[38;2;");
     expect(artwork).toContain("\x1b[48;2;");
@@ -38,20 +40,20 @@ describe("home brand", () => {
     expect(HOME_ROOK_PIXELS.at(-1)).toBe(".111111111111.");
   });
 
-  it("renders a crenellated top, tower, and flared base beside the title", () => {
+  it("renders a centered rook icon beside the title", () => {
     const contours = new HomeBrand()
       .render(60)
       .slice(0, 7)
-      .map((line) => stripTerminalSequences(line).slice(0, 16).trimEnd());
+      .map((line) => stripTerminalSequences(line).slice(8, 22));
 
     expect(contours).toEqual([
-      "    ██  ██  ██",
-      "    ██████████",
-      "     ████████",
-      "      █▀▀▀▀█",
-      "      ██████",
-      "    ▄████████▄",
-      "   ████████████",
+      "  ██  ██  ██  ",
+      "  ██████████  ",
+      "   ████████   ",
+      "    █▀▀▀▀█    ",
+      "    ██████    ",
+      "  ▄████████▄  ",
+      " ████████████ ",
     ]);
   });
 
@@ -62,7 +64,7 @@ describe("home brand", () => {
     );
     const lines = new HomeBrand().render(60).slice(2, 7);
     const wordmark = lines.map((line) =>
-      stripTerminalSequences(line).slice(19),
+      stripTerminalSequences(line).slice(-29),
     );
     expect(wordmark).toEqual([
       "                    ██       ",
@@ -75,18 +77,14 @@ describe("home brand", () => {
     expect(lines.join("")).toContain("\x1b[38;2;39;216;243m");
   });
 
-  it("aligns the title and divider with the icon's bottom row", () => {
-    const lines = new HomeBrand()
-      .render(60)
-      .slice(0, 7)
-      .map(stripTerminalSequences);
-    expect(
-      lines.slice(0, 2).every((line) => line.slice(16).trim() === ""),
-    ).toBe(true);
-    expect(lines.slice(2).every((line) => line[17] === "│")).toBe(true);
-    const baseline = lines.at(-1)!;
-    expect(baseline.slice(0, 16).trim()).not.toBe("");
-    expect(baseline.slice(19)).toBe("██    ▀████▀ ▀████▀ ██ ▀█▄ ██");
+  it("centers the tagline and decorates the hero with line-and-diamond rules", () => {
+    const lines = new HomeBrand().render(120).map(stripTerminalSequences);
+    expect(lines[3]).toContain("─ ◇ ");
+    expect(lines[3]).toContain(" ◇ ─");
+    expect(lines.at(-1)!.trim()).toBe(
+      "A coding agent that grows with your codebase.",
+    );
+    expect(lines[3]!.indexOf("◇")).toBeLessThan(lines[3]!.indexOf("█"));
   });
 
   it("shows the complete wordmark without the icon when side-by-side is too narrow", () => {
