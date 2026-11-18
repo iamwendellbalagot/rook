@@ -24,6 +24,7 @@ import type {
   ThinkingInfo,
 } from "./agent-gateway.js";
 import { adaptPiEvent } from "./event-adapter.js";
+import { formatAgentError } from "./errors.js";
 import { createRookBashTool } from "./bash-tool.js";
 import { createChangeImpactTool } from "./change-impact.js";
 import {
@@ -191,12 +192,19 @@ export async function createPiAgentGateway(
     for (const handler of handlers) handler(event);
   }
 
+  let activePrompts = 0;
   return {
+    isRunning() {
+      return activePrompts > 0 || !runtime.session.isIdle;
+    },
     async send(prompt, disposition = "normal") {
+      if (disposition === "normal") activePrompts++;
       try {
         if (disposition === "normal") {
           emit({ type: "todo_updated", tasks: [] });
-          await runtime.session.prompt(prompt);
+          await runtime.session.prompt(prompt, {
+            streamingBehavior: "followUp",
+          });
         } else if (disposition === "steer") {
           if (!runtime.session.isStreaming)
             throw new Error(
@@ -211,9 +219,11 @@ export async function createPiAgentGateway(
           await runtime.session.followUp(prompt);
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        emit({ type: "error", message });
-        throw error;
+        const message = formatAgentError(error);
+        if (disposition === "normal") emit({ type: "error", message });
+        throw new Error(message);
+      } finally {
+        if (disposition === "normal") activePrompts--;
       }
     },
     async cancel() {
@@ -279,6 +289,10 @@ export async function createPiAgentGateway(
       });
     },
     setMode(mode) {
+      if (activePrompts || !runtime.session.isIdle)
+        throw new Error(
+          "Wait for the active run to finish before changing mode.",
+        );
       policy.setMode(mode);
       runtime.session.setActiveToolsByName(activeToolsFor(mode));
     },

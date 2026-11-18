@@ -6,6 +6,60 @@ const piEvent = (event: object): AgentSessionEvent =>
   event as AgentSessionEvent;
 
 describe("Pi event adapter", () => {
+  it("counts assistant attempts without exposing thinking content", () => {
+    expect(
+      adaptPiEvent(
+        piEvent({ type: "message_start", message: { role: "assistant" } }),
+      ),
+    ).toEqual([{ type: "model_request_started" }]);
+    expect(
+      adaptPiEvent(
+        piEvent({ type: "message_start", message: { role: "user" } }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("labels inspection actions and reports categorized failures without raw output", () => {
+    expect(
+      adaptPiEvent(
+        piEvent({
+          type: "tool_execution_start",
+          toolCallId: "git",
+          toolName: "rook_inspect",
+          args: { action: "show" },
+        }),
+      ),
+    ).toEqual([
+      {
+        type: "tool_started",
+        id: "git",
+        name: "rook_inspect",
+        summary: "show",
+      },
+    ]);
+    const events = adaptPiEvent(
+      piEvent({
+        type: "tool_execution_end",
+        toolCallId: "git",
+        toolName: "rook_inspect",
+        isError: true,
+        result: {
+          content: [
+            { type: "text", text: "fatal: invalid object HEAD:private-name" },
+          ],
+        },
+      }),
+    );
+    expect(events).toEqual([
+      {
+        type: "tool_finished",
+        id: "git",
+        status: "error",
+        error: "Revision or file was not found.",
+      },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("private-name");
+  });
   it("maps text deltas and authoritative assistant messages", () => {
     expect(
       adaptPiEvent(

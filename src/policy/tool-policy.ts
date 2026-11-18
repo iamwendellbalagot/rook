@@ -34,7 +34,6 @@ const SENSITIVE_SEGMENTS = new Set([
 
 export class ToolPolicy {
   private mode: PermissionMode = "plan";
-  private impactReviewed = false;
   private changeVersion = 0;
   private workspaceRoot?: Promise<string>;
   private readonly decisions: PermissionDecision[] = [];
@@ -50,7 +49,6 @@ export class ToolPolicy {
 
   setMode(mode: PermissionMode): void {
     this.mode = mode;
-    if (mode === "plan") this.impactReviewed = false;
   }
 
   getMode(): PermissionMode {
@@ -102,7 +100,6 @@ export class ToolPolicy {
       } else {
         const path = typeof input.path === "string" ? input.path : "";
         this.activeMutations.add(toolCallId);
-        this.impactReviewed = false;
         reason = path
           ? await this.checkPath(path, true, toolName)
           : "A valid workspace path is required.";
@@ -121,11 +118,7 @@ export class ToolPolicy {
         reason =
           "This exact verification command already succeeded since the last Rook-observed change; do not repeat it.";
       } else {
-        reason = isVerificationCommand(command)
-          ? this.impactReviewed
-            ? await this.checkShell(input, toolCallId)
-            : "Run rook_impact after implementation and before test/build/type-check commands so verification is selected from the actual diff."
-          : await this.checkShell(input, toolCallId);
+        reason = await this.checkShell(input, toolCallId);
       }
       allowed = reason.startsWith("Allowed ");
     } else if (
@@ -137,7 +130,7 @@ export class ToolPolicy {
           "Repository inspection is unavailable while another Rook operation is active.";
       } else if (
         toolName === PLAN_INSPECTION_TOOL &&
-        !["status", "diff", "log", "branches", "show"].includes(
+        !["summary", "status", "diff", "log", "branches", "show"].includes(
           String(input.action),
         )
       ) {
@@ -183,13 +176,9 @@ export class ToolPolicy {
     this.activeMutations.delete(toolCallId);
     const command = this.shellCommands.get(toolCallId);
     this.shellCommands.delete(toolCallId);
-    if (toolName === CHANGE_IMPACT_TOOL && !isError) this.impactReviewed = true;
-    if (toolName === "edit" || toolName === "write")
-      this.impactReviewed = false;
     if (toolName === "bash" && command && isVerificationCommand(command)) {
       if (!isError) this.successfulChecks.set(command, this.changeVersion);
     } else if (toolName === "bash" && command) {
-      this.impactReviewed = false;
       this.invalidateChecks();
     }
   }

@@ -34,6 +34,9 @@ import { MemoryCaptureManager } from "../../src/memory/capture.js";
 import { createRookTui } from "../../src/tui/rook-tui.js";
 
 class EventGateway implements AgentGateway {
+  isRunning(): boolean {
+    return this.finishPendingRun !== undefined;
+  }
   private handlers = new Set<(event: AgentEvent) => void>();
   private sessionId = "session-12345678";
   private mode: PermissionMode = "plan";
@@ -625,9 +628,18 @@ describe("Rook TUI shell", () => {
     expect(app.tui.render(100).join("\n")).toContain("Rook v0.1.0");
 
     const pendingRun = app.submit("long running prompt");
+    gateway.emit({ type: "error", message: "Provider timed out (504)." });
+    await app.submit("Use the smaller change");
+    await app.submit("/build");
+    terminal.input("\x1b[Z");
+    expect(gateway.getActiveTools()).not.toContain("write");
+    expect(app.tui.render(180).join("\n")).toContain(
+      "Queued follow-up: Use the smaller change",
+    );
     await app.submit("/steer Continue with the simpler approach");
     await app.submit("/follow-up Add tests after that");
     expect(gateway.queuedMessages).toEqual([
+      { text: "Use the smaller change", disposition: "follow_up" },
       {
         text: "Continue with the simpler approach",
         disposition: "steer",

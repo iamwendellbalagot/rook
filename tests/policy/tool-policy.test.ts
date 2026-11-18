@@ -51,15 +51,6 @@ describe("ToolPolicy", () => {
     expect(prompts).toBe(0);
     policy.setMode("build");
     expect(
-      (await policy.check("bash", { command: "npm test" }, "before-impact"))
-        .allowed,
-    ).toBe(false);
-    expect(prompts).toBe(0);
-    expect((await policy.check("rook_impact", {}, "impact")).allowed).toBe(
-      true,
-    );
-    policy.finish("impact", "rook_impact", false);
-    expect(
       (await policy.check("bash", { command: "npm test" }, "shell1")).allowed,
     ).toBe(true);
     expect(
@@ -88,7 +79,9 @@ describe("ToolPolicy", () => {
     expect(
       (await policy.check("bash", { command: "npm test" }, "stale-impact"))
         .allowed,
-    ).toBe(false);
+    ).toBe(true);
+    policy.finish("stale-impact", "bash", false);
+    expect(prompts).toBe(3);
   });
 
   it("denies shell execution without an approval UI, after denial, or with a session grant", async () => {

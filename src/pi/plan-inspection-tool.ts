@@ -9,6 +9,7 @@ const inspectionSchema = Type.Object(
   {
     action: Type.Union([
       Type.Literal("status"),
+      Type.Literal("summary"),
       Type.Literal("diff"),
       Type.Literal("log"),
       Type.Literal("branches"),
@@ -25,13 +26,13 @@ export function createPlanInspectionTool(cwd: string) {
     name: "rook_inspect",
     label: "Inspect repository (read-only)",
     description:
-      "Read-only Git inspection for plan mode. Supports status, diff, recent log, branch listing, and showing a file at a commit. No arbitrary shell is executed.",
+      "Read-only Git inspection in plan or build mode. action: summary (status + recent commits in one call), status, diff, log, branches, or show. show without path returns commit metadata; show with a safe repository-relative path returns the file contents at revision (default HEAD). Revisions: HEAD, HEAD~N, HEAD^N, or commit hash. No shell is executed.",
     promptSnippet: "Inspect Git state without changing the repository.",
     parameters: inspectionSchema,
     execute: async (_id, input) => {
       const action = input.action;
       let args: string[];
-      if (action === "status") {
+      if (action === "status" || action === "summary") {
         const status = runGit(cwd, [
           "status",
           "--porcelain=v1",
@@ -42,15 +43,20 @@ export function createPlanInspectionTool(cwd: string) {
           .split("\0")
           .filter(Boolean)
           .filter((entry) => isSafeRepoPath(entry.slice(3)));
+        const text = entries.length
+          ? entries
+              .map(
+                (entry) =>
+                  `${entry.slice(0, 2)} ${JSON.stringify(entry.slice(3))}`,
+              )
+              .join("\n")
+          : "Working tree clean (or only sensitive paths are changed).";
         return result(
-          entries.length
-            ? entries
-                .map(
-                  (entry) =>
-                    `${entry.slice(0, 2)} ${JSON.stringify(entry.slice(3))}`,
-                )
-                .join("\n")
-            : "Working tree clean (or only sensitive paths are changed).",
+          limitOutput(
+            action === "summary"
+              ? `${text}\n\nRecent commits:\n${runGit(cwd, ["log", "-8", "--oneline", "--decorate=short"])}`
+              : text,
+          ),
         );
       } else if (action === "diff") {
         const paths = changedRepoFiles(cwd);
@@ -79,6 +85,13 @@ export function createPlanInspectionTool(cwd: string) {
             "Revision must be HEAD, a bounded HEAD ancestor, or a commit hash.",
           );
         }
+        if (!path) {
+          return result(
+            limitOutput(
+              runGit(cwd, ["show", "--no-patch", "--format=fuller", revision]),
+            ),
+          );
+        }
         if (!isSafeRepoPath(path))
           throw new Error("A safe repository-relative path is required.");
         if (
@@ -89,16 +102,7 @@ export function createPlanInspectionTool(cwd: string) {
             "Git inspection can show files only, not directories or trees.",
           );
         }
-        args = [
-          "--literal-pathspecs",
-          "show",
-          "--format=fuller",
-          "--no-ext-diff",
-          "--no-textconv",
-          revision,
-          "--",
-          path,
-        ];
+        args = ["cat-file", "blob", `${revision}:${path}`];
       }
 
       const output = runGit(cwd, args);

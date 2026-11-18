@@ -12,19 +12,28 @@ import type {
 } from "./agent-gateway.js";
 
 export class MockAgentGateway implements AgentGateway {
+  private running = false;
+  isRunning(): boolean {
+    return this.running;
+  }
   private readonly handlers = new Set<(event: AgentEvent) => void>();
 
   async send(prompt: string): Promise<void> {
-    const response = `Mock response to: ${prompt}`;
-    for (let offset = 0; offset < response.length; offset += 8) {
-      const text = response.slice(offset, offset + 8);
+    this.running = true;
+    try {
+      const response = `Mock response to: ${prompt}`;
+      for (let offset = 0; offset < response.length; offset += 8) {
+        const text = response.slice(offset, offset + 8);
+        for (const handler of this.handlers)
+          handler({ type: "text_delta", text });
+      }
       for (const handler of this.handlers)
-        handler({ type: "text_delta", text });
+        handler({ type: "message_complete", text: response });
+    } finally {
+      this.running = false;
     }
-    for (const handler of this.handlers) {
-      handler({ type: "message_complete", text: response });
+    for (const handler of this.handlers)
       handler({ type: "run_settled", aborted: false });
-    }
   }
 
   async cancel(): Promise<void> {}

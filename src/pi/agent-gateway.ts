@@ -1,10 +1,16 @@
 import type { TaskChecklistItem } from "./task-checklist.js";
 
 export type AgentEvent =
+  | { type: "model_request_started" }
   | { type: "text_delta"; text: string }
   | { type: "message_complete"; text: string }
   | { type: "tool_started"; id: string; name: string; summary: string }
-  | { type: "tool_finished"; id: string; status: "ok" | "error" }
+  | {
+      type: "tool_finished";
+      id: string;
+      status: "ok" | "error";
+      error?: string;
+    }
   | { type: "usage"; inputTokens?: number; outputTokens?: number }
   | { type: "todo_updated"; tasks: TaskChecklistItem[] }
   | { type: "run_settled"; aborted: boolean }
@@ -96,6 +102,7 @@ export interface ForkPoint {
 }
 
 export interface AgentGateway {
+  isRunning(): boolean;
   send(prompt: string, disposition?: PromptDisposition): Promise<void>;
   cancel(): Promise<void>;
   listModels(): Promise<ModelInfo[]>;

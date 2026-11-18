@@ -3,6 +3,21 @@ import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { InferenceStatsLine } from "../../src/tui/inference-stats.js";
 
 describe("inference stats", () => {
+  it("shows the latency breakdown when available", () => {
+    const text = new InferenceStatsLine({
+      elapsedMs: 10000,
+      requests: 3,
+      firstResponseMs: 1200,
+      toolMs: 600,
+      approvalMs: 4000,
+    })
+      .render(220)
+      .map(stripTerminalSequences)
+      .join("");
+    expect(text).toContain(
+      "3 requests · first 1.2s · tools 0.6s · approval 4.0s",
+    );
+  });
   it("shows token counts, average output rate, and elapsed duration on one muted line", () => {
     const lines = new InferenceStatsLine({
       inputTokens: 456,

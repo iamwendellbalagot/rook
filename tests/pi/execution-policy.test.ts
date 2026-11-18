@@ -70,6 +70,35 @@ describe("Rook execution policy", () => {
       {} as never,
     );
     expect(JSON.stringify(log)).toContain("initial");
+    const summary = await tool.execute(
+      "summary",
+      { action: "summary" },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    expect(JSON.stringify(summary)).toContain("src/main.ts");
+    expect(JSON.stringify(summary)).toContain("initial");
+    expect(JSON.stringify(summary)).not.toContain("SECRET");
+    const commit = await tool.execute(
+      "commit",
+      { action: "show" },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    expect(JSON.stringify(commit)).toContain("initial");
+    expect(JSON.stringify(commit)).not.toContain("SECRET");
+    const file = await tool.execute(
+      "file",
+      { action: "show", path: "src/main.ts" },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    expect(file.content).toEqual([
+      { type: "text", text: "export const value = 1;\n" },
+    ]);
     await expect(
       tool.execute(
         "unsafe",
@@ -197,7 +226,7 @@ describe("Rook execution policy", () => {
     const root = await tempRepo();
     const defaults = await loadExecutionPolicyConfig(root);
     expect(defaults).toMatchObject({
-      testingStrategy: "change-impact",
+      testingStrategy: "focused",
       runFullSuiteByDefault: false,
     });
     await mkdir(join(root, ".rook"));
@@ -216,7 +245,8 @@ describe("Rook execution policy", () => {
       runFullSuiteByDefault: true,
     });
     const handlers = new Map<string, (...args: any[]) => unknown>();
-    const extension = createExecutionPolicyExtension(() => "plan", config);
+    let mode: "plan" | "build" = "plan";
+    const extension = createExecutionPolicyExtension(() => mode, config);
     if (typeof extension === "function")
       throw new Error("Expected a named extension.");
     extension.factory({
@@ -230,6 +260,13 @@ describe("Rook execution policy", () => {
     }) as { systemPrompt: string };
     expect(result.systemPrompt).toContain("base prompt");
     expect(result.systemPrompt).toContain("Current Rook mode: plan");
+    mode = "build";
+    const next = handlers.get("before_agent_start")?.({
+      systemPrompt: "base prompt",
+    }) as { systemPrompt: string };
+    expect(next.systemPrompt).toContain("Current Rook mode: build");
+    expect(next.systemPrompt).not.toContain("Current Rook mode: plan");
+    expect(next.systemPrompt).toContain("Impact analysis is optional");
     expect(result.systemPrompt).toContain(
       "implement the requested change before",
     );

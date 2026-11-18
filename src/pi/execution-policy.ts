@@ -21,7 +21,7 @@ const DEFAULT_CONFIG: ExecutionPolicyConfig = {
   preferSimpleSolutions: true,
   minimizeComments: true,
   allowUnrelatedRefactors: false,
-  testingStrategy: "change-impact",
+  testingStrategy: "focused",
   runFullSuiteByDefault: false,
   escalateOnUncertainty: true,
 };
@@ -93,7 +93,8 @@ const QUALITY_GUIDANCE = (config: ExecutionPolicyConfig) => `
 Rook engineering policy:
 - First understand the requested outcome, relevant repository memory, conventions, and affected files. Inspect only what is needed and preserve pre-existing user changes.
 - In build mode, implement the requested change before creating or running task-specific tests. Follow existing architecture and naming; ${config.preferSimpleSolutions ? "prefer the smallest clear solution" : "choose a clear maintainable solution"}, avoid ${config.allowUnrelatedRefactors ? "unnecessary" : "unrelated"} refactors, speculative abstractions, ${config.minimizeComments ? "redundant comments" : "unhelpful comments"}, and dependencies.
-- After implementation, inspect the actual diff and use rook_impact to select relevant existing tests. Expand coverage when shared contracts or broad dependents justify it${config.escalateOnUncertainty ? " or impact is uncertain" : ""}. Run selected checks through the approved bash tool; ${config.runFullSuiteByDefault ? "the full suite may be used when relevant" : "do not default to the full suite"}.
+- Keep small tasks small: read the relevant code, edit, inspect the diff, run an appropriate focused check, and finish. Do not create a checklist or explore the whole repository for a straightforward edit. Batch repository-required handoff and commit work at completion.
+- After implementation, inspect the actual diff and ${config.testingStrategy === "change-impact" ? "prefer rook_impact to select relevant existing tests" : "select relevant existing tests directly when the affected scope is clear; use rook_impact for shared code, broad changes, or uncertain dependencies"}. Impact analysis is optional, not a prerequisite for verification. Expand coverage when shared contracts or broad dependents justify it${config.escalateOnUncertainty ? " or impact is uncertain" : ""}. Run selected checks through the approved bash tool; ${config.runFullSuiteByDefault ? "the full suite may be used when relevant" : "do not default to the full suite"}.
 - ${config.minimizeToolCalls ? "Avoid rereading unchanged files and repeating successful checks when the diff is unchanged." : "Reuse completed reads and checks where practical."} Report checks actually run, failures, and missing verification honestly.
 - Subjective quality goals are guidance, not mechanically guaranteed. Plan mode is read-only: use bounded workspace read/search tools and rook_inspect for structured Git inspection; never attempt shell execution or mutation in plan mode.
 `;

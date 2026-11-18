@@ -65,7 +65,11 @@ In `/build`, Rook can use Pi's `bash` tool to run tests, builds, and other termi
 
 Commands time out after 120 seconds by default; an explicit timeout must be positive and at most 300 seconds. Ctrl+C cancels the active run through Pi's process-tree cancellation. Pi truncates model-facing command output to 2,000 lines or 50 KiB and may save full output to a temporary file. These limits are not a resource/security sandbox or a disk-usage quota. Tool results go to the model; the transcript shows tool status rather than dumping raw output.
 
-Plan mode provides `rook_search` for bounded literal content search that skips symlinks, sensitive paths, binaries, dependencies, and oversized files, plus `rook_inspect` for structured, read-only Git status/diff/log/branch/file operations. It does not expose arbitrary shell. Build mode provides `rook_impact`, which analyzes the current diff, direct source dependents, related existing tests, and recommends focused verification commands. Recognized test/build/type-check/lint commands are blocked until impact analysis has completed after the last Rook file edit. Successful exact verification commands are not repeated until a Rook edit or non-verification shell command invalidates the record. This is best-effort workflow control, not a shell security boundary; arbitrary shell remains host access, and changes made outside Rook's tool events are not detected. Run selected checks with the approved `bash` tool; shared or uncertain changes may justify broader checks. Rook's Pi system guidance prioritizes code-first implementation, simple convention-following changes, diff review, and honest reporting. These code-quality preferences are guidance; tool permissions and mode restrictions are enforced by Rook.
+Plan mode provides `rook_search` for bounded literal content search that skips symlinks, sensitive paths, binaries, dependencies, and oversized files, plus `rook_inspect` for structured, read-only Git operations. Both modes support `summary` (status + recent commits), `status`, `diff`, `log`, `branches`, and `show`. `show` without a path returns commit metadata; with a repository-relative file path it returns the file contents at the revision (default `HEAD`). Plan mode does not expose arbitrary shell.
+
+Small tasks default to relevant reads → edit → inspect the diff → focused verification. Checklists and repository-wide exploration are discouraged for straightforward edits. Build mode's optional `rook_impact` analyzes the current diff, direct source dependents, and related tests; use it for shared code, broad changes, or uncertain dependencies, not as a prerequisite for every check. All shell commands still require one-time approval. Successful exact verification commands are not repeated until a Rook edit or non-verification shell command invalidates the record. This is best-effort workflow control, not a shell security boundary; arbitrary shell remains host access, and changes made outside Rook's tool events are not detected. Code-quality preferences are guidance; tool permissions and mode restrictions are enforced by Rook.
+
+While a run is active, ordinary text is queued as a follow-up; `/steer` changes the current task and `/cancel` stops it. Provider errors do not prematurely release the active run while Pi is retrying. Mode changes are blocked until the run finishes. Timeout/HTML errors are summarized instead of displaying raw upstream markup. The status line distinguishes provider, tool, and approval waits. Completed-run stats include assistant request attempts (including retries), time to first visible text or tool activity, tool time excluding approval waits, approval wait time, and total duration. Queued follow-ups share the active run's totals; these live-session measurements are not persisted, and the existing tokens/sec figure includes all waits.
 
 Optional project overrides can be set in `.rook/policy.json`:
 
@@ -78,7 +82,7 @@ Optional project overrides can be set in `.rook/policy.json`:
     "allow_unrelated_refactors": false
   },
   "testing": {
-    "strategy": "change-impact",
+    "strategy": "focused",
     "run_full_suite_by_default": false,
     "escalate_on_uncertainty": true
   }

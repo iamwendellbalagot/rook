@@ -45,6 +45,7 @@ import { shuffleLoadingPhrases } from "./loading-phrases.js";
 import { HomeScreenBody } from "./home-screen.js";
 import { PromptEditor } from "./prompt-editor.js";
 import { InferenceStatsLine } from "./inference-stats.js";
+import { InferenceTimings } from "./inference-timings.js";
 
 const CHECKLIST_SIDEBAR_MIN_WIDTH = 90;
 const CHECKLIST_SIDEBAR_WIDTH = 34;
@@ -776,6 +777,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   let activeInference:
     | {
         startedAt: number;
+        timings: InferenceTimings;
         inputTokens?: number;
         outputTokens?: number;
       }
@@ -841,9 +843,14 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           ? captureRecentCommits(options.repository.root)
           : [],
       onModeChange: (mode) => {
-        if (state.mode === mode) return;
-        state = reduceAppState(state, { type: "mode_changed", mode });
+        if (
+          state.mode === mode ||
+          activeInference ||
+          options.gateway.isRunning()
+        )
+          return;
         options.gateway.setMode(mode);
+        state = reduceAppState(state, { type: "mode_changed", mode });
         updateHomeDashboard();
         updateFooter();
       },
@@ -877,7 +884,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         loadingPhraseIndex += 1;
         lastLoadingPhrase = activeLoadingPhrase;
       }
-      loadingStatus = `${activeLoadingPhrase}${".".repeat(loadingDotTick + 1)}`;
+      loadingStatus = `Waiting for provider · ${activeLoadingPhrase}${".".repeat(loadingDotTick + 1)}`;
       loadingDotTick = (loadingDotTick + 1) % 3;
       loadingIndicator.setText(tone(`♜ ${loadingStatus}`, "blue"));
       tui.requestRender();
@@ -889,20 +896,19 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   function stopLoadingStatus(): void {
     if (loadingTimer) clearInterval(loadingTimer);
     loadingTimer = undefined;
-    if (loadingStatus) {
-      loadingStatus = undefined;
-      loadingIndicator.setText("");
-      tui.requestRender();
-    }
+    loadingStatus = undefined;
+    loadingIndicator.setText("");
+    tui.requestRender();
   }
 
   function finishInference(inference = activeInference): void {
     if (!inference || inference !== activeInference) return;
     activeInference = undefined;
-    const { startedAt, ...usage } = inference;
+    const { startedAt, timings, ...usage } = inference;
     transcript.addChild(
       new InferenceStatsLine({
         ...usage,
+        ...timings.finish(performance.now()),
         elapsedMs: performance.now() - startedAt,
       }),
     );
@@ -910,7 +916,11 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   }
 
   const unsubscribe = options.gateway.subscribe((event) => {
-    if (event.type === "text_delta") {
+    if (event.type === "model_request_started") {
+      activeInference?.timings.request();
+      if (activeInference) startLoadingStatus();
+    } else if (event.type === "text_delta") {
+      activeInference?.timings.response(performance.now());
       stopLoadingStatus();
       state = reduceAppState(state, event);
       activeResponseText += event.text;
@@ -918,7 +928,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       tui.requestRender();
     } else if (event.type === "message_complete") {
       stopLoadingStatus();
-      state = reduceAppState(state, event);
+      state = { ...reduceAppState(state, event), error: null };
       if (event.text) {
         activeResponseText = event.text;
         ensureActiveResponse().setText(activeResponseText);
@@ -927,7 +937,9 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       activeResponseText = "";
       tui.requestRender();
     } else if (event.type === "tool_started") {
+      activeInference?.timings.tool(event.id, true, performance.now());
       stopLoadingStatus();
+      loadingIndicator.setText(tone(`♜ Running tool · ${event.name}`, "blue"));
       activeResponse = undefined;
       activeResponseText = "";
       state = reduceAppState(state, {
@@ -943,6 +955,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       transcript.addChild(card);
       tui.requestRender();
     } else if (event.type === "tool_finished") {
+      activeInference?.timings.tool(event.id, false, performance.now());
       state = reduceAppState(state, {
         type: "tool_finished",
         id: event.id,
@@ -951,9 +964,13 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       const tool = state.tools.find((candidate) => candidate.id === event.id);
       const card = toolCards.get(event.id);
       if (tool && card) {
-        card.setText(formatToolCard(tool.name, tool.summary, tool.status));
+        const hint = event.error ? ` · ${event.error}` : "";
+        card.setText(
+          formatToolCard(tool.name, tool.summary, tool.status) + hint,
+        );
       }
       toolCards.delete(event.id);
+      loadingIndicator.setText("");
       if (state.runState === "running") startLoadingStatus();
       tui.requestRender();
     } else if (event.type === "todo_updated") {
@@ -976,14 +993,22 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       updateFooter();
     } else if (event.type === "run_settled") {
       stopLoadingStatus();
-      state = reduceAppState(state, { type: "run_state", state: "settled" });
+      state = reduceAppState(state, {
+        type: "run_state",
+        state: state.error ? "failed" : "settled",
+      });
       if (event.aborted) appendText("Run cancelled.", "muted");
       finishInference();
       updateFooter();
     } else if (event.type === "error") {
       stopLoadingStatus();
       state = reduceAppState(state, event);
-      ensureActiveResponse().setText(tone(event.message, roleColors.error));
+      // A retryable provider error does not mean Pi has released the run.
+      if (options.gateway.isRunning() || activeInference)
+        state = reduceAppState(state, { type: "run_state", state: "running" });
+      appendText(event.message, "error");
+      activeResponse = undefined;
+      activeResponseText = "";
       updateFooter();
     }
   });
@@ -1041,14 +1066,25 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     const command = prompt.split(/\s+/, 1)[0];
     const canQueueInput = command === "/steer" || command === "/follow-up";
     if (
-      state.runState === "running" &&
+      (activeInference || options.gateway.isRunning()) &&
       prompt !== "/cancel" &&
       !canQueueInput
     ) {
-      appendText(
-        "A response is still running. Use /cancel or Ctrl+C.",
-        "muted",
-      );
+      if (!prompt.startsWith("/")) {
+        try {
+          await options.gateway.send(prompt, "follow_up");
+          appendText(`Queued follow-up: ${prompt}`, "user");
+        } catch (error) {
+          appendText(
+            `Follow-up not queued: ${prompt}\n${errorMessage(error)}`,
+            "error",
+          );
+        }
+      } else
+        appendText(
+          "A response is still running. Use /cancel, /steer, or /follow-up.",
+          "muted",
+        );
       return;
     }
 
@@ -1191,17 +1227,21 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     appendText(`› ${prompt}`, "user");
     activeResponse = undefined;
     activeResponseText = "";
-    const inference = { startedAt: performance.now() };
+    const startedAt = performance.now();
+    const inference = { startedAt, timings: new InferenceTimings(startedAt) };
     activeInference = inference;
     startLoadingStatus(true);
     updateFooter();
     try {
       await options.gateway.send(prompt);
       if (state.runState === "running") {
-        state = reduceAppState(state, { type: "run_state", state: "settled" });
+        state = reduceAppState(state, {
+          type: "run_state",
+          state: state.error ? "failed" : "settled",
+        });
       }
     } catch (error) {
-      if (state.runState !== "failed") {
+      if (!state.error) {
         state = reduceAppState(state, {
           type: "error",
           message: error instanceof Error ? error.message : String(error),
@@ -1211,6 +1251,11 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         );
       }
     } finally {
+      if (state.runState === "running")
+        state = reduceAppState(state, {
+          type: "run_state",
+          state: state.error ? "failed" : "settled",
+        });
       stopLoadingStatus();
       // Fallback for gateways that finish or throw without run_settled.
       finishInference(inference);
@@ -1654,13 +1699,18 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     const operation = pending.request.access;
     const finish = (choice: ExternalAccessChoice): void => {
       if (activePermissionPrompt?.resolve !== pending.resolve) return;
+      activeInference?.timings.approval(false, performance.now());
       activePermissionPrompt = undefined;
       externalAccessPanel.clear();
+      loadingIndicator.setText("");
       tui.requestRender();
       pending.resolve(choice);
       showNextPermissionPrompt();
     };
     activePermissionPrompt = { resolve: pending.resolve };
+    activeInference?.timings.approval(true, performance.now());
+    stopLoadingStatus();
+    loadingIndicator.setText(tone("♜ Waiting for approval", "blue"));
     externalAccessPanel.show(pending.request, finish);
     tui.requestRender();
     appendText(
@@ -1673,8 +1723,10 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
 
   function denyPendingPermissionPrompts(): void {
     const active = activePermissionPrompt;
+    if (active) activeInference?.timings.approval(false, performance.now());
     activePermissionPrompt = undefined;
     externalAccessPanel.clear();
+    loadingIndicator.setText("");
     tui.requestRender();
     active?.resolve("deny");
     for (const pending of permissionQueue.splice(0)) pending.resolve("deny");
@@ -1942,6 +1994,8 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       }
     }
     if (matchesKey(data, "shift+tab")) {
+      if (activeInference || options.gateway.isRunning())
+        return { consume: true };
       const mode = state.mode === "plan" ? "build" : "plan";
       state = reduceAppState(state, { type: "mode_changed", mode });
       options.gateway.setMode(mode);
@@ -1950,7 +2004,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       return { consume: true };
     }
     if (matchesKey(data, "ctrl+c") || matchesKey(data, "escape")) {
-      if (state.runState === "running") {
+      if (activeInference || options.gateway.isRunning()) {
         denyPendingPermissionPrompts();
         void options.gateway.cancel().catch(() => undefined);
       } else {

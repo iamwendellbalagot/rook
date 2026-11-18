@@ -2,6 +2,7 @@
 
 ## Current state
 
+- Implemented a lightweight harness improvement pass: focused verification is now the default and `rook_impact` is optional, with shell approval, locking, and duplicate-check protections unchanged. Small-task guidance discourages checklists and broad exploration. The gateway exposes authoritative busy state (including prompt preflight); TUI provider errors no longer prematurely unlock input, ordinary active-run text queues through Pi follow-up, mode changes are blocked while busy, partial responses survive errors, and upstream timeout/HTML errors are summarized. Git inspection now supports combined status/log summaries, commit metadata without a path, exact file contents with a path, action labels, and categorized safe failure hints. Live stats add assistant attempts, first text/tool latency, tool time excluding approvals, and approval waits; phase labels distinguish provider/tool/approval. No new dependencies, extra model calls, or automatic retry layer. Focused validation: 76 tests across 10 changed/dependent suites (including gateway lifecycle, policy, SDK integration, and TUI), typecheck, and build pass. User-owned untracked dashboard PNG and `tui_references/` remain untouched.
 - Created a local-only `v0.1.0` Git release tag and standard source ZIP at `../rook-v0.1.0.zip`. ZIP validation passed; no password, remote release, or push.
 - Cleared the Trend Micro address from author metadata on both local release-handoff commits; their committer metadata is unchanged. The `v0.1.0` tag and ZIP were refreshed afterward.
 - M0 (ROOK-001 through ROOK-004) is implemented: TypeScript/ESM scaffold, pinned Pi 1.5.2 adapter, mock gateway, parity matrix, CLI smoke path, and CI workflow.
@@ -62,6 +63,9 @@
 - The permission policy is a host-side guard, not an OS/container sandbox; filesystem checks cannot eliminate hostile concurrent-process races. Executable third-party Pi extensions remain disabled in the policy-controlled runtime; declarative skills and prompt templates are enabled without adding tools.
 - Automatic LLM memory extraction is not implemented; capture is deterministic and run-settled. Retrieval context injection is active for real workspaces. Project opt-out disables both. The JSON registry remains the stable local identity resolver; SQLite mirrors repository metadata and stores snapshots, controls, and memory records.
 
+- Final harness validation also passes formatting/lint, mock CLI smoke, and `git diff --check`; the 22-test TUI suite was rerun after the final error-display adjustment. Changes are ready for live-provider comparison.
+
 ## Pending
 
+- Compare live-provider latency and tool/request counts for a one-line edit, small file creation, and focused bug fix using the new measurements. No live-provider speedup is claimed from deterministic tests. Visually exercise follow-up/cancel during provider retries and phase/stat labels in a real terminal.
 - Pending: visually review the framed home body, solid wordmark, thin left-aligned prompt, shared screen gutters, and inference stats in live Terminal.app and WezTerm (home preview reviewed with Menlo; earlier prompt text previews reviewed), and run the hosted Ubuntu/macOS/Windows CI matrix when available.
