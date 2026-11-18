@@ -13,9 +13,9 @@ describe("home screen body", () => {
 
   it("uses the requested cyan for the home panel borders", () => {
     const lines = new HomeScreenBody().render(60);
-    expect(lines[0]).toContain("\x1b[38;2;37;217;255m");
-    expect(lines.at(-1)).toContain("\x1b[38;2;37;217;255m");
-    expect(tone("│", "border")).toContain("\x1b[38;2;37;217;255m");
+    expect(lines[0]).toContain("\x1b[38;2;141;219;255m");
+    expect(lines.at(-1)).toContain("\x1b[38;2;141;219;255m");
+    expect(tone("│", "border")).toContain("\x1b[38;2;141;219;255m");
   });
 
   it("encloses the brand, tagline, and all four actions in a rounded frame", () => {
