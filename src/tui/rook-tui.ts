@@ -19,6 +19,11 @@ import {
   type Terminal,
 } from "@earendil-works/pi-tui";
 import { resolve } from "node:path";
+import {
+  captureRecentCommits,
+  type GitSnapshot,
+  type RepositoryIdentity,
+} from "../repo/workspace.js";
 import type { AppState } from "../app/state.js";
 import { initialAppState, reduceAppState } from "../app/state.js";
 import type {
@@ -28,7 +33,6 @@ import type {
   ModelInfo,
 } from "../pi/agent-gateway.js";
 import type { TaskChecklistItem } from "../pi/task-checklist.js";
-import type { GitSnapshot, RepositoryIdentity } from "../repo/workspace.js";
 import type { MemoryCaptureManager } from "../memory/capture.js";
 import {
   editorTheme,
@@ -50,6 +54,30 @@ const SCREEN_GUTTER = 2;
 interface SlashCommandSuggestion {
   command: string;
   description: string;
+}
+
+class FooterShortcuts implements Component {
+  render(width: number): string[] {
+    const shortcuts = [
+      ["/", "Commands"],
+      ["@", "Files"],
+      ["#", "Context"],
+      ["⑂", "Mode"],
+    ];
+    return [
+      truncateToWidth(
+        shortcuts
+          .map(
+            ([symbol, label]) =>
+              `${tone("╭", "border")}─ ${tone(symbol!, "cyan", true)} ${label} ─${tone("╮", "border")}`,
+          )
+          .join("  "),
+        Math.max(0, width),
+      ),
+    ];
+  }
+
+  invalidate(): void {}
 }
 
 const BUILTIN_SLASH_COMMANDS: SlashCommandSuggestion[] = [
@@ -677,6 +705,8 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         header.render(width).length -
         editor.render(width).length -
         loadingIndicator.render(width).length -
+        shortcuts.render(width).length -
+        footerDivider.render(width).length -
         footer.render(width).length -
         slashSuggestions.render(width).length -
         (terminal.columns < CHECKLIST_SIDEBAR_MIN_WIDTH
@@ -687,6 +717,8 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   );
   const loadingIndicator = new Text("", 1, 0);
   const footer = new Text("", 1, 0);
+  const footerDivider = new Text("", 1, 0);
+  const shortcuts = new FooterShortcuts();
   const bottom = new VStack([
     slashSuggestions,
     {
@@ -696,8 +728,10 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       visible: ({ width }) => width < CHECKLIST_SIDEBAR_MIN_WIDTH,
     },
     loadingIndicator,
-    editor,
     externalAccessPanel,
+    editor,
+    shortcuts,
+    footerDivider,
     footer,
   ]);
   const screenContent = new VStack([
@@ -721,12 +755,8 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   });
   state = reduceAppState(state, { type: "mode_changed", mode: "plan" });
   const initialModel = options.gateway.currentModel();
-  const initialSession = options.gateway.currentSession();
-  let modelLabel = initialModel
-    ? `${initialModel.provider}/${initialModel.name}`
-    : "no model selected";
-  let sessionLabel = initialSession.id.slice(0, 8);
-  const repositoryLabel = options.repository?.id.slice(0, 8);
+  let modelLabel = initialModel?.name ?? "no model selected";
+  let providerLabel = initialModel?.provider ?? "—";
   let settled = false;
   let resolveRun: (() => void) | undefined;
   const toolCards = new Map<string, Text>();
@@ -759,16 +789,23 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     resolveRun = resolvePromise;
   });
   const updateFooter = (): void => {
-    const status = state.runState === "running" ? " · running" : "";
-    const usage = state.usage
-      ? ` · ↑ ${state.usage.inputTokens ?? 0} ↓ ${state.usage.outputTokens ?? 0}`
-      : "";
-    footer.setText(
-      truncateToWidth(
-        `${tone(modelLabel, "muted")} · ${tone(`S:${sessionLabel}`, "dim")}${repositoryLabel ? ` · ${tone(`R:${repositoryLabel}`, "dim")}` : ""} · ${tone(state.mode.toUpperCase(), state.mode === "plan" ? "blue" : "amber", true)} · ${state.mode === "plan" ? "read-only tools" : "edits + approved shell"}${usage}${status} · Ctrl+C exit`,
-        Math.max(1, terminal.columns),
-      ),
-    );
+    const width = Math.max(1, terminal.columns - SCREEN_GUTTER * 2);
+    const context = state.usage?.inputTokens;
+    const compactCount = (value: number | undefined): string =>
+      value === undefined
+        ? "—"
+        : value >= 1000
+          ? `${(value / 1000).toFixed(1)}k`
+          : String(value);
+    footerDivider.setText(tone("─".repeat(Math.max(0, width - 4)), "border"));
+    const mode =
+      state.mode.toUpperCase() + (state.mode === "plan" ? " (read-only)" : "");
+    const memory = options.memoryCapture ? "ready" : "unavailable";
+    const footerText =
+      width >= 120
+        ? `${tone("Rook v0.1.0", "muted")}  │  ${tone("Model:", "muted")} ${tone(modelLabel, "text")}  │  ${tone("Provider:", "muted")} ${tone(providerLabel, "text")}  │  ${tone("Mode:", "muted")} ${tone(mode, state.mode === "plan" ? "blue" : "amber", true)}  │  ${tone("Context:", "muted")} ${tone(compactCount(context), "text")}  │  ${tone("Memory:", "muted")} ${tone(memory, options.memoryCapture ? "green" : "dim", Boolean(options.memoryCapture))}`
+        : `${tone("Rook v0.1.0", "muted")}  │  ${tone(modelLabel, "text")}  │  ${tone(providerLabel, "text")}  │  ${tone(state.mode.toUpperCase(), state.mode === "plan" ? "blue" : "amber", true)}  │  ${tone(`Ctx ${compactCount(context)}`, "muted")}  │  ${tone(`Mem ${memory}`, options.memoryCapture ? "green" : "dim")}`;
+    footer.setText(truncateToWidth(footerText, Math.max(0, width - 2)));
     tui.requestRender();
   };
   const updateHomeDashboard = (): void => {
@@ -788,11 +825,10 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       ...(snapshot
         ? { snapshotDirty: snapshot.dirtyFingerprint !== null }
         : {}),
-      recentActivity: options.gateway
-        .sessionHistory()
-        .filter((message) => message.role === "user")
-        .slice(-5)
-        .reverse(),
+      recentActivity:
+        options.repository?.kind === "git"
+          ? captureRecentCommits(options.repository.root)
+          : [],
       onModeChange: (mode) => {
         if (state.mode === mode) return;
         state = reduceAppState(state, { type: "mode_changed", mode });
@@ -1452,8 +1488,9 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   async function selectModel(model: ModelInfo): Promise<void> {
     try {
       await options.gateway.selectModel(model);
-      modelLabel = `${model.provider}/${model.name}`;
-      appendText(`Selected ${modelLabel}.`, "muted");
+      modelLabel = model.name;
+      providerLabel = model.provider;
+      appendText(`Selected ${providerLabel}/${modelLabel}.`, "muted");
       updateFooter();
     } catch (error) {
       appendText(errorMessage(error), "error");
@@ -1636,8 +1673,6 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     removeHome();
     for (const child of [...transcript.children]) transcript.removeChild(child);
     toolCards.clear();
-    const session = options.gateway.currentSession();
-    sessionLabel = session.id.slice(0, 8);
     for (const message of options.gateway.sessionHistory()) {
       if (message.role === "user") {
         transcript.addChild(

@@ -16,9 +16,21 @@ const data = {
   memoryCount: 12,
   snapshotDirty: false,
   recentActivity: [
-    { role: "user" as const, text: "Implement project memory indexing" },
-    { role: "user" as const, text: "Refactor agent harness" },
-    { role: "user" as const, text: "Plan: change-impact testing" },
+    {
+      subject: "Implement project memory indexing",
+      files: ["src/memory/index.ts", "tests/memory.test.ts"],
+      fileCount: 2,
+    },
+    {
+      subject: "Refactor agent harness",
+      files: ["src/agent.ts"],
+      fileCount: 1,
+    },
+    {
+      subject: "Plan: change-impact testing",
+      files: ["src/pi/change-impact.ts"],
+      fileCount: 1,
+    },
   ],
 };
 
@@ -93,16 +105,21 @@ describe("home dashboard", () => {
     ).toContain("/plan");
   });
 
-  it("includes real session activity and avoids raw control sequences", () => {
+  it("shows commit subjects and changed files without raw control sequences", () => {
     const dashboard = new HomeScreenBody();
     dashboard.setDashboardData({
       ...data,
       recentActivity: [
-        { role: "user", text: "Check\u001b[31m suspicious \u0007 output" },
+        {
+          subject: "Check\u001b[31m suspicious \u0007 output",
+          files: ["src/check.ts"],
+          fileCount: 1,
+        },
       ],
     });
     const screen = dashboard.render(160).map(stripTerminalSequences).join("\n");
     expect(screen).toContain("Check suspicious output");
+    expect(screen).toContain("src/check.ts");
     expect(screen).not.toContain("\u001b");
   });
 

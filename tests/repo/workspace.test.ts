@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  captureRecentCommits,
   normalizeRemoteUrl,
   resolveWorkspace,
 } from "../../src/repo/workspace.js";
@@ -50,6 +51,25 @@ afterEach(async () => {
 });
 
 describe("workspace identity and Git snapshots", () => {
+  it("lists recent commit subjects with their changed files", async () => {
+    const root = await temporaryRoot();
+    await initRepository(root);
+    await writeFile(join(root, "src.ts"), "first\n");
+    await writeFile(join(root, ".env.local"), "test-only-placeholder\n");
+    git(root, "add", "src.ts");
+    git(root, "add", ".env.local");
+    git(root, "commit", "-m", "add source");
+
+    expect(captureRecentCommits(root)).toEqual([
+      { subject: "add source", files: ["src.ts"], fileCount: 1 },
+      { subject: "initial", files: ["README.md"], fileCount: 1 },
+    ]);
+    expect(
+      captureRecentCommits(root).flatMap((commit) => commit.files),
+    ).not.toContain(".env.local");
+    expect(captureRecentCommits(tmpdir())).toEqual([]);
+  });
+
   it("keeps identity through a local rename and separates same-remote clones", async () => {
     const root = await temporaryRoot();
     const first = join(root, "clone-a", "same-name");

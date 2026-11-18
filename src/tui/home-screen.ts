@@ -59,7 +59,7 @@ export interface HomeDashboardData {
   mode: PermissionMode;
   memoryCount?: number;
   snapshotDirty?: boolean;
-  recentActivity: { text: string; role: "user" | "assistant" }[];
+  recentActivity: { subject: string; files: string[]; fileCount: number }[];
   onModeChange?: (mode: PermissionMode) => void;
 }
 
@@ -221,12 +221,11 @@ function activityLines(data: HomeDashboardData, width: number): string[] {
   if (data.recentActivity.length === 0)
     return [tone("  No recent activity", "muted")];
   return data.recentActivity.slice(0, 5).map((item) => {
-    const icon =
-      item.role === "assistant"
-        ? color("✓", "#1BEA72", true)
-        : color("▣", "#25C4FF", true);
-    const text = safeText(item.text).slice(0, 120) || "Session activity";
-    return `${icon} ${tone(clip(text, Math.max(1, width - 3)), "text")}`;
+    const files = item.files.length
+      ? `${item.files.slice(0, 2).join(", ")}${item.fileCount > 2 ? ` +${item.fileCount - 2}` : ""}`
+      : "no files";
+    const text = `${safeText(item.subject)} · ${safeText(files)}`;
+    return `${color("✓", "#1BEA72", true)} ${tone(clip(text, Math.max(1, width - 3)), "text")}`;
   });
 }
 
@@ -322,7 +321,7 @@ export class HomeScreenBody implements Component {
         leftWidth,
       );
       const middle = frame(
-        "◷  Recent Activity",
+        "◷  Recent Activity · Last 5",
         activityLines(this.data, middleWidth - 4),
         middleWidth,
       );
@@ -380,7 +379,7 @@ export class HomeScreenBody implements Component {
         leftWidth,
       );
       const right = frame(
-        "◷  Recent Activity",
+        "◷  Recent Activity · Last 5",
         activityLines(this.data, rightWidth - 4),
         rightWidth,
       );
@@ -416,7 +415,7 @@ export class HomeScreenBody implements Component {
       ),
       "",
       ...frame(
-        "◷  Recent Activity",
+        "◷  Recent Activity · Last 5",
         activityLines(this.data, width - 4),
         width,
       ),

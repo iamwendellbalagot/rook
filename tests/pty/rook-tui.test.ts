@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -482,7 +483,10 @@ describe("Rook TUI shell", () => {
     expectGutters(lines);
     expect(lines[0]).toMatch(/^  rook/);
     expect(lines.find((line) => line.includes("╭─"))).toMatch(/^  ╭─+╮  $/);
-    expect(lines.some((line) => line.includes("S:session-"))).toBe(true);
+    expect(lines.some((line) => line.includes("Rook v0.1.0"))).toBe(true);
+    expect(lines.some((line) => line.includes("/ Commands"))).toBe(true);
+    expect(lines.some((line) => line.includes("@ Files"))).toBe(true);
+    expect(lines.some((line) => line.includes("# Context"))).toBe(true);
     await app.submit("hello");
     for (const width of [100, 70, 30, 8]) {
       terminal.resize(width, 36);
@@ -618,7 +622,7 @@ describe("Rook TUI shell", () => {
     expect(terminal.writes.join("")).toContain(
       "Started a new persistent session",
     );
-    expect(app.tui.render(100).join("\n")).toContain("S:session-");
+    expect(app.tui.render(100).join("\n")).toContain("Rook v0.1.0");
 
     const pendingRun = app.submit("long running prompt");
     await app.submit("/steer Continue with the simpler approach");
@@ -646,11 +650,9 @@ describe("Rook TUI shell", () => {
     await app.submit("/build");
     app.tui.renderNow(true);
     expect(app.tui.render(100).join("\n")).toContain("BUILD");
-    expect(app.tui.render(100).join("\n")).toContain("edits + approved shell");
     await app.submit("/plan");
     app.tui.renderNow(true);
     expect(app.tui.render(100).join("\n")).toContain("PLAN");
-    expect(app.tui.render(100).join("\n")).toContain("read-only tools");
 
     const accessRequest = gateway.externalAccessPrompt?.({
       toolName: "read",
@@ -664,7 +666,7 @@ describe("Rook TUI shell", () => {
     const accessScreen = app.tui.render(100).join("\n");
     expect(
       accessScreen.indexOf("/Users/test/Downloads/notes.txt"),
-    ).toBeLessThan(accessScreen.indexOf("Ctrl+C exit"));
+    ).toBeLessThan(accessScreen.indexOf("Rook v0.1.0"));
     terminal.input("\u001b[B");
     expect(app.tui.render(100).join("\n")).toContain("2. [Allow read once]");
     terminal.input("\r");
@@ -702,6 +704,81 @@ describe("Rook TUI shell", () => {
     await finished;
     expect(terminal.stopped).toBe(1);
     expect(gateway.externalAccessPrompt).toBeUndefined();
+  });
+
+  it("renders the prompt shortcut chips and footer status layout", async () => {
+    const terminal = new FakeTerminal();
+    terminal.columns = 160;
+    const gateway = new EventGateway();
+    gateway.selectedModel = {
+      provider: "openai",
+      id: "gpt-5",
+      name: "GPT-5",
+    };
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    const screen = app.tui.render(160).map(stripTerminalSequences);
+    const prompt = screen.findIndex((line) => line.includes("rook >"));
+    expect(prompt).toBeGreaterThanOrEqual(0);
+    const footer = screen.slice(prompt + 1).join("\n");
+    expect(footer).toContain("/ Commands");
+    expect(footer).toContain("@ Files");
+    expect(footer).toContain("# Context");
+    expect(footer).toContain("⑂ Mode");
+    expect(footer).toContain("╭");
+    expect(footer).toContain("╮");
+    expect(footer).toContain("Rook v0.1.0");
+    expect(footer).toContain("GPT-5");
+    expect(footer).toContain("openai");
+    expect(footer).toContain("PLAN (read-only)");
+    terminal.input("\u0003");
+    await finished;
+  });
+
+  it("shows recent commit file changes on the home dashboard", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rook-dashboard-git-"));
+    try {
+      const git = (...args: string[]) =>
+        execFileSync("git", args, {
+          cwd: root,
+          stdio: ["ignore", "pipe", "ignore"],
+        });
+      git("init", "-b", "main");
+      git("config", "user.name", "Rook Test");
+      git("config", "user.email", "rook@example.test");
+      await mkdir(join(root, "src"));
+      await writeFile(join(root, "src", "app.ts"), "export {}\n");
+      git("add", "src/app.ts");
+      git("commit", "-m", "Add sample application");
+      const terminal = new FakeTerminal();
+      const gateway = new EventGateway();
+      const app = createRookTui({
+        cwd: root,
+        repository: {
+          id: "repo-dashboard-test",
+          logicalId: "repo-dashboard-test",
+          kind: "git",
+          root,
+          displayName: "dashboard-test",
+          remoteFingerprint: null,
+        },
+        gateway,
+        terminal,
+      });
+      const finished = app.start();
+      const screen = app.tui.render(160).map(stripTerminalSequences).join("\n");
+      expect(screen).toContain("Add sample application");
+      expect(screen).toContain("src/app.ts");
+      expect(screen).not.toContain("Plan:");
+      terminal.input("\u0003");
+      await finished;
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("keeps the dashboard visible when switching modes", async () => {

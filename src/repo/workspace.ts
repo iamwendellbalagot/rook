@@ -32,6 +32,12 @@ export interface GitSnapshot {
   capturedAt: string;
 }
 
+export interface RecentCommit {
+  subject: string;
+  files: string[];
+  fileCount: number;
+}
+
 export interface WorkspaceContext {
   repository: RepositoryIdentity;
   snapshot: GitSnapshot | null;
@@ -291,6 +297,62 @@ export async function captureWorkspaceSnapshot(
     ...(await captureGitSnapshot(repository.root)),
     repoId: repository.id,
   };
+}
+
+export function captureRecentCommits(root: string): RecentCommit[] {
+  let commits: string[];
+  try {
+    commits = git(root, ["log", "-5", "--format=%H%x1f%s"])
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+  return commits.map((entry) => {
+    const [hash, subject] = entry.split("\x1f", 2);
+    if (!hash || !subject) return { subject: entry, files: [], fileCount: 0 };
+    let files: string[] = [];
+    try {
+      files = git(root, [
+        "diff-tree",
+        "--root",
+        "--no-commit-id",
+        "--name-only",
+        "-r",
+        "-z",
+        hash,
+      ])
+        .split("\0")
+        .filter(Boolean)
+        .filter(isSafeCommitPath);
+    } catch {
+      // Keep the commit visible if Git cannot list its changed paths.
+    }
+    return { subject, files, fileCount: files.length };
+  });
+}
+
+function isSafeCommitPath(path: string): boolean {
+  const sensitiveSegments = new Set([
+    ".aws",
+    ".azure",
+    ".config",
+    ".gnupg",
+    ".pi",
+    ".ssh",
+    "credentials",
+    "node_modules",
+  ]);
+  return (
+    !path
+      .split("/")
+      .some(
+        (segment) =>
+          sensitiveSegments.has(segment.toLowerCase()) ||
+          /^\.env(?:\.|$)/i.test(segment),
+      ) && !/\.(?:pem|key|p12|pfx)$/i.test(path)
+  );
 }
 
 async function hashWorkingPath(
