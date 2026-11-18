@@ -15,6 +15,7 @@ import type {
   ProviderAuthPrompt,
 } from "../pi/agent-gateway.js";
 import { selectListTheme, tone } from "./theme.js";
+import { normalizeBrowserUrl } from "./open-browser.js";
 
 class AuthFrame extends Container {
   override render(width: number): string[] {
@@ -42,14 +43,10 @@ function safeAuthText(value: string): string {
 }
 
 function authLink(url: string, label = url): string {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol === "https:" || parsed.protocol === "http:")
-      return hyperlink(safeAuthText(label), parsed.href);
-  } catch {
-    // Show unparseable provider URLs as inert text.
-  }
-  return safeAuthText(label);
+  const normalized = normalizeBrowserUrl(url);
+  return normalized
+    ? hyperlink(safeAuthText(label), normalized)
+    : safeAuthText(label);
 }
 
 class MaskedInput extends Input {
@@ -68,13 +65,16 @@ export class ProviderAuthDialog {
   private readonly overlay: ReturnType<TuiAltScreen["showOverlay"]>;
   private readonly noticeLines: string[] = [];
   private readonly secretValues: string[] = [];
+  private readonly attemptedBrowserUrls = new Set<string>();
   private currentInput: Input | undefined;
   private currentList: SelectList | undefined;
+  private activePromptContent: VStack | undefined;
 
   constructor(
     private readonly tui: TuiAltScreen,
     providerName: string,
     private readonly onCancel: () => void,
+    private readonly openUrl: (url: string) => Promise<void>,
   ) {
     this.panel.addChild(
       new VStack([
@@ -108,6 +108,7 @@ export class ProviderAuthDialog {
           authLink(safe(event.url)),
           ...(event.instructions ? [safe(event.instructions)] : []),
         );
+        this.openSignInUrl(event.url);
         break;
       case "device_code":
         this.noticeLines.splice(
@@ -117,6 +118,7 @@ export class ProviderAuthDialog {
           safe(event.userCode),
           "Waiting for provider confirmation…",
         );
+        this.openSignInUrl(event.verificationUri);
         break;
       case "info":
         this.noticeLines.splice(
@@ -161,6 +163,7 @@ export class ProviderAuthDialog {
     this.currentInput?.setValue("");
     this.currentInput = undefined;
     this.currentList = undefined;
+    this.activePromptContent = undefined;
     this.secretValues.fill("");
     this.secretValues.length = 0;
     this.noticeLines.fill("");
@@ -183,6 +186,32 @@ export class ProviderAuthDialog {
       new VStack(this.noticeLines.map((line) => new Text(line, 1, 0))),
     );
     this.tui.requestRender();
+  }
+
+  private openSignInUrl(value: string): void {
+    const url = normalizeBrowserUrl(value);
+    if (!url) {
+      this.noticeLines.push(
+        "Browser not opened: sign-in URL must use HTTP or HTTPS.",
+      );
+      if (!this.currentInput && !this.currentList) this.renderNotice();
+      return;
+    }
+    if (this.attemptedBrowserUrls.has(url)) return;
+    this.attemptedBrowserUrls.add(url);
+    void this.openUrl(url).catch(() => {
+      const message =
+        "Could not open a browser. Use the sign-in link above to continue.";
+      this.noticeLines.push(message);
+      if (this.activePromptContent) {
+        this.activePromptContent.addChild(
+          new Text(safeAuthText(message), 1, 0),
+        );
+        this.tui.requestRender();
+      } else if (!this.currentInput && !this.currentList) {
+        this.renderNotice();
+      }
+    });
   }
 
   private select(prompt: Extract<ProviderAuthPrompt, { type: "select" }>) {
@@ -232,12 +261,12 @@ export class ProviderAuthDialog {
   private input(prompt: Exclude<ProviderAuthPrompt, { type: "select" }>) {
     return new Promise<string>((resolve, reject) => {
       this.body.clear();
-      this.body.addChild(
-        new VStack([
-          ...this.noticeLines.map((line) => new Text(line, 1, 0)),
-          new Text(safeAuthText(prompt.message), 1, 0),
-        ]),
-      );
+      const promptContent = new VStack([
+        ...this.noticeLines.map((line) => new Text(line, 1, 0)),
+        new Text(safeAuthText(prompt.message), 1, 0),
+      ]);
+      this.activePromptContent = promptContent;
+      this.body.addChild(promptContent);
       const input = prompt.type === "secret" ? new MaskedInput() : new Input();
       this.currentInput = input;
       this.body.addChild(input);
@@ -251,6 +280,7 @@ export class ProviderAuthDialog {
         prompt.signal?.removeEventListener("abort", onAbort);
         input.setValue("");
         this.currentInput = undefined;
+        this.activePromptContent = undefined;
         this.renderNotice();
         if (error) reject(error);
         else resolve(value ?? "");

@@ -65,6 +65,8 @@ class EventGateway implements AgentGateway {
   providers: ProviderInfo[] = [];
   receivedLoginSecret: string | undefined;
   failLoginWithCredential = false;
+  verificationUri = "https://login.example.test/device";
+  loggedOutProviders: string[] = [];
   modeHistory: PermissionMode[] = [];
   forkedEntry?: string;
   compactedInstructions: string | undefined = undefined;
@@ -157,7 +159,7 @@ class EventGateway implements AgentGateway {
       interaction.notify({
         type: "device_code",
         userCode: "WXYZ-1234",
-        verificationUri: "https://login.example.test/device",
+        verificationUri: this.verificationUri,
       });
     }
     this.receivedLoginSecret = await interaction.prompt({
@@ -171,7 +173,9 @@ class EventGateway implements AgentGateway {
       );
   }
 
-  async logout(): Promise<void> {}
+  async logout(providerId: string): Promise<void> {
+    this.loggedOutProviders.push(providerId);
+  }
 
   getThinkingInfo(): ThinkingInfo {
     return { current: "medium", available: ["low", "medium", "high"] };
@@ -395,10 +399,14 @@ describe("Rook TUI shell", () => {
         ],
       },
     ];
+    const openedUrls: string[] = [];
     const app = createRookTui({
       cwd: "/workspace/sample-project",
       gateway,
       terminal,
+      openBrowser: async (url) => {
+        openedUrls.push(url);
+      },
     });
     const finished = app.start();
     await app.submit("/login");
@@ -407,6 +415,7 @@ describe("Rook TUI shell", () => {
     expect(
       app.tui.getScreenLines().map(stripTerminalSequences).join("\n"),
     ).toContain("WXYZ-1234");
+    expect(openedUrls).toEqual(["https://login.example.test/device"]);
 
     const credential = "sk-test-credential-not-for-display";
     for (const character of credential) terminal.input(character);
@@ -454,6 +463,133 @@ describe("Rook TUI shell", () => {
     expect(
       app.tui.getScreenLines().map(stripTerminalSequences).join("\n"),
     ).toContain("cancelled");
+    app.stop();
+    await finished;
+  });
+
+  it("filters provider login methods and logout choices by searchable text", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    gateway.providers = [
+      {
+        id: "anthropic",
+        name: "Anthropic",
+        configured: true,
+        authMethods: [
+          { type: "oauth", name: "Claude Pro/Max", isSubscription: true },
+          { type: "api_key", name: "Anthropic API key" },
+        ],
+      },
+      {
+        id: "openai",
+        name: "OpenAI",
+        configured: true,
+        authMethods: [
+          { type: "oauth", name: "ChatGPT subscription", isSubscription: true },
+        ],
+      },
+    ];
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    const screen = (): string => {
+      app.tui.renderNow(true);
+      return app.tui.getScreenLines().map(stripTerminalSequences).join("\n");
+    };
+
+    await app.submit("/login");
+    expect(screen()).toContain("Search by provider or sign-in method");
+    for (const character of "claude") terminal.input(character);
+    expect(screen()).toContain("Anthropic · Claude Pro/Max");
+    expect(screen()).not.toContain("OpenAI · ChatGPT subscription");
+    terminal.input("\u001b");
+
+    await app.submit("/logout");
+    expect(screen()).toContain("Search by provider name or ID");
+    for (const character of "openai") terminal.input(character);
+    expect(screen()).toContain("OpenAI");
+    expect(screen()).not.toContain("Anthropic · configured in Pi");
+    terminal.input("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(gateway.loggedOutProviders).toEqual(["openai"]);
+
+    app.stop();
+    await finished;
+  });
+
+  it("does not open unsafe OAuth URLs and keeps a manual fallback", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    gateway.verificationUri = "javascript:alert(1)";
+    gateway.providers = [
+      {
+        id: "anthropic",
+        name: "Anthropic",
+        configured: false,
+        authMethods: [{ type: "oauth", name: "Claude login" }],
+      },
+    ];
+    const openedUrls: string[] = [];
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+      openBrowser: async (url) => {
+        openedUrls.push(url);
+      },
+    });
+    const finished = app.start();
+    await app.submit("/login");
+    terminal.input("\r");
+    app.tui.renderNow(true);
+    const screen = app.tui
+      .getScreenLines()
+      .map(stripTerminalSequences)
+      .join("\n");
+    expect(openedUrls).toEqual([]);
+    expect(screen).toContain("javascript:alert(1)");
+    expect(screen).toContain("Browser not opened");
+    terminal.input("\u0003");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    app.stop();
+    await finished;
+  });
+
+  it("keeps the OAuth link visible when the system browser cannot launch", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    gateway.providers = [
+      {
+        id: "anthropic",
+        name: "Anthropic",
+        configured: false,
+        authMethods: [{ type: "oauth", name: "Claude login" }],
+      },
+    ];
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+      openBrowser: async () => {
+        throw new Error("launcher unavailable");
+      },
+    });
+    const finished = app.start();
+    await app.submit("/login");
+    terminal.input("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    app.tui.renderNow(true);
+    const screen = app.tui
+      .getScreenLines()
+      .map(stripTerminalSequences)
+      .join("\n");
+    expect(screen).toContain("https://login.example.test/device");
+    expect(screen).toContain("Could not open a browser");
+    terminal.input("\u0003");
+    await new Promise<void>((resolve) => setImmediate(resolve));
     app.stop();
     await finished;
   });

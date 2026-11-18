@@ -50,6 +50,7 @@ import { PromptEditor } from "./prompt-editor.js";
 import { InferenceStatsLine } from "./inference-stats.js";
 import { InferenceTimings } from "./inference-timings.js";
 import { ProviderAuthDialog } from "./provider-auth-dialog.js";
+import { openBrowser } from "./open-browser.js";
 
 const CHECKLIST_SIDEBAR_MIN_WIDTH = 90;
 const CHECKLIST_SIDEBAR_WIDTH = 34;
@@ -135,6 +136,7 @@ export interface RookTuiOptions {
   memoryCapture?: MemoryCaptureManager;
   gateway: AgentGateway;
   terminal?: Terminal;
+  openBrowser?: (url: string) => Promise<void>;
 }
 
 export interface RookTuiController {
@@ -1891,11 +1893,13 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         );
         return;
       }
-      showSelection(
+      showSearchableSelection(
         "Choose provider sign-in method",
         loginOptions.map(({ provider, method }) => ({
           value: JSON.stringify({ providerId: provider.id, type: method.type }),
-          label: `${provider.name} · ${method.loginLabel ?? method.name}`,
+          label: safeTerminalText(
+            `${provider.name} · ${method.loginLabel ?? method.name}`,
+          ),
           description:
             method.type === "oauth"
               ? method.isSubscription === false
@@ -1903,6 +1907,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
                 : "OAuth subscription sign-in"
               : "API key sign-in",
         })),
+        "Search by provider or sign-in method",
         async (value) => {
           const selected = JSON.parse(value) as {
             providerId: string;
@@ -1919,17 +1924,20 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       );
       return;
     }
-    showSelection(
+    showSearchableSelection(
       "Select provider to log out",
       providers.map((provider) => ({
         value: provider.id,
-        label: provider.name,
+        label: safeTerminalText(provider.name),
         description: provider.configured
           ? "configured in Pi"
           : provider.authMethods.length
-            ? `not configured · ${provider.authMethods.map((method) => method.name).join(", ")}`
+            ? safeTerminalText(
+                `not configured · ${provider.authMethods.map((method) => method.name).join(", ")}`,
+              )
             : "not configured",
       })),
+      "Search by provider name or ID",
       async (providerId) => {
         const provider = providers.find(
           (candidate) => candidate.id === providerId,
@@ -1950,8 +1958,11 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     method: ProviderAuthMethod,
   ): Promise<void> {
     const controller = new AbortController();
-    const dialog = new ProviderAuthDialog(tui, provider.name, () =>
-      controller.abort(),
+    const dialog = new ProviderAuthDialog(
+      tui,
+      provider.name,
+      () => controller.abort(),
+      options.openBrowser ?? openBrowser,
     );
     const handleAuthInput = (data: string): void => dialog.handleInput(data);
     modalInputHandler = handleAuthInput;
@@ -2063,6 +2074,91 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     modalInputHandler = handleSelectionInput;
     modalInputCaptureAll = false;
     tui.setFocus(list);
+    return hide;
+  }
+
+  function showSearchableSelection(
+    title: string,
+    items: { value: string; label: string; description?: string }[],
+    searchHint: string,
+    onSelect: (value: string) => void | Promise<void>,
+    onCancel?: () => void,
+  ): () => void {
+    const searchEditor = new Editor(tui, editorTheme, { paddingX: 1 });
+    const resultSummary = new Text(
+      tone(`${items.length} options`, "muted"),
+      1,
+      0,
+    );
+    const listContainer = new Container();
+    let list: SelectList;
+    let hide = (): void => {};
+    const filteredItems = (query: string) => {
+      const normalized = query.trim().toLocaleLowerCase();
+      return normalized
+        ? items.filter((item) =>
+            [item.label, item.value, item.description ?? ""].some((field) =>
+              field.toLocaleLowerCase().includes(normalized),
+            ),
+          )
+        : items;
+    };
+    const updateList = (query: string): void => {
+      const filtered = filteredItems(query);
+      resultSummary.setText(
+        tone(
+          query.trim()
+            ? `${filtered.length} matches`
+            : `${items.length} options`,
+          "muted",
+        ),
+      );
+      list = new SelectList(filtered, 10, selectListTheme);
+      list.onSelect = (item) => {
+        hide();
+        void onSelect(item.value);
+      };
+      list.onCancel = () => {
+        hide();
+        onCancel?.();
+      };
+      listContainer.clear();
+      listContainer.addChild(list);
+      tui.requestRender();
+    };
+    const content = new VStack([
+      new Text(tone(title, "text", true), 1, 0),
+      resultSummary,
+      new Text(tone(`⌕  ${searchHint}`, "dim"), 1, 0),
+      searchEditor,
+      new ModalSeparator(),
+      listContainer,
+      new ModalSeparator(),
+      new Text(tone("↑/↓ navigate   Enter select   Esc close", "dim"), 1, 0),
+    ]);
+    const panel = new RoundedModal();
+    panel.addChild(content);
+    const overlay = tui.showOverlay(panel, {
+      anchor: "center",
+      width: "78%",
+      minWidth: 52,
+      maxHeight: "85%",
+      margin: SCREEN_GUTTER,
+    });
+    const handleInput = (data: string): void => list.handleInput(data);
+    hide = () => {
+      overlay.hide();
+      if (modalInputHandler === handleInput) {
+        modalInputHandler = undefined;
+        modalInputCaptureAll = false;
+      }
+      tui.setFocus(editor);
+    };
+    searchEditor.onChange = updateList;
+    updateList("");
+    modalInputHandler = handleInput;
+    modalInputCaptureAll = false;
+    tui.setFocus(searchEditor);
     return hide;
   }
 
