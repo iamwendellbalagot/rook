@@ -44,7 +44,11 @@ import {
   selectListTheme,
   tone,
 } from "./theme.js";
-import { shuffleLoadingPhrases } from "./loading-phrases.js";
+import {
+  LOADING_DOT_INTERVAL_MS,
+  LOADING_WORD_INTERVAL_MS,
+  shuffleLoadingWords,
+} from "./loading-phrases.js";
 import { HomeScreenBody } from "./home-screen.js";
 import { PromptEditor } from "./prompt-editor.js";
 import { InferenceStatsLine } from "./inference-stats.js";
@@ -810,11 +814,12 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     resolve: (choice: ExternalAccessChoice) => void;
   }[] = [];
   let loadingTimer: ReturnType<typeof setInterval> | undefined;
-  let loadingPhraseOrder: string[] = [];
-  let loadingPhraseIndex = 0;
+  let loadingWordTimer: ReturnType<typeof setInterval> | undefined;
+  let loadingWordOrder: string[] = [];
+  let loadingWordIndex = 0;
   let loadingDotTick = 0;
-  let activeLoadingPhrase = "";
-  let lastLoadingPhrase: string | undefined;
+  let activeLoadingWord = "";
+  let lastLoadingWord: string | undefined;
   let loadingStatus: string | undefined;
   let activePermissionPrompt:
     | {
@@ -886,39 +891,37 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   function startLoadingStatus(reset = false): void {
     stopLoadingStatus();
     if (reset) {
-      loadingPhraseOrder = shuffleLoadingPhrases(
-        Math.random,
-        lastLoadingPhrase,
-      );
-      loadingPhraseIndex = 0;
+      loadingWordOrder = shuffleLoadingWords(Math.random, lastLoadingWord);
+      loadingWordIndex = 0;
       loadingDotTick = 0;
-      activeLoadingPhrase = "";
+      activeLoadingWord = "";
     }
-    const update = (): void => {
-      if (loadingDotTick === 0) {
-        if (loadingPhraseIndex >= loadingPhraseOrder.length) {
-          loadingPhraseOrder = shuffleLoadingPhrases(
-            Math.random,
-            lastLoadingPhrase,
-          );
-          loadingPhraseIndex = 0;
-        }
-        activeLoadingPhrase = loadingPhraseOrder[loadingPhraseIndex]!;
-        loadingPhraseIndex += 1;
-        lastLoadingPhrase = activeLoadingPhrase;
+    const updateLabel = (): void => {
+      if (loadingWordIndex >= loadingWordOrder.length) {
+        loadingWordOrder = shuffleLoadingWords(Math.random, lastLoadingWord);
+        loadingWordIndex = 0;
       }
-      loadingStatus = `Waiting for provider · ${activeLoadingPhrase}${".".repeat(loadingDotTick + 1)}`;
+      activeLoadingWord = loadingWordOrder[loadingWordIndex]!;
+      loadingWordIndex += 1;
+      lastLoadingWord = activeLoadingWord;
+      update();
+    };
+    const update = (): void => {
+      loadingStatus = `Rook is ${activeLoadingWord}${".".repeat(loadingDotTick + 1)}`;
       loadingDotTick = (loadingDotTick + 1) % 3;
       loadingIndicator.setText(tone(`♜ ${loadingStatus}`, "blue"));
       tui.requestRender();
     };
-    update();
-    loadingTimer = setInterval(update, 650);
+    updateLabel();
+    loadingTimer = setInterval(update, LOADING_DOT_INTERVAL_MS);
+    loadingWordTimer = setInterval(updateLabel, LOADING_WORD_INTERVAL_MS);
   }
 
   function stopLoadingStatus(): void {
     if (loadingTimer) clearInterval(loadingTimer);
+    if (loadingWordTimer) clearInterval(loadingWordTimer);
     loadingTimer = undefined;
+    loadingWordTimer = undefined;
     loadingStatus = undefined;
     loadingIndicator.setText("");
     tui.requestRender();
