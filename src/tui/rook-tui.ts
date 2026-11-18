@@ -107,6 +107,8 @@ const BUILTIN_SLASH_COMMANDS: SlashCommandSuggestion[] = [
   { command: "/steer", description: "Steer the current response" },
   { command: "/follow-up", description: "Queue a follow-up" },
   { command: "/permissions", description: "Review access grants" },
+  { command: "/diff", description: "Review current Git changes" },
+  { command: "/undo", description: "Review or restore Rook's last file edit" },
   { command: "/memory", description: "Manage repository memory" },
   { command: "/help", description: "Show available commands" },
   { command: "/cancel", description: "Cancel the current response" },
@@ -1097,9 +1099,32 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/help":
           removeHome();
           appendText(
-            "Available: /help, /login, /logout, /model, /settings, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
+            "Available: /help, /login, /logout, /model, /settings, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /diff, /undo [confirm], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
             "muted",
           );
+          return;
+        case "/diff":
+          removeHome();
+          try {
+            appendText(
+              safeTerminalText(await options.gateway.inspectGitChanges()),
+              "muted",
+            );
+          } catch (error) {
+            appendText(errorMessage(error), "error");
+          }
+          return;
+        case "/undo":
+          removeHome();
+          if (prompt === "/undo") {
+            appendText(options.gateway.getUndoPreview(), "muted");
+            return;
+          }
+          if (prompt === "/undo confirm") {
+            appendText(await options.gateway.undoLastFileChange(), "muted");
+            return;
+          }
+          appendText("Usage: /undo [confirm]", "error");
           return;
         case "/model":
           await showModelMenu();

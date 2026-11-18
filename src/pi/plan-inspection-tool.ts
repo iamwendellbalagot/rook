@@ -111,6 +111,41 @@ export function createPlanInspectionTool(cwd: string) {
   });
 }
 
+export function inspectGitWorkspace(cwd: string): string {
+  const status = runGit(cwd, [
+    "status",
+    "--porcelain=v1",
+    "-z",
+    "--untracked-files=all",
+  ]);
+  const entries = status
+    .split("\0")
+    .filter(Boolean)
+    .filter((entry) => isSafeRepoPath(entry.slice(3)));
+  const summary = entries.length
+    ? entries
+        .map(
+          (entry) => `${entry.slice(0, 2)} ${JSON.stringify(entry.slice(3))}`,
+        )
+        .join("\n")
+    : "Working tree clean (or only sensitive paths are changed).";
+  const files = changedRepoFiles(cwd).filter(isSafeRepoPath);
+  const diff = files.length
+    ? runGit(cwd, [
+        "--literal-pathspecs",
+        "diff",
+        "HEAD",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--",
+        ...files,
+      ])
+    : "No inspectable tracked changes.";
+  return limitOutput(
+    `Git status (XY: staged, unstaged):\n${summary}\n\nDiff vs HEAD:\n${diff}`,
+  );
+}
+
 export function changedRepoFiles(cwd: string): string[] {
   let output = "";
   try {

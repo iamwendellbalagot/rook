@@ -15,6 +15,7 @@ import type {
 } from "../pi/agent-gateway.js";
 import { TASK_CHECKLIST_TOOL_NAME } from "../pi/task-checklist.js";
 import { MAX_SHELL_COMMAND_LENGTH, shellTimeout } from "./shell-limits.js";
+import { FileChangeRecovery } from "./file-change-recovery.js";
 
 const READ_TOOLS = new Set(["read", "find", "ls"]);
 const MUTATING_TOOLS = new Set(["edit", "write"]);
@@ -33,6 +34,7 @@ const SENSITIVE_SEGMENTS = new Set([
 ]);
 
 export class ToolPolicy {
+  private readonly fileRecovery: FileChangeRecovery;
   private mode: PermissionMode = "plan";
   private changeVersion = 0;
   private workspaceRoot?: Promise<string>;
@@ -45,7 +47,36 @@ export class ToolPolicy {
     | ((request: ExternalAccessRequest) => Promise<ExternalAccessChoice>)
     | undefined = undefined;
 
-  constructor(private readonly cwd: string) {}
+  constructor(private readonly cwd: string) {
+    this.fileRecovery = new FileChangeRecovery(cwd);
+  }
+
+  async beginToolExecution(
+    toolCallId: string,
+    toolName: string,
+    input: unknown,
+  ): Promise<void> {
+    await this.fileRecovery.begin(toolCallId, toolName, input);
+  }
+
+  async finishToolExecution(
+    toolCallId: string,
+    toolName: string,
+    isError: boolean,
+  ): Promise<void> {
+    if (toolName === "edit" || toolName === "write") {
+      await this.fileRecovery.finish(toolCallId, isError);
+    }
+    this.finish(toolCallId, toolName, isError);
+  }
+
+  getUndoPreview(): string {
+    return this.fileRecovery.preview();
+  }
+
+  undoLastFileChange(): Promise<string> {
+    return this.fileRecovery.undo();
+  }
 
   setMode(mode: PermissionMode): void {
     this.mode = mode;
@@ -382,8 +413,15 @@ export function createToolPolicyExtension(policy: ToolPolicy): InlineExtension {
           ? undefined
           : { block: true, reason: decision.reason };
       });
-      pi.on("tool_execution_end", (event) => {
-        policy.finish(event.toolCallId, event.toolName, event.isError);
+      pi.on("tool_execution_start", (event) =>
+        policy.beginToolExecution(event.toolCallId, event.toolName, event.args),
+      );
+      pi.on("tool_execution_end", async (event) => {
+        await policy.finishToolExecution(
+          event.toolCallId,
+          event.toolName,
+          event.isError,
+        );
       });
     },
   };

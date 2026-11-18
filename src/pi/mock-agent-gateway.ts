@@ -108,6 +108,18 @@ export class MockAgentGateway implements AgentGateway {
 
   setMode(_mode: PermissionMode): void {}
 
+  async inspectGitChanges(): Promise<string> {
+    return "Git inspection is unavailable in mock mode.";
+  }
+
+  getUndoPreview(): string {
+    return "No reversible Rook file edit is available in this session.";
+  }
+
+  async undoLastFileChange(): Promise<string> {
+    return this.getUndoPreview();
+  }
+
   getPermissionDecisions(): PermissionDecision[] {
     return [];
   }

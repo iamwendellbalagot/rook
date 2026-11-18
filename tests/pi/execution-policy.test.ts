@@ -9,7 +9,10 @@ import {
   createExecutionPolicyExtension,
   loadExecutionPolicyConfig,
 } from "../../src/pi/execution-policy.js";
-import { createPlanInspectionTool } from "../../src/pi/plan-inspection-tool.js";
+import {
+  createPlanInspectionTool,
+  inspectGitWorkspace,
+} from "../../src/pi/plan-inspection-tool.js";
 import { createWorkspaceSearchTool } from "../../src/pi/workspace-search-tool.js";
 
 const roots: string[] = [];
@@ -118,6 +121,29 @@ describe("Rook execution policy", () => {
       ),
     ).rejects.toThrow("files only");
     expect(await readFile(join(root, ".git", "index"))).toEqual(indexBefore);
+  });
+
+  it("returns a user-facing status and reviewable diff while filtering sensitive paths", async () => {
+    const root = await tempRepo();
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "main.ts"), "export const value = 1;\n");
+    await writeFile(join(root, ".env.local"), "TOKEN=secret\n");
+    execFileSync("git", ["add", "src/main.ts", ".env.local"], { cwd: root });
+    execFileSync(
+      "git",
+      ["-c", "core.hooksPath=/dev/null", "commit", "-qm", "initial"],
+      { cwd: root },
+    );
+    await writeFile(join(root, "src", "main.ts"), "export const value = 2;\n");
+    await writeFile(join(root, ".env.local"), "TOKEN=changed-secret\n");
+
+    const review = inspectGitWorkspace(root);
+    expect(review).toContain("Git status (XY: staged, unstaged)");
+    expect(review).toContain('"src/main.ts"');
+    expect(review).toContain("Diff vs HEAD");
+    expect(review).toContain("value = 2");
+    expect(review).not.toContain(".env.local");
+    expect(review).not.toContain("TOKEN");
   });
 
   it("maps changed source to direct dependents and existing focused tests", async () => {

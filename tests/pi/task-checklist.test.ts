@@ -128,6 +128,25 @@ describe("Rook task checklist", () => {
     ).toEqual([]);
   });
 
+  it("rejects malformed persisted statuses and field types at runtime", () => {
+    for (const tasks of [
+      [{ id: "x", title: "Task", status: "blocked" }],
+      [{ id: "x", title: 3, status: "pending" }],
+      [{ id: "x", title: "Task" }],
+      [null],
+    ]) {
+      expect(
+        restoreTaskChecklistFromEntries([
+          {
+            type: "custom",
+            customType: TASK_CHECKLIST_SESSION_ENTRY,
+            data: { tasks },
+          },
+        ]),
+      ).toEqual([]);
+    }
+  });
+
   it("survives closing and reopening the owning Pi session", async () => {
     const directory = await mkdtemp(join(tmpdir(), "rook-checklist-session-"));
     try {

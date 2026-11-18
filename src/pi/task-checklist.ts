@@ -65,14 +65,29 @@ export function createTaskChecklistTool(
   });
 }
 
-export function normalizeTaskChecklist(
-  tasks: TaskChecklistItem[],
-): TaskChecklistItem[] {
+export function normalizeTaskChecklist(input: unknown): TaskChecklistItem[] {
+  if (!Array.isArray(input)) {
+    throw new Error("Checklist tasks must be an array.");
+  }
+  const tasks: unknown[] = input;
   if (tasks.length > 12) {
     throw new Error("A Rook checklist must contain at most 12 tasks.");
   }
   const ids = new Set<string>();
-  return tasks.map((task) => {
+  return tasks.map((value) => {
+    if (!value || typeof value !== "object") {
+      throw new Error("Checklist tasks must be objects.");
+    }
+    const task = value as Record<string, unknown>;
+    if (
+      typeof task.id !== "string" ||
+      typeof task.title !== "string" ||
+      (task.status !== "pending" &&
+        task.status !== "in_progress" &&
+        task.status !== "completed")
+    ) {
+      throw new Error("Checklist task data is malformed.");
+    }
     const id = task.id.trim();
     const title = task.title.trim();
     if (!id || id.length > 40) {
@@ -90,10 +105,8 @@ export function normalizeTaskChecklist(
 export function restoreTaskChecklist(data: unknown): TaskChecklistItem[] {
   if (!data || typeof data !== "object" || !("tasks" in data)) return [];
   const tasks = (data as { tasks?: unknown }).tasks;
-  if (!Array.isArray(tasks)) return [];
-  if (tasks.length === 0) return [];
   try {
-    return normalizeTaskChecklist(tasks as TaskChecklistItem[]);
+    return normalizeTaskChecklist(tasks);
   } catch {
     return [];
   }

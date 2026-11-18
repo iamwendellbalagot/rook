@@ -124,6 +124,9 @@ export interface AgentGateway {
   newSession(): Promise<void>;
   resumeSession(path: string): Promise<void>;
   setMode(mode: PermissionMode): void;
+  inspectGitChanges(): Promise<string>;
+  getUndoPreview(): string;
+  undoLastFileChange(): Promise<string>;
   getPermissionDecisions(): PermissionDecision[];
   setExternalAccessPrompt(
     handler:

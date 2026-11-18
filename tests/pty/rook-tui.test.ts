@@ -93,6 +93,18 @@ class EventGateway implements AgentGateway {
 
   async cancel(): Promise<void> {}
 
+  async inspectGitChanges(): Promise<string> {
+    return "Git status\n M src/example.ts\n\nDiff vs HEAD\n+change";
+  }
+
+  getUndoPreview(): string {
+    return "Rook can restore its last file edit: src/example.ts. Use /undo confirm.";
+  }
+
+  async undoLastFileChange(): Promise<string> {
+    return "Restored Rook's last edit to src/example.ts.";
+  }
+
   async listModels(): Promise<ModelInfo[]> {
     return this.models;
   }
@@ -457,6 +469,60 @@ describe("Rook TUI shell", () => {
       await finished;
     },
   );
+
+  it("shows repository status and diff through /diff without prompting the model", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+
+    await app.submit("/diff");
+
+    const screen = app.tui.render(100).map(stripTerminalSequences).join("\n");
+    expect(screen).toContain("Git status");
+    expect(screen).toContain("src/example.ts");
+    expect(screen).toContain("Diff vs HEAD");
+    expect(gateway.sentPrompts).toEqual([]);
+
+    terminal.input("\u0003");
+    await finished;
+  });
+
+  it("requires the explicit /undo confirm command to recover a Rook edit", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+
+    await app.submit("/undo");
+    expect(
+      app.tui
+        .render(100)
+        .map(stripTerminalSequences)
+        .join(" ")
+        .replace(/\s+/g, " "),
+    ).toContain("Use /undo confirm");
+    await app.submit("/undo confirm");
+    expect(
+      app.tui
+        .render(100)
+        .map(stripTerminalSequences)
+        .join(" ")
+        .replace(/\s+/g, " "),
+    ).toContain("Restored Rook's last edit");
+    expect(gateway.sentPrompts).toEqual([]);
+
+    terminal.input("\u0003");
+    await finished;
+  });
 
   it("shares screen gutters across the header, home, transcript, prompt, and footer", async () => {
     const terminal = new FakeTerminal();

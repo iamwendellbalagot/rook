@@ -31,7 +31,10 @@ import {
   createExecutionPolicyExtension,
   loadExecutionPolicyConfig,
 } from "./execution-policy.js";
-import { createPlanInspectionTool } from "./plan-inspection-tool.js";
+import {
+  createPlanInspectionTool,
+  inspectGitWorkspace,
+} from "./plan-inspection-tool.js";
 import { createWorkspaceSearchTool } from "./workspace-search-tool.js";
 import {
   createToolPolicyExtension,
@@ -320,6 +323,15 @@ export async function createPiAgentGateway(
         );
       policy.setMode(mode);
       runtime.session.setActiveToolsByName(activeToolsFor(mode));
+    },
+    async inspectGitChanges() {
+      return inspectGitWorkspace(cwd);
+    },
+    getUndoPreview() {
+      return policy.getUndoPreview();
+    },
+    async undoLastFileChange() {
+      return policy.undoLastFileChange();
     },
     getPermissionDecisions(): PermissionDecision[] {
       return policy.getDecisions();
