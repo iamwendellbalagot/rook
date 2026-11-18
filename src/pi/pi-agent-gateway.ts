@@ -36,6 +36,7 @@ import {
   inspectGitWorkspace,
 } from "./plan-inspection-tool.js";
 import { createWorkspaceSearchTool } from "./workspace-search-tool.js";
+import { createWorkspaceMapTool } from "./workspace-map-tool.js";
 import {
   createToolPolicyExtension,
   ToolPolicy,
@@ -72,12 +73,14 @@ const PLAN_TOOLS = [
   "ls",
   "rook_inspect",
   "rook_search",
+  "rook_map",
   TASK_CHECKLIST_TOOL_NAME,
 ];
 const BUILD_TOOLS = [
   ...AVAILABLE_TOOLS,
   "rook_inspect",
   "rook_search",
+  "rook_map",
   "rook_impact",
   TASK_CHECKLIST_TOOL_NAME,
 ];
@@ -170,6 +173,7 @@ export async function createPiAgentGateway(
             ...AVAILABLE_TOOLS,
             "rook_inspect",
             "rook_search",
+            "rook_map",
             "rook_impact",
             TASK_CHECKLIST_TOOL_NAME,
           ],
@@ -178,6 +182,7 @@ export async function createPiAgentGateway(
             createRookBashTool(sessionCwd),
             createPlanInspectionTool(sessionCwd),
             createWorkspaceSearchTool(sessionCwd),
+            createWorkspaceMapTool(sessionCwd),
             createChangeImpactTool(sessionCwd, executionConfig),
           ],
         })),

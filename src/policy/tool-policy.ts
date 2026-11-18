@@ -21,6 +21,7 @@ const READ_TOOLS = new Set(["read", "find", "ls"]);
 const MUTATING_TOOLS = new Set(["edit", "write"]);
 const PLAN_INSPECTION_TOOL = "rook_inspect";
 const WORKSPACE_SEARCH_TOOL = "rook_search";
+const WORKSPACE_MAP_TOOL = "rook_map";
 const CHANGE_IMPACT_TOOL = "rook_impact";
 const SENSITIVE_SEGMENTS = new Set([
   ".git",
@@ -154,7 +155,8 @@ export class ToolPolicy {
       allowed = reason.startsWith("Allowed ");
     } else if (
       toolName === PLAN_INSPECTION_TOOL ||
-      toolName === WORKSPACE_SEARCH_TOOL
+      toolName === WORKSPACE_SEARCH_TOOL ||
+      toolName === WORKSPACE_MAP_TOOL
     ) {
       if (this.activeMutations.size) {
         reason =
@@ -174,9 +176,28 @@ export class ToolPolicy {
       ) {
         reason =
           "A nonempty literal search query of at most 200 characters is required.";
+      } else if (
+        toolName === WORKSPACE_MAP_TOOL &&
+        ((input.query !== undefined &&
+          (typeof input.query !== "string" || input.query.length > 200)) ||
+          (input.path !== undefined &&
+            (typeof input.path !== "string" ||
+              input.path.length > 1024 ||
+              isAbsolute(input.path) ||
+              input.path.split(/[\\/]+/).includes(".."))) ||
+          (input.limit !== undefined &&
+            (typeof input.limit !== "number" ||
+              !Number.isInteger(input.limit) ||
+              input.limit < 1 ||
+              input.limit > 40)))
+      ) {
+        reason = "Workspace map parameters are outside the supported bounds.";
       } else {
         this.activeMutations.add(toolCallId);
-        reason = "Allowed read-only Git inspection.";
+        reason =
+          toolName === WORKSPACE_MAP_TOOL
+            ? "Allowed bounded read-only workspace mapping."
+            : "Allowed read-only repository inspection.";
       }
       allowed = reason.startsWith("Allowed ");
     } else if (toolName === CHANGE_IMPACT_TOOL) {

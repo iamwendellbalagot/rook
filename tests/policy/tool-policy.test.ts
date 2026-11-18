@@ -188,6 +188,16 @@ describe("ToolPolicy", () => {
       (await policy.check("rook_search", { query: "symbol" }, "search-ok"))
         .allowed,
     ).toBe(true);
+    policy.finish("search-ok");
+    expect(
+      (await policy.check("rook_map", { query: "symbol", limit: 10 }, "map-ok"))
+        .allowed,
+    ).toBe(true);
+    policy.finish("map-ok");
+    expect(
+      (await policy.check("rook_map", { path: "../outside" }, "map-bad"))
+        .allowed,
+    ).toBe(false);
     expect(
       (
         await policy.check(
@@ -200,7 +210,6 @@ describe("ToolPolicy", () => {
     expect((await policy.check("rook_impact", {}, "impact-plan")).allowed).toBe(
       false,
     );
-    policy.finish("search-ok");
     policy.setMode("build");
     expect(
       (await policy.check("rook_impact", {}, "impact-build")).allowed,

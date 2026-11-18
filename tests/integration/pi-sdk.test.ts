@@ -34,6 +34,7 @@ describe("Pi SDK compatibility", () => {
           "ls",
           "rook_inspect",
           "rook_search",
+          "rook_map",
           "rook_todo",
         ]),
       );

@@ -27,13 +27,14 @@ Rook combines selected harness ideas around Pi; it is not a feature-for-feature 
 - No claim that host-side tool policy is an OS sandbox. Shell commands run with host permissions; use an external container/VM for untrusted repositories.
 - No automatic second-model/critic pass: extra calls add latency and cost. A separate review workflow should be user-invoked and read-only if added.
 - No executable repository skills, MCP servers, or third-party extensions until their capabilities can be governed by the same policy boundary.
-- No broad repository map or embedding index unless measurements show the current focused retrieval is insufficient.
+- No eager whole-repository dump or embedding index. `rook_map` is on-demand, bounded, source/symbol-only, and query-ranked; focused reads/search remain the default.
 
 ## Current implementation anchors
 
 - Pi adapter and session lifecycle: `src/pi/pi-agent-gateway.ts`.
 - Tool policy, approvals, and recovery ledger: `src/policy/`.
 - Read-only search/Git inspection and change-impact analysis: `src/pi/`.
+- `rook_map` builds a bounded on-demand source/symbol overview, ranks by query and internal importers, and emits no source contents.
 - User-invoked `/review` creates a separate, temporary Pi session in plan mode; it reviews the current Git status/diff without sharing the main conversation or changing the user's active mode. It is not automatic and adds a provider call only when explicitly requested.
 - User-invoked `/explore <question>` uses the same fresh-context, plan-only session pattern for focused repository research, returning a concise answer without adding exploratory tool traces to the main conversation.
 - User-facing mode, command, and review controls: `src/tui/rook-tui.ts`.
