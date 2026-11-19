@@ -103,8 +103,8 @@
 
 ## Pending
 
-- Run a controlled model-issued Rook pilot in observe-only mode; inspect prediction coverage and specificity alongside verdicts and task outcomes. This implementation alone is not evidence that predictions help.
-- Run the pilot from a trusted/build-enabled session so eligible Bash commands are available. Record provider/token/cache overhead and host command durations before proposing Phase 3 feedback.
+- Repeat the live Rook pilot on a host/container where Rook's Bubblewrap namespace probe succeeds. The completed model-issued `npm test` run passed 39 files / 273 tests, but it used the explicit unsandboxed opt-out and `/plyth` metrics were not captured; it does not close the evaluation gate.
+- In the next TUI run, invoke `/plyth` after the eligible command has finished and before exiting. Record eligible/predicted/invalid/specific counts, verdicts, command durations, task result, and provider input/output usage before considering Phase 3 feedback. Feedback remains disabled.
 - Run hosted Ubuntu/macOS/Windows CI after an authorized push or PR.
 - Collect and human-score controlled provider/model coding-evaluation runs if model-quality comparisons are needed.
 - Independently human-score the recorded `RONE_Models/gpt-6-luna` run before treating its provisional 100% rubric estimate as an accepted score.
