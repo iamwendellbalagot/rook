@@ -528,13 +528,18 @@ describe("ToolPolicy", () => {
     expect(impact.allowed).toBe(true);
     policy.finish("impact", "rook_impact", false);
     policy.setExternalAccessPrompt(async () => "once");
-    expect(
-      await handlers.get("tool_call")?.({
-        toolName: "bash",
-        toolCallId: "bash-hook",
-        input: { command: "npm test" },
-      }),
-    ).toBeUndefined();
+    const shellDecision = await handlers.get("tool_call")?.({
+      toolName: "bash",
+      toolCallId: "bash-hook",
+      input: { command: "npm test", expect: { outcome: "pass" } },
+    });
+    expect(shellDecision).toBeUndefined();
+    expect(policy.getDecisions().at(-1)).toMatchObject({
+      toolName: "bash",
+      allowed: true,
+      reason:
+        "Allowed routine command inside the OS sandbox; network access is disabled.",
+    });
     handlers.get("tool_execution_end")?.({
       toolCallId: "bash-hook",
       toolName: "bash",

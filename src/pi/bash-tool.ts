@@ -3,6 +3,7 @@ import {
   createLocalBashOperations,
   defineTool,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import {
   DEFAULT_SHELL_TIMEOUT,
   MAX_SHELL_TIMEOUT,
@@ -99,7 +100,7 @@ export function createRookBashTool(
     label: tool.label,
     execute: tool.execute,
     promptSnippet: "Run approved terminal commands in build mode.",
-    description: `${tool.description} Rook requires build mode. Routine allowlisted commands run without prompts in the sandbox; destructive or unclassified commands require approval, with optional exact-command session grants. ${useSandbox ? "Commands run in an OS sandbox with network disabled and workspace-only writes; sandbox runtime is required and execution fails closed when unavailable." : "Commands run on the host with the user's permissions and are not sandboxed (explicit opt-out)."} Timeout defaults to ${DEFAULT_SHELL_TIMEOUT}s; maximum ${MAX_SHELL_TIMEOUT}s.`,
+    description: `${tool.description} For test, build, or diagnostic commands, optionally provide expect.outcome (pass, fail, or error) and a short expect.evidence label; this metadata does not change the command. Rook requires build mode. Routine allowlisted commands run without prompts in the sandbox; destructive or unclassified commands require approval, with optional exact-command session grants. ${useSandbox ? "Commands run in an OS sandbox with network disabled and workspace-only writes; sandbox runtime is required and execution fails closed when unavailable." : "Commands run on the host with the user's permissions and are not sandboxed (explicit opt-out)."} Timeout defaults to ${DEFAULT_SHELL_TIMEOUT}s; maximum ${MAX_SHELL_TIMEOUT}s.`,
     parameters: {
       ...tool.parameters,
       properties: {
@@ -115,6 +116,19 @@ export function createRookBashTool(
           exclusiveMinimum: 0,
           maximum: MAX_SHELL_TIMEOUT,
         },
+        expect: Type.Optional(
+          Type.Object(
+            {
+              outcome: Type.Union([
+                Type.Literal("pass"),
+                Type.Literal("fail"),
+                Type.Literal("error"),
+              ]),
+              evidence: Type.Optional(Type.String({ maxLength: 200 })),
+            },
+            { additionalProperties: false },
+          ),
+        ),
       },
     },
   });

@@ -29,6 +29,7 @@ import type {
 import { adaptPiEvent } from "./event-adapter.js";
 import { formatAgentError } from "./errors.js";
 import { createRookBashTool } from "./bash-tool.js";
+import { createPlythSpikeExtension } from "./plyth-spike.js";
 import { createChangeImpactTool } from "./change-impact.js";
 import {
   createExecutionPolicyExtension,
@@ -198,6 +199,9 @@ export async function createPiAgentGateway(
             createToolSearchExtension(),
             createMcpExtension(),
             createToolPolicyExtension(policy),
+            createPlythSpikeExtension({
+              feedback: process.env.PLYTH_SPIKE_FEEDBACK === "1",
+            }),
             createExecutionPolicyExtension(
               () => policy.getMode(),
               executionConfig,

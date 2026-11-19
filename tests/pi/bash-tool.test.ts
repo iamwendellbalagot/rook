@@ -14,6 +14,23 @@ const nodeCommand = (script: string) =>
   `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`;
 
 describe("Rook's Pi bash tool", () => {
+  it("accepts a separate bounded expectation without changing the command", async () => {
+    const tool = createRookBashTool(process.cwd(), { sandbox: false });
+    const command = nodeCommand("console.log('unchanged command')");
+    const result = await tool.execute(
+      "expected-result",
+      { command, expect: { outcome: "pass", evidence: "unchanged command" } },
+      undefined,
+      undefined,
+      {} as never,
+    );
+
+    expect(result.isError).not.toBe(true);
+    expect(result.content[0]).toMatchObject({
+      text: expect.stringContaining("unchanged command"),
+    });
+  });
+
   it("uses a bounded default timeout and rejects attempts to disable its limit", async () => {
     expect(shellTimeout(undefined)).toBe(120);
     expect(shellTimeout(300)).toBe(300);
