@@ -47,6 +47,8 @@ export class ToolPolicy {
   private readonly mcpSessionGrants = new Set<string>();
   private explicitMcpAuthorization: Set<string> | "all" | undefined;
   private mcpUserDenied = false;
+  private sandboxShell = true;
+  private sandboxRuntimeAvailable = true;
   private externalAccessPrompt:
     | ((request: ExternalAccessRequest) => Promise<ExternalAccessChoice>)
     | undefined = undefined;
@@ -84,6 +86,18 @@ export class ToolPolicy {
 
   setMode(mode: PermissionMode): void {
     this.mode = mode;
+  }
+
+  setSandboxShell(enabled: boolean): void {
+    this.sandboxShell = enabled;
+  }
+
+  isSandboxShellEnabled(): boolean {
+    return this.sandboxShell;
+  }
+
+  setSandboxRuntimeAvailable(available: boolean): void {
+    this.sandboxRuntimeAvailable = available;
   }
 
   getMode(): PermissionMode {
@@ -310,6 +324,8 @@ export class ToolPolicy {
   ): Promise<string> {
     if (this.mode !== "build")
       return "Plan mode blocks shell execution; switch to /build to run terminal commands.";
+    if (this.sandboxShell && !this.sandboxRuntimeAvailable)
+      return "Shell execution is disabled because the required Bubblewrap sandbox runtime is unavailable; Rook will not fall back to host execution.";
     if (this.activeMutations.size > 0)
       return "Another file mutation or shell command is active; concurrent execution is denied.";
     const command = input.command;
@@ -336,6 +352,7 @@ export class ToolPolicy {
         access: "execute",
         command,
         timeoutSeconds,
+        sandboxed: this.sandboxShell,
       });
       if (choice !== "once")
         return "Shell command execution was denied; each command requires one-time approval.";
@@ -343,7 +360,9 @@ export class ToolPolicy {
         return "Shell approval expired after a mode or approval-handler change.";
       allowed = true;
       this.shellCommands.set(toolCallId, command);
-      return "Allowed once for this host shell command; execution is not sandboxed.";
+      return this.sandboxShell
+        ? "Allowed once for this command; execution is sandboxed."
+        : "Allowed once for this host shell command by explicit policy opt-out; execution is not sandboxed.";
     } catch (error) {
       return error instanceof Error
         ? `Shell execution denied: ${error.message}`

@@ -254,12 +254,13 @@ describe("Rook execution policy", () => {
     expect(defaults).toMatchObject({
       testingStrategy: "focused",
       runFullSuiteByDefault: false,
+      sandboxShell: true,
     });
     await mkdir(join(root, ".rook"));
     await writeFile(
       join(root, ".rook", "policy.json"),
       JSON.stringify({
-        execution: { minimize_tool_calls: false },
+        execution: { minimize_tool_calls: false, sandbox_shell: false },
         code_quality: { prefer_simple_solutions: false },
         testing: { run_full_suite_by_default: true },
       }),
@@ -267,6 +268,7 @@ describe("Rook execution policy", () => {
     const config = await loadExecutionPolicyConfig(root);
     expect(config).toMatchObject({
       minimizeToolCalls: false,
+      sandboxShell: false,
       preferSimpleSolutions: false,
       runFullSuiteByDefault: true,
     });
@@ -298,6 +300,9 @@ describe("Rook execution policy", () => {
     );
     expect(result.systemPrompt).toContain(
       "the full suite may be used when relevant",
+    );
+    expect(result.systemPrompt).toContain(
+      "run on the host because project policy explicitly opted out",
     );
     await writeFile(
       join(root, ".rook", "policy.json"),

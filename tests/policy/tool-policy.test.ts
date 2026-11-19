@@ -42,6 +42,7 @@ describe("ToolPolicy", () => {
       expect(request).toMatchObject({
         access: "execute",
         timeoutSeconds: 120,
+        sandboxed: true,
       });
       return "once";
     });
@@ -82,6 +83,41 @@ describe("ToolPolicy", () => {
     ).toBe(true);
     policy.finish("stale-impact", "bash", false);
     expect(prompts).toBe(3);
+  });
+
+  it("reports whether the approved command is sandboxed in the approval request", async () => {
+    const policy = new ToolPolicy(await workspace());
+    policy.setMode("build");
+    let request: unknown;
+    policy.setExternalAccessPrompt(async (value) => {
+      request = value;
+      return "once";
+    });
+    await policy.check("bash", { command: "npm test" }, "sandboxed");
+    expect(request).toMatchObject({ access: "execute", sandboxed: true });
+    policy.setSandboxShell(false);
+    policy.finish("sandboxed", "bash", false);
+    await policy.check("bash", { command: "npm run build" }, "host");
+    expect(request).toMatchObject({ access: "execute", sandboxed: false });
+  });
+
+  it("blocks shell approval when required sandbox runtime is absent", async () => {
+    const policy = new ToolPolicy(await workspace());
+    policy.setMode("build");
+    policy.setSandboxRuntimeAvailable(false);
+    let prompted = false;
+    policy.setExternalAccessPrompt(async () => {
+      prompted = true;
+      return "once";
+    });
+    const decision = await policy.check(
+      "bash",
+      { command: "touch outside" },
+      "missing-runtime",
+    );
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toContain("will not fall back to host execution");
+    expect(prompted).toBe(false);
   });
 
   it("denies shell execution without an approval UI, after denial, or with a session grant", async () => {

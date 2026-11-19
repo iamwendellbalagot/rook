@@ -45,6 +45,7 @@ import {
   ToolPolicy,
 } from "../policy/tool-policy.js";
 import { WorkspaceModelConfiguration } from "./workspace-models.js";
+import { detectSandboxRuntime } from "../policy/sandbox.js";
 import {
   buildReadOnlyReviewPrompt,
   runReadOnlyReview,
@@ -130,6 +131,13 @@ export async function createPiAgentGateway(
   const handlers = new Set<(event: AgentEvent) => void>();
   const policy = new ToolPolicy(cwd);
   const executionConfig = await loadExecutionPolicyConfig(cwd);
+  const sandboxRuntime = executionConfig.sandboxShell
+    ? await detectSandboxRuntime()
+    : undefined;
+  policy.setSandboxShell(executionConfig.sandboxShell);
+  policy.setSandboxRuntimeAvailable(
+    !executionConfig.sandboxShell || Boolean(sandboxRuntime),
+  );
   let refreshWorkspaceModels = async (): Promise<void> => {};
   let checklist: TaskChecklistItem[] = [];
   let clearChecklistWhenBinding = false;
@@ -221,7 +229,10 @@ export async function createPiAgentGateway(
           ],
           customTools: [
             taskChecklistTool,
-            createRookBashTool(sessionCwd),
+            createRookBashTool(sessionCwd, {
+              sandbox: executionConfig.sandboxShell,
+              ...(sandboxRuntime ? { sandboxRuntime } : {}),
+            }),
             createPlanInspectionTool(sessionCwd),
             createWorkspaceSearchTool(sessionCwd),
             createWorkspaceMapTool(sessionCwd),

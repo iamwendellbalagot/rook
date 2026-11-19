@@ -2,7 +2,7 @@
 
 **A coding agent that grows with your codebase.**
 
-Rook is in early development. Its full-screen TUI integrates Pi with repository-scoped memory and a host-side plan/build tool policy. This policy is not an OS sandbox; use an isolated container or VM for untrusted repositories. See the progress and benchmark documents for current limitations and measured retrieval behavior.
+Rook is in early development. Its full-screen TUI integrates Pi with repository-scoped memory, plan/build tool policy, and platform-limited shell isolation. See the progress and benchmark documents for current limitations and measured retrieval behavior.
 
 ## Requirements
 
@@ -43,6 +43,8 @@ To inspect the TUI without credentials, run `node bin/rook.mjs --mock`. Submit a
 
 Rook's fixture-based coding-task evaluation suite is also offline and credential-free: tasks are completed manually in disposable workspaces, focused checks are run explicitly, and a validated results JSON is scored against a human rubric. It does not automatically call a provider or claim model quality. See [`evals/coding/README.md`](evals/coding/README.md).
 
+Create a Rook-managed detached worktree with `rook worktree create`; list worktrees with `rook worktree list`, review changes with `rook worktree diff <path>`, and remove a clean managed checkout with `rook worktree remove <path>`. Worktrees are full independent clones under `.rook-worktrees/` beside the repository. Uncommitted changes prevent removal. Start Rook in the returned checkout with `rook --cwd <path>` to isolate file changes for review; worktrees do not sandbox process access on their own.
+
 ### Repository instructions
 
 Rook loads applicable `AGENTS.md` files as bounded project guidance: the repository root, directories from the current working directory to the root, and nested directories containing file paths named in the user prompt. At most four files and 12 KiB total are injected; files over 8 KiB are skipped. Symlinks, paths outside the workspace, unreadable files, and empty files are ignored. `/instructions` lists the files applicable to the current workspace. Instruction contents are untrusted reference context and cannot grant tools or change Rook's permission policy. `CLAUDE.md` and other instruction-file formats are not loaded.
@@ -68,11 +70,15 @@ node bin/rook.mjs
 
 ### Terminal commands
 
-In `/build`, Rook can use Pi's `bash` tool to run tests, builds, and other terminal commands. Each command requires **Run command once** approval; Deny is selected by default. The prompt shows the command, working directory, and timeout. There is no blanket/session shell grant. Plan mode and non-interactive runs do not allow shell execution. Bash must be installed (Windows users need Bash, for example Git Bash).
+In `/build`, Rook can use Pi's `bash` tool to run tests, builds, and other terminal commands. Each command requires **Run command once** approval; Deny is selected by default. The prompt shows the command, working directory, sandbox boundary, and timeout. There is no blanket/session shell grant. Plan mode and non-interactive runs do not allow shell execution. Bash must be installed.
 
-**Approved commands run on your host, not in a sandbox.** They start in the project directory but can read or modify files elsewhere, access credentials, execute scripts, and use the network. File-tool path restrictions do not constrain shell commands. Review the complete command and repository scripts before approving; use an isolated container/VM for untrusted projects. If the full command and warning cannot fit in the approval panel, approval is disabled until the terminal is enlarged or a shorter command is requested.
+By default, approved commands run inside Bubblewrap on Linux: the selected workspace is the only project path exposed as writable, the system filesystem is read-only, `/tmp` is private and writable, and network, user/PID namespaces, and process-tree access outside the sandbox are disabled. Rook exposes the workspace at its normal absolute path for tool compatibility. Rook fails closed if Bubblewrap is absent, cannot create the namespaces, or the workspace is outside supported mount roots. It does not silently retry the command on the host. The one-time approval remains required and does not replace isolation. Other platforms currently have no supported built-in sandbox runtime, so Build-mode shell commands fail closed there unless the project explicitly sets `"sandbox_shell": false` in `.rook/policy.json`. That opt-out runs commands with the user's host permissions and can access other files, credentials, and the network.
 
-Commands time out after 120 seconds by default; an explicit timeout must be positive and at most 300 seconds. Ctrl+C cancels the active run through Pi's process-tree cancellation. Pi truncates model-facing command output to 2,000 lines or 50 KiB and may save full output to a temporary file. These limits are not a resource/security sandbox or a disk-usage quota. Tool results go to the model; the transcript shows tool status rather than dumping raw output.
+Review the complete command and repository scripts before approving. If the complete command and sandbox boundary cannot fit in the approval panel, approval is disabled until the terminal is enlarged or a shorter command is requested. For stronger isolation of the entire coding session, use a container/VM and a Rook-managed worktree.
+
+Commands time out after 120 seconds by default; an explicit timeout must be positive and at most 300 seconds. Ctrl+C cancels the active run. Pi truncates model-facing command output to 2,000 lines or 50 KiB and may save full output to a temporary file. Tool results go to the model; the transcript shows tool status rather than dumping raw output.
+
+Create a detached Git worktree for a separate reviewable working copy with `rook worktree create`; use `rook worktree list` and `rook worktree remove <path>` to inspect and remove Rook-managed worktrees. By default they live beside the repository under `.rook-worktrees/`. Start Rook in the printed path with `rook --cwd <path>`. Worktree edits are separate from the original checkout and remain available for inspection until explicitly removed; they are not automatically merged or committed.
 
 Plan mode provides `rook_search` for bounded literal content search, `rook_map` for an on-demand source/symbol overview ranked by query and internal imports, and `rook_inspect` for structured, read-only Git operations. These tools skip sensitive paths and links; the map also omits file contents and skips generated/dependency output. `rook_inspect` supports `summary` (status + recent commits), `status`, `diff`, `log`, `branches`, and `show`. `show` without a path returns commit metadata; with a repository-relative file path it returns the file contents at the revision (default `HEAD`). Plan mode does not expose arbitrary shell.
 
@@ -90,7 +96,7 @@ Optional project overrides can be set in `.rook/policy.json`:
 
 ```json
 {
-  "execution": { "minimize_tool_calls": true },
+  "execution": { "minimize_tool_calls": true, "sandbox_shell": true },
   "code_quality": {
     "prefer_simple_solutions": true,
     "minimize_comments": true,
@@ -104,7 +110,7 @@ Optional project overrides can be set in `.rook/policy.json`:
 }
 ```
 
-Omitted options use conservative defaults. Configuration adjusts workflow guidance and impact escalation; it cannot disable tool-policy security checks. Test failures and missing verification must always be reported.
+Omitted options use conservative defaults. Set `execution.sandbox_shell` to `false` only when host shell access is intentional; this disables the OS sandbox and is reported in command approvals. Other configuration adjusts workflow guidance and impact escalation; it cannot disable tool-policy security checks. Test failures and missing verification must always be reported.
 
 Rook only loads skills installed in its own directories, not ambient Pi/OpenCode skills: project skills live in `.rook/skills/`, and global skills live in `$ROOK_HOME/skills/` (default `~/.rook/skills/`). Run `node bin/rook.mjs skills install <path|git-url|owner/repo>` to install project skills, add `--global` for a global skill, and optionally pass `--skill NAME` to select one skill from a repository. GitHub tree URLs can target a skill subdirectory. Use `node bin/rook.mjs skills list` and `node bin/rook.mjs skills remove NAME [--global]` to manage installed skills. Skills are instruction files; installation does not enable Pi executable extensions or grant additional tools.
 

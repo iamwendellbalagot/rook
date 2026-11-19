@@ -4,6 +4,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createRookBashTool } from "../../src/pi/bash-tool.js";
 import { shellTimeout } from "../../src/policy/shell-limits.js";
+import {
+  createSandboxCommand,
+  detectSandboxRuntime,
+  runSandboxCommand,
+} from "../../src/policy/sandbox.js";
 
 const nodeCommand = (script: string) =>
   `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`;
@@ -15,7 +20,7 @@ describe("Rook's Pi bash tool", () => {
     for (const timeout of [0, -1, 301, Infinity, NaN, "300"]) {
       expect(() => shellTimeout(timeout)).toThrow("timeout");
     }
-    const tool = createRookBashTool(process.cwd());
+    const tool = createRookBashTool(process.cwd(), { sandbox: false });
     await expect(
       tool.execute(
         "invalid-timeout",
@@ -30,7 +35,7 @@ describe("Rook's Pi bash tool", () => {
   it("runs real terminal commands in the project cwd and returns stdout, stderr, and exit errors", async () => {
     const root = await mkdtemp(join(tmpdir(), "rook-bash-"));
     try {
-      const tool = createRookBashTool(root);
+      const tool = createRookBashTool(root, { sandbox: false });
       const result = await tool.execute(
         "node",
         {
@@ -68,7 +73,7 @@ describe("Rook's Pi bash tool", () => {
   });
 
   it("terminates a real long-running command on timeout or cancellation", async () => {
-    const tool = createRookBashTool(process.cwd());
+    const tool = createRookBashTool(process.cwd(), { sandbox: false });
     const command = nodeCommand("setInterval(() => {}, 1000)");
     await expect(
       tool.execute(
@@ -97,7 +102,7 @@ describe("Rook's Pi bash tool", () => {
   });
 
   it("retains Pi's model-output truncation for noisy commands", async () => {
-    const tool = createRookBashTool(process.cwd());
+    const tool = createRookBashTool(process.cwd(), { sandbox: false });
     const result = await tool.execute(
       "output",
       { command: nodeCommand("console.log('x'.repeat(70000))") },
@@ -116,5 +121,65 @@ describe("Rook's Pi bash tool", () => {
       if (result.details?.fullOutputPath)
         await rm(result.details.fullOutputPath, { force: true });
     }
+  });
+
+  it("fails closed when the Bubblewrap runtime is not executable", async () => {
+    const tool = createRookBashTool(process.cwd());
+    const runtimeMissing =
+      process.platform !== "linux" || !(await detectSandboxRuntime());
+    if (!runtimeMissing) {
+      expect(await detectSandboxRuntime()).toBe("bwrap");
+      return;
+    }
+    await expect(
+      tool.execute(
+        "no-sandbox",
+        { command: nodeCommand("0") },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow(/will not run the command without isolation/);
+  });
+
+  it("builds a network-disabled Bubblewrap command rooted at the workspace", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rook-bwrap-"));
+    try {
+      const sandbox = await createSandboxCommand("npm test", root, "bwrap", {
+        PATH: "/usr/bin",
+      });
+      expect(sandbox.executable).toContain("bwrap");
+      expect(sandbox.args).toContain("--unshare-net");
+      expect(sandbox.args).toContain("--bind");
+      expect(sandbox.args).toContain(await realpath(root));
+      expect(sandbox.args).toContain("/tmp");
+      expect(sandbox.args).not.toContain("--share-net");
+      expect(sandbox.args.at(-1)).toBe("npm test");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("runs a sandbox runner process with bounded time and cancellation", async () => {
+    const success = await runSandboxCommand(
+      process.execPath,
+      ["-e", "console.log('ok')"],
+      { cwd: process.cwd(), env: {}, timeout: 2_000 },
+    );
+    expect(success.stdout.trim()).toBe("ok");
+    const timeout = await runSandboxCommand(
+      process.execPath,
+      ["-e", "setInterval(() => {}, 1000)"],
+      { cwd: process.cwd(), env: {}, timeout: 50 },
+    );
+    expect(timeout.timedOut).toBe(true);
+    expect(timeout.exitCode).toBe(124);
+    const noisy = await runSandboxCommand(
+      process.execPath,
+      ["-e", "console.log('x'.repeat(100000))"],
+      { cwd: process.cwd(), env: {}, timeout: 2_000, maxOutputBytes: 1024 },
+    );
+    expect(noisy.truncated).toBe(true);
+    expect(noisy.exitCode).toBe(125);
   });
 });

@@ -278,7 +278,9 @@ class ExternalAccessPromptPanel implements Component {
               tone("Run terminal command · bash", "amber", true),
               ...wrapTextWithAnsi(
                 tone(
-                  "Runs on your host, NOT sandboxed: can access files outside the project, credentials, and network.",
+                  this.request.sandboxed
+                    ? "Runs in an OS sandbox: writes are limited to the workspace and temporary directory; network access is disabled."
+                    : "Runs on your host, NOT sandboxed: can access files outside the project, credentials, and network (explicit policy opt-out).",
                   "amber",
                 ),
                 width,

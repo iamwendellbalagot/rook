@@ -354,6 +354,7 @@ describe("Rook TUI shell", () => {
       access: "execute",
       command: "node --version",
       timeoutSeconds: 120,
+      sandboxed: true,
     };
     const denied = gateway.externalAccessPrompt!(request);
     app.tui.renderNow(true);
@@ -362,7 +363,7 @@ describe("Rook TUI shell", () => {
       .map(stripTerminalSequences)
       .join("\n");
     expect(screen).toContain('Command: "node --version"');
-    expect(screen).toContain("NOT sandboxed");
+    expect(screen).toContain("workspace and temporary directory");
     expect(screen).toContain("Timeout: 120s");
     expect(screen).toContain("[Deny]");
     expect(screen).not.toContain("for this session");

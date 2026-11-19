@@ -114,6 +114,7 @@ export type ExternalAccessRequest =
       access: "execute";
       command: string;
       timeoutSeconds: number;
+      sandboxed: boolean;
     }
   | {
       toolName: string;

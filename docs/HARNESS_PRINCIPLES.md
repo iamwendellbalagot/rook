@@ -24,7 +24,7 @@ Rook combines selected harness ideas around Pi; it is not a feature-for-feature 
 ## Deliberate non-goals and limits
 
 - No automatic stage, commit, stash, reset, restore, push, deploy, or history rewrite.
-- No claim that host-side tool policy is an OS sandbox. Shell commands run with host permissions; use an external container/VM for untrusted repositories.
+- Shell execution uses Bubblewrap on Linux by default and fails closed when unavailable. `sandbox_shell: false` is an explicit host-execution opt-out. A Git worktree isolates changes, not host process access; use an external container/VM for stronger whole-session isolation.
 - No automatic second-model/critic pass: extra calls add latency and cost. `/architect`, `/explore`, and `/review` are separate, read-only Pi sessions that run only when explicitly invoked.
 - MCP servers are opt-in and every tool call passes through Rook's policy hook. User-directed MCP use is authorized by that request; Rook-recommended use requires interactive approval. Approval does not sandbox a local server or constrain its API access. Arbitrary third-party extension files and executable repository skills remain disabled.
 - No eager whole-repository dump or embedding index. `rook_map` is on-demand, bounded, source/symbol-only, and query-ranked; focused reads/search remain the default.

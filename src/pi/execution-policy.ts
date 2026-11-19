@@ -8,6 +8,7 @@ import type { PermissionMode } from "./agent-gateway.js";
 
 export interface ExecutionPolicyConfig {
   minimizeToolCalls: boolean;
+  sandboxShell: boolean;
   preferSimpleSolutions: boolean;
   minimizeComments: boolean;
   allowUnrelatedRefactors: boolean;
@@ -18,6 +19,7 @@ export interface ExecutionPolicyConfig {
 
 const DEFAULT_CONFIG: ExecutionPolicyConfig = {
   minimizeToolCalls: true,
+  sandboxShell: true,
   preferSimpleSolutions: true,
   minimizeComments: true,
   allowUnrelatedRefactors: false,
@@ -52,6 +54,11 @@ export async function loadExecutionPolicyConfig(
       execution,
       "minimize_tool_calls",
       DEFAULT_CONFIG.minimizeToolCalls,
+    ),
+    sandboxShell: booleanOption(
+      execution,
+      "sandbox_shell",
+      DEFAULT_CONFIG.sandboxShell,
     ),
     preferSimpleSolutions: booleanOption(
       quality,
@@ -91,6 +98,7 @@ export async function loadExecutionPolicyConfig(
 
 const QUALITY_GUIDANCE = (config: ExecutionPolicyConfig) => `
 Rook engineering policy:
+- Build-mode shell commands ${config.sandboxShell ? "must run in Rook's OS sandbox; fail closed if Bubblewrap is unavailable and never fall back to host execution" : "run on the host because project policy explicitly opted out of sandboxing"}.
 - First understand the requested outcome, relevant repository memory, conventions, and affected files. Inspect only what is needed and preserve pre-existing user changes.
 - In build mode, implement the requested change before creating or running task-specific tests. Follow existing architecture and naming; ${config.preferSimpleSolutions ? "prefer the smallest clear solution" : "choose a clear maintainable solution"}, avoid ${config.allowUnrelatedRefactors ? "unnecessary" : "unrelated"} refactors, speculative abstractions, ${config.minimizeComments ? "redundant comments" : "unhelpful comments"}, and dependencies.
 - Keep small tasks small: read the relevant code, edit, inspect the diff, run an appropriate focused check, and finish. Do not create a checklist or explore the whole repository for a straightforward edit. Batch repository-required handoff and commit work at completion.
