@@ -36,9 +36,12 @@ npm run build
 npm run smoke
 npm run benchmark:memory
 npm run benchmark:fts
+npm run eval:coding -- prepare /tmp/rook-coding-eval
 ```
 
 To inspect the TUI without credentials, run `node bin/rook.mjs --mock`. Submit a prompt; use `/help` and `/exit`, or press Ctrl+C to leave. To use a provider, run `node bin/rook.mjs` and use `/login` to choose a supported OAuth subscription/account flow or API-key flow in Rook; `/logout` removes a provider credential. Provider and model configuration are inherited from Pi, and authentication is handled by Pi's runtime. The TUI starts in plan mode; `/build` enables policy-gated workspace edits and approval-gated terminal commands. A one-shot headless prompt is also available with `node bin/rook.mjs "Summarize this repository"`. `npm run smoke` exercises the credential-free mock gateway. The memory benchmark is deterministic and offline; it measures retrieval, not model-task success.
+
+Rook's fixture-based coding-task evaluation suite is also offline and credential-free: tasks are completed manually in disposable workspaces, focused checks are run explicitly, and a validated results JSON is scored against a human rubric. It does not automatically call a provider or claim model quality. See [`evals/coding/README.md`](evals/coding/README.md).
 
 Repository memory is conservative: high-signal user statements linked to successful workspace reads become reviewable candidates, and `remember:` claims require confirmation. `/memory verify <id>` displays the claim and evidence; inspect them before `/memory verify <id> confirm`. File hashes establish evidence freshness, not claim truth. Confirmed, relevant memories can be injected into later prompts and are withheld after their evidence changes until reviewed again.
 

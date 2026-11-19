@@ -30,4 +30,5 @@ jobs:
       - run: npm run smoke
       - run: npm run benchmark:memory
       - run: npm run benchmark:fts
+      - run: npm run eval:coding -- verify-fixtures
       - run: npm pack --dry-run

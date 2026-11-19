@@ -29,6 +29,7 @@
     "test:pty": "vitest run tests/pty",
     "benchmark:memory": "tsx scripts/memory-benchmark.ts",
     "benchmark:fts": "tsx scripts/fts-benchmark.ts",
+    "eval:coding": "tsx scripts/coding-eval.ts",
     "smoke": "node bin/rook.mjs --smoke"
   },
   "dependencies": {

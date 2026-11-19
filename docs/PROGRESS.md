@@ -33,6 +33,7 @@ M0 is implemented, but live-provider streaming remains credential-gated and unve
 
 ### Completed
 
+- Harness parity roadmap Phase 0: added `npm run eval:coding` with four fixed, disposable offline tasks (repository exploration, bug fix, feature, review), separate trusted fixture checks, human-scored rubrics, validated JSON run records, and Markdown reports with answers and available run metrics. CI verifies the starter coding fixtures fail their checks. This is a reproducible scoring framework, not an automatic provider/model benchmark; model quality claims require repeated controlled runs and human grading. See `evals/coding/README.md`.
 - ROOK-005: added the Rook app state/event reducer for lifecycle, run states, modes, streamed/final messages, tool activity, usage, errors, and shutdown. The headless CLI now uses it to gate prompts and track runs.
 - Focused reducer tests cover startup/auth readiness, idle/running/settled/failed states, duplicate prompt/mode guards, authoritative final messages, tool/usage events, and shutdown.
 - ROOK-006: added a custom `pi-tui` alternate-screen shell with a responsive header, home view, fixed multiline editor/footer, streaming Markdown, basic command handling, and terminal cleanup. Interactive tools were initially disabled pending ROOK-010.
