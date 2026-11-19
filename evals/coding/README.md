@@ -31,7 +31,11 @@ Fill out the generated JSON with the model response, actual changed files, each 
 npm run eval:coding -- score /tmp/rook-coding-results.json docs/CODING_EVALUATION.md
 ```
 
+Store shareable raw runs under `evals/coding/runs/` and their rendered reports under `docs/` using the run ID in each filename. Do not include credentials or private repository data in the responses.
+
 The scorer validates task IDs, completeness, check names, rubric ranges, and nonnegative metrics. Task success requires at least 70% rubric points, all fixed checks passed, and no changes outside the task's allowlist. It reports overall and per-task scores, success rate, check/scope failures, aggregate tool calls, available timing/token metrics, and HTML-escaped model responses. It does not execute commands while scoring.
+
+Scores must come from a human assessor. An AI-generated rubric estimate can help triage a run but must be labeled provisional and must not be reported as a human score unless a person independently reviews the task response, diff, and check results.
 
 To compare runs, use the same task set, prompts, fixture revision, model/provider configuration, and scoring rules. Record each run separately; this report is descriptive and a small number of runs is not statistical evidence. Latency and token totals are omitted when any task lacks that metric. `docs/BENCHMARKS.md` remains the independent memory-retrieval benchmark.
 

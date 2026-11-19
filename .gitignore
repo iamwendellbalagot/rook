@@ -6,4 +6,5 @@ coverage/
 !.env.example
 models.json
 .rook/agents.json
+.rook/coding-eval-results.json
 .DS_Store
