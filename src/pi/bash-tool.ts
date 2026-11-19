@@ -99,7 +99,7 @@ export function createRookBashTool(
     label: tool.label,
     execute: tool.execute,
     promptSnippet: "Run approved terminal commands in build mode.",
-    description: `${tool.description} Rook requires build mode and one-time command approval. ${useSandbox ? "Commands run in an OS sandbox with network disabled and workspace-only writes; sandbox runtime is required and execution fails closed when unavailable." : "Commands run on the host with the user's permissions and are not sandboxed (explicit opt-out)."} Timeout defaults to ${DEFAULT_SHELL_TIMEOUT}s; maximum ${MAX_SHELL_TIMEOUT}s.`,
+    description: `${tool.description} Rook requires build mode. Routine allowlisted commands run without prompts in the sandbox; destructive or unclassified commands require approval, with optional exact-command session grants. ${useSandbox ? "Commands run in an OS sandbox with network disabled and workspace-only writes; sandbox runtime is required and execution fails closed when unavailable." : "Commands run on the host with the user's permissions and are not sandboxed (explicit opt-out)."} Timeout defaults to ${DEFAULT_SHELL_TIMEOUT}s; maximum ${MAX_SHELL_TIMEOUT}s.`,
     parameters: {
       ...tool.parameters,
       properties: {

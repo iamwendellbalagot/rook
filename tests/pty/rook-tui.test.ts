@@ -21,6 +21,7 @@ import type {
   ModelInfo,
   PermissionDecision,
   PermissionMode,
+  SessionPermissionGrant,
   ProviderAuthInteraction,
   ProviderAuthType,
   ProviderInfo,
@@ -48,6 +49,7 @@ class EventGateway implements AgentGateway {
     | ((request: ExternalAccessRequest) => Promise<ExternalAccessChoice>)
     | undefined = undefined;
   externalGrants: ExternalAccessGrant[] = [];
+  sessionPermissionGrants: SessionPermissionGrant[] = [];
   queuedMessages: { text: string; disposition: string }[] = [];
   sentPrompts: string[] = [];
   reviewCalls = 0;
@@ -282,12 +284,21 @@ class EventGateway implements AgentGateway {
     return this.externalGrants;
   }
 
+  getSessionPermissionGrants(): SessionPermissionGrant[] {
+    return this.sessionPermissionGrants;
+  }
+
   revokeExternalAccessGrant(id: string): boolean {
     const previous = this.externalGrants.length;
     this.externalGrants = this.externalGrants.filter(
       (grant) => grant.id !== id,
     );
-    return previous !== this.externalGrants.length;
+    if (previous !== this.externalGrants.length) return true;
+    const sessionPrevious = this.sessionPermissionGrants.length;
+    this.sessionPermissionGrants = this.sessionPermissionGrants.filter(
+      (grant) => grant.id !== id,
+    );
+    return sessionPrevious !== this.sessionPermissionGrants.length;
   }
 
   getActiveTools(): string[] {
@@ -356,7 +367,7 @@ class FakeTerminal implements Terminal {
 describe("Rook TUI shell", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("shows shell commands and host warnings, defaults to deny, and only permits one-time execution", async () => {
+  it("shows shell review details, defaults to deny, and offers exact-command session approval", async () => {
     const terminal = new FakeTerminal();
     const gateway = new EventGateway();
     const app = createRookTui({
@@ -374,18 +385,18 @@ describe("Rook TUI shell", () => {
       command: "node --version",
       timeoutSeconds: 120,
       sandboxed: true,
+      reason: "Command needs review.",
     };
     const denied = gateway.externalAccessPrompt!(request);
     app.tui.renderNow(true);
-    const screen = app.tui
-      .getScreenLines()
-      .map(stripTerminalSequences)
-      .join("\n");
+    app.tui.renderNow(true);
+    const screen = app.tui.render(120).map(stripTerminalSequences).join("\n");
     expect(screen).toContain('Command: "node --version"');
+    expect(screen).toContain("Why approval: Command needs review.");
     expect(screen).toContain("workspace and temporary directory");
     expect(screen).toContain("Timeout: 120s");
     expect(screen).toContain("[Deny]");
-    expect(screen).not.toContain("for this session");
+    expect(screen).toContain("Allow this command for this session");
     terminal.input("\r");
     expect(await denied).toBe("deny");
     const approved = gateway.externalAccessPrompt!(request);
@@ -406,6 +417,79 @@ describe("Rook TUI shell", () => {
     const cancelled = gateway.externalAccessPrompt!(request);
     terminal.input("\u0003");
     expect(await cancelled).toBe("deny");
+    app.stop();
+    await finished;
+  });
+
+  it("lists and revokes exact-command and per-tool session grants", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    gateway.sessionPermissionGrants = [
+      {
+        id: "shell-grant",
+        type: "shell",
+        description: "node custom-script",
+        identity: "/workspace/sample-project\0sandboxed\0node custom-script",
+        sourceName: "bash",
+        workspace: "/workspace/sample-project",
+      },
+      {
+        id: "tool-grant",
+        type: "tool",
+        description: "mcp__docs__search",
+        identity: "mcp__docs__search",
+        sourceName: "docs",
+      },
+    ];
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    await app.submit("/build");
+    await app.submit("/permissions");
+    app.tui.renderNow(true);
+    const screen = app.tui.render(120).map(stripTerminalSequences).join("\n");
+    expect(screen).toContain('SHELL "node custom-script"');
+    expect(screen).toContain("TOOL mcp__docs__search from docs");
+    expect(screen).toContain("/permissions revoke shell-grant");
+    expect(screen).toContain("/permissions revoke tool-grant");
+    await app.submit("/permissions revoke shell-grant");
+    expect(gateway.sessionPermissionGrants.map((grant) => grant.id)).toEqual([
+      "tool-grant",
+    ]);
+    app.stop();
+    await finished;
+  });
+
+  it("shows bounded unclassified-tool details and defaults to deny", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    const request = gateway.externalAccessPrompt!({
+      toolName: "plugin__publish",
+      sourceName: "plugin",
+      access: "tool",
+      inputSummary: '{"destination":"preview"}',
+      reason: "Unclassified tool requires review.",
+    });
+    app.tui.renderNow(true);
+    const screen = app.tui.render(120).join("\n");
+    expect(screen).toContain("Unclassified tool call · plugin");
+    expect(screen).toContain("plugin__publish");
+    expect(screen).toContain('Arguments: {"destination":"preview"}');
+    expect(screen).toContain(
+      "Why approval: Unclassified tool requires review.",
+    );
+    expect(screen).toContain("[Deny tool call]");
+    terminal.input("\r");
+    await expect(request).resolves.toBe("deny");
     app.stop();
     await finished;
   });
@@ -1285,6 +1369,7 @@ describe("Rook TUI shell", () => {
       serverName: "docs",
       access: "mcp",
       inputSummary: '{"query":"Rook MCP"}',
+      reason: "Rook recommends this call.",
     });
     expect(mcpRequest).toBeDefined();
     app.tui.renderNow(true);
@@ -1295,7 +1380,7 @@ describe("Rook TUI shell", () => {
     terminal.input("\u001b[B");
     terminal.input("\u001b[B");
     expect(app.tui.render(100).join("\n")).toContain(
-      "3. [Allow server docs for this session]",
+      "3. [Allow this tool from docs for this session]",
     );
     terminal.input("\r");
     await expect(mcpRequest).resolves.toBe("session");

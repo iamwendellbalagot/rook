@@ -116,12 +116,21 @@ export type ExternalAccessRequest =
       command: string;
       timeoutSeconds: number;
       sandboxed: boolean;
+      reason?: string;
     }
   | {
       toolName: string;
       serverName: string;
       access: "mcp";
       inputSummary: string;
+      reason?: string;
+    }
+  | {
+      toolName: string;
+      sourceName: string;
+      access: "tool";
+      inputSummary: string;
+      reason: string;
     };
 
 export type ExternalAccessChoice = "once" | "session" | "deny";
@@ -131,6 +140,16 @@ export interface ExternalAccessGrant {
   path: string;
   requestedPath: string;
   access: "read" | "write";
+}
+
+export interface SessionPermissionGrant {
+  id: string;
+  type: "shell" | "tool";
+  description: string;
+  identity: string;
+  sourceName: string;
+  workspace?: string;
+  sandboxed?: boolean;
 }
 
 export type PermissionMode = "plan" | "build";
@@ -196,6 +215,7 @@ export interface AgentGateway {
       | undefined,
   ): void;
   getExternalAccessGrants(): ExternalAccessGrant[];
+  getSessionPermissionGrants(): SessionPermissionGrant[];
   revokeExternalAccessGrant(id: string): boolean;
   getActiveTools(): string[];
   subscribe(handler: (event: AgentEvent) => void): () => void;

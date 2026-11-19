@@ -3,6 +3,7 @@ import type {
   AgentGateway,
   AgentResource,
   ExternalAccessGrant,
+  SessionPermissionGrant,
   ModelInfo,
   PermissionDecision,
   PermissionMode,
@@ -162,6 +163,10 @@ export class MockAgentGateway implements AgentGateway {
   setExternalAccessPrompt(): void {}
 
   getExternalAccessGrants(): ExternalAccessGrant[] {
+    return [];
+  }
+
+  getSessionPermissionGrants(): SessionPermissionGrant[] {
     return [];
   }
 

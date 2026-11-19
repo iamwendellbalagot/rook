@@ -34,7 +34,7 @@ afterEach(async () => {
 });
 
 describe("ToolPolicy", () => {
-  it("requires build mode and explicit one-time approval for every shell command", async () => {
+  it("allows routine sandboxed Build shell and preserves verification sequencing", async () => {
     const policy = new ToolPolicy(await workspace());
     let prompts = 0;
     policy.setExternalAccessPrompt(async (request) => {
@@ -54,6 +54,7 @@ describe("ToolPolicy", () => {
     expect(
       (await policy.check("bash", { command: "npm test" }, "shell1")).allowed,
     ).toBe(true);
+    expect(prompts).toBe(0);
     expect(
       (await policy.check("write", { path: "src/main.ts" }, "edit")).allowed,
     ).toBe(false);
@@ -70,7 +71,7 @@ describe("ToolPolicy", () => {
         .allowed,
     ).toBe(true);
     policy.finish("shell2", "bash", false);
-    expect(prompts).toBe(2);
+    expect(prompts).toBe(0);
     expect(policy.getExternalAccessGrants()).toEqual([]);
     expect(
       (await policy.check("write", { path: "src/main.ts" }, "edit-again"))
@@ -82,7 +83,7 @@ describe("ToolPolicy", () => {
         .allowed,
     ).toBe(true);
     policy.finish("stale-impact", "bash", false);
-    expect(prompts).toBe(3);
+    expect(prompts).toBe(0);
   });
 
   it("reports whether the approved command is sandboxed in the approval request", async () => {
@@ -93,11 +94,11 @@ describe("ToolPolicy", () => {
       request = value;
       return "once";
     });
-    await policy.check("bash", { command: "npm test" }, "sandboxed");
+    await policy.check("bash", { command: "node --version" }, "sandboxed");
     expect(request).toMatchObject({ access: "execute", sandboxed: true });
     policy.setSandboxShell(false);
     policy.finish("sandboxed", "bash", false);
-    await policy.check("bash", { command: "npm run build" }, "host");
+    await policy.check("bash", { command: "node --version" }, "host");
     expect(request).toMatchObject({ access: "execute", sandboxed: false });
   });
 
@@ -120,39 +121,140 @@ describe("ToolPolicy", () => {
     expect(prompted).toBe(false);
   });
 
-  it("denies tools not explicitly classified by the policy", async () => {
+  it("prompts for unclassified tools and scopes session grants to one tool/source", async () => {
     const policy = new ToolPolicy(await workspace());
-    const decision = await policy.check(
-      "unexpected_extension_tool",
-      {},
-      "unknown",
-    );
-    expect(decision.allowed).toBe(false);
-    expect(decision.reason).toContain("not classified by Rook");
+    expect(
+      (await policy.check("unexpected_extension_tool", {}, "no-ui")).allowed,
+    ).toBe(false);
+    const requests: unknown[] = [];
+    policy.setExternalAccessPrompt(async (request) => {
+      requests.push(request);
+      return "session";
+    });
+    expect(
+      (
+        await policy.check(
+          "unexpected_extension_tool",
+          { apiToken: "private" },
+          "unknown",
+        )
+      ).allowed,
+    ).toBe(true);
+    expect(requests[0]).toMatchObject({
+      access: "tool",
+      sourceName: "registered:unexpected_extension_tool",
+      inputSummary: '{"apiToken":"[redacted]"}',
+    });
+    expect(
+      (await policy.check("unexpected_extension_tool", {}, "granted")).allowed,
+    ).toBe(true);
+    expect(
+      (await policy.check("another_extension_tool", {}, "other")).allowed,
+    ).toBe(true);
+    expect(policy.getSessionPermissionGrants()).toHaveLength(2);
+    expect(requests).toHaveLength(2);
+    policy.clearSessionPermissionGrants();
+    expect(
+      (await policy.check("unexpected_extension_tool", {}, "expired")).allowed,
+    ).toBe(true);
+    expect(requests).toHaveLength(3);
+    const grant = policy.getSessionPermissionGrants()[0]!;
+    expect(policy.revokeExternalAccessGrant(grant.id)).toBe(true);
+    expect(policy.getSessionPermissionGrants()).toHaveLength(0);
   });
 
-  it("denies shell execution without an approval UI, after denial, or with a session grant", async () => {
+  it("redacts credentials embedded in unclassified-tool string arguments", async () => {
     const policy = new ToolPolicy(await workspace());
+    let inputSummary = "";
+    policy.setExternalAccessPrompt(async (request) => {
+      if (request.access === "tool") inputSummary = request.inputSummary;
+      return "deny";
+    });
+    await policy.check(
+      "plugin__upload",
+      { note: "Authorization: Bearer abcdefghijklmnop token" },
+      "redact-string",
+    );
+    expect(inputSummary).not.toContain("abcdefghijklmnop");
+    expect(inputSummary).toContain("[redacted]");
+  });
+
+  it("prompts for unclear shell commands and supports exact-command session grants", async () => {
+    const root = await workspace();
+    const policy = new ToolPolicy(root);
     policy.setMode("build");
     expect(
-      (await policy.check("bash", { command: "echo ok" }, "no-ui")).allowed,
+      (await policy.check("bash", { command: "some-custom-script" }, "no-ui"))
+        .allowed,
     ).toBe(false);
-    for (const choice of ["deny", "session"] as const) {
-      policy.setExternalAccessPrompt(async () => choice);
-      expect(
-        (await policy.check("bash", { command: "echo ok" }, choice)).allowed,
-      ).toBe(false);
-    }
+    policy.setExternalAccessPrompt(async () => "deny");
+    expect(
+      (await policy.check("bash", { command: "some-custom-script" }, "deny"))
+        .allowed,
+    ).toBe(false);
+    policy.setExternalAccessPrompt(async () => "session");
+    expect(
+      (await policy.check("bash", { command: "some-custom-script" }, "session"))
+        .allowed,
+    ).toBe(true);
+    policy.finish("session", "bash", false);
+    expect(
+      (await policy.check("bash", { command: "some-custom-script" }, "granted"))
+        .allowed,
+    ).toBe(true);
+    expect(
+      (
+        await policy.check(
+          "bash",
+          { command: "some-custom-script --extra" },
+          "different",
+        )
+      ).allowed,
+    ).toBe(false);
+    expect(policy.getSessionPermissionGrants()).toHaveLength(1);
+    expect(policy.getSessionPermissionGrants()[0]?.workspace).toBe(
+      await realpath(root),
+    );
+    policy.clearSessionPermissionGrants();
+    expect(policy.getSessionPermissionGrants()).toHaveLength(0);
+    policy.setExternalAccessPrompt(async () => "deny");
     policy.setExternalAccessPrompt(async () => {
       throw new Error("UI closed");
     });
     expect(
-      (await policy.check("bash", { command: "echo ok" }, "closed")).allowed,
+      (
+        await policy.check(
+          "bash",
+          { command: "another-custom-script" },
+          "closed",
+        )
+      ).allowed,
     ).toBe(false);
-    policy.setExternalAccessPrompt(async () => "once");
+  });
+
+  it("prompts rather than auto-allowing routine-looking commands with escaping paths", async () => {
+    const policy = new ToolPolicy(await workspace());
+    policy.setMode("build");
+    let prompts = 0;
+    policy.setExternalAccessPrompt(async (request) => {
+      prompts++;
+      expect(request).toMatchObject({ access: "execute", sandboxed: true });
+      return "once";
+    });
     expect(
-      (await policy.check("bash", { command: "echo ok" }, "retry")).allowed,
+      (await policy.check("bash", { command: "ls /etc" }, "outside")).allowed,
     ).toBe(true);
+    policy.finish("outside", "bash", false);
+    expect(
+      (
+        await policy.check(
+          "bash",
+          { command: "git diff -- ../private" },
+          "traversal",
+        )
+      ).allowed,
+    ).toBe(true);
+    expect(prompts).toBe(2);
   });
 
   it("rejects invalid commands and timeouts before requesting approval", async () => {
@@ -196,7 +298,8 @@ describe("ToolPolicy", () => {
       return "once";
     });
     expect(
-      (await policy.check("bash", { command: "npm test" }, "expired")).allowed,
+      (await policy.check("bash", { command: "node custom-script" }, "expired"))
+        .allowed,
     ).toBe(false);
     policy.setMode("build");
     expect(
@@ -224,7 +327,7 @@ describe("ToolPolicy", () => {
     expect((await policy.check("custom_tool", {}, "c1")).allowed).toBe(false);
   });
 
-  it("allows MCP in plan mode after approval and scopes session grants by server", async () => {
+  it("allows MCP in plan mode after approval and scopes session grants by tool", async () => {
     const policy = new ToolPolicy(await workspace());
     let prompts = 0;
     policy.setExternalAccessPrompt(async (request) => {
@@ -234,8 +337,9 @@ describe("ToolPolicy", () => {
       if (request.serverName !== "docs") return "deny";
       if (request.toolName === "mcp__docs__search") {
         expect(request.inputSummary).toContain("[redacted]");
+        return "session";
       }
-      return "session";
+      return request.toolName === "mcp__docs__fetch" ? "once" : "deny";
     });
 
     expect(
@@ -248,19 +352,23 @@ describe("ToolPolicy", () => {
       ).allowed,
     ).toBe(true);
     expect(prompts).toBe(1);
-    expect((await policy.check("mcp__docs__fetch", {}, "mcp2")).allowed).toBe(
+    expect((await policy.check("mcp__docs__search", {}, "mcp2")).allowed).toBe(
       true,
     );
+    expect((await policy.check("mcp__docs__fetch", {}, "mcp2b")).allowed).toBe(
+      true,
+    );
+    expect(prompts).toBe(2);
     expect(
       (await policy.check("mcp__github__create_issue", {}, "mcp3")).allowed,
     ).toBe(false);
-    expect(prompts).toBe(2);
+    expect(prompts).toBe(3);
 
-    policy.clearMcpSessionGrants();
+    policy.clearSessionPermissionGrants();
     expect((await policy.check("mcp__docs__fetch", {}, "mcp4")).allowed).toBe(
       true,
     );
-    expect(prompts).toBe(3);
+    expect(prompts).toBe(4);
   });
 
   it("honors explicit MCP requests and denials without prompting", async () => {

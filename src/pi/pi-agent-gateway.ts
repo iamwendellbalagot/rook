@@ -271,7 +271,7 @@ export async function createPiAgentGateway(
     session.setActiveToolsByName(
       activeToolsForSession(session, policy.getMode(), options.readOnlyTools),
     );
-    policy.clearMcpSessionGrants();
+    policy.clearSessionPermissionGrants();
     checklist = clearChecklistWhenBinding
       ? []
       : restoreTaskChecklistFromEntries(session.sessionManager.getBranch());
@@ -577,6 +577,9 @@ export async function createPiAgentGateway(
     },
     getExternalAccessGrants(): ExternalAccessGrant[] {
       return policy.getExternalAccessGrants();
+    },
+    getSessionPermissionGrants() {
+      return policy.getSessionPermissionGrants();
     },
     revokeExternalAccessGrant(id: string): boolean {
       return policy.revokeExternalAccessGrant(id);
