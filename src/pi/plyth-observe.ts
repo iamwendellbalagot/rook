@@ -2,6 +2,7 @@ import {
   judgeEvents,
   parseCommandStarted,
   parseCommandFinished,
+  SessionFeedbackGate,
   SessionCounter,
   type CommandClass,
   type CommandStarted,
@@ -18,12 +19,14 @@ const GUIDANCE =
 
 export function createPlythObserveExtension(
   counter: SessionCounter,
+  options: { feedback?: boolean } = {},
 ): InlineExtension {
   return {
     name: "rook-plyth-observe",
     factory(pi: ExtensionAPI) {
       const pending = new Map<string, unknown>();
       const tracked = new Set<string>();
+      const feedbackGate = new SessionFeedbackGate();
       const maxPending = 256;
       const maxTracked = 256;
 
@@ -43,6 +46,7 @@ export function createPlythObserveExtension(
       pi.on("session_start", () => {
         pending.clear();
         tracked.clear();
+        feedbackGate.reset();
         counter.reset();
       });
 
@@ -115,7 +119,21 @@ export function createPlythObserveExtension(
             ? { unscorableReason: "host_did_not_return_exit_code" }
             : {}),
         };
+        const key = `${sessionId}\0${event.toolCallId}`;
+        const start = pending.get(key);
         finish(sessionId, event.toolCallId, finishEvent);
+        if (!options.feedback || !start) return;
+        const feedback = feedbackGate.offer(start, finishEvent);
+        if (!feedback) return;
+        return {
+          content: [
+            ...event.content,
+            { type: "text", text: `PLYTH: ${feedback}` },
+          ],
+          ...(event.structuredContent === undefined
+            ? {}
+            : { structuredContent: event.structuredContent }),
+        };
       });
 
       pi.on("tool_execution_end", (event, ctx) => {

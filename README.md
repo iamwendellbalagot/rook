@@ -27,7 +27,7 @@ The project is still in early development and is not yet published as an npm rel
 
 Rook's observe-only PLYTH pilot currently resolves the `plyth` package from the sibling checkout at `../plyth`. Clone the `plyth` repository beside `rook`, then run `npm install` in Rook before typechecking or building. This local dependency is for the pilot integration and is not a published/released package yet.
 
-The initial pilot runs observe-only. For eligible test/build/diagnostic Bash calls, Rook collects optional structured `expect` metadata and compares it with the host result. `/plyth` reports in-memory session counts; feedback is disabled and no event ledger is written.
+The initial pilot runs observe-only. For eligible test/build/diagnostic Bash calls, Rook collects optional structured `expect` metadata and compares it with the host result. `/plyth` reports in-memory session counts; feedback is disabled by default and no event ledger is written. To opt into the experimental Phase 3 feedback arm, start Rook with `ROOK_PLYTH_FEEDBACK=1`. It appends advisory text only for specific, scorable misses, deduplicates repeated feedback, and caps feedback at five items per session. Leave it unset for B0/B1 runs; this flag does not change commands or permissions.
 
 ## Development
 

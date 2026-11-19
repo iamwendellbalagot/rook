@@ -201,7 +201,9 @@ export async function createPiAgentGateway(
             createToolSearchExtension(),
             createMcpExtension(),
             createToolPolicyExtension(policy),
-            createPlythObserveExtension(plythCounter),
+            createPlythObserveExtension(plythCounter, {
+              feedback: process.env.ROOK_PLYTH_FEEDBACK === "1",
+            }),
             createExecutionPolicyExtension(
               () => policy.getMode(),
               executionConfig,

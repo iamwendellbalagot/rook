@@ -6,9 +6,12 @@ import {
   createPlythObserveExtension,
 } from "../../src/pi/plyth-observe.js";
 
-function eventHandlers(counter: SessionCounter) {
+function eventHandlers(
+  counter: SessionCounter,
+  options?: { feedback?: boolean },
+) {
   const handlers = new Map<string, (...args: any[]) => unknown>();
-  const extension = createPlythObserveExtension(counter);
+  const extension = createPlythObserveExtension(counter, options);
   if (typeof extension === "function")
     throw new Error("Expected a named extension.");
   extension.factory({
@@ -166,6 +169,51 @@ describe("PLYTH Rook observe-only adapter", () => {
       ctx,
     );
     expect(counter.predictionStats().verdicts.unscorable).toBe(1);
+  });
+
+  it("adds bounded advisory feedback only when explicitly enabled", () => {
+    const counter = new SessionCounter();
+    const { handlers, ctx } = eventHandlers(counter, { feedback: true });
+    handlers.get("tool_call")?.(
+      {
+        toolName: "bash",
+        toolCallId: "feedback-miss",
+        input: {
+          command: "npm run build",
+          expect: { outcome: "fail", evidence: "compile error" },
+        },
+      },
+      ctx,
+    );
+    const structuredContent = {
+      exit_code: 0,
+      output: "build succeeded",
+      truncated: false,
+    };
+    const result = handlers.get("tool_result")?.(
+      {
+        toolName: "bash",
+        toolCallId: "feedback-miss",
+        input: {
+          command: "npm run build",
+          expect: { outcome: "fail", evidence: "compile error" },
+        },
+        content: [{ type: "text", text: "build succeeded" }],
+        structuredContent,
+        isError: false,
+      },
+      ctx,
+    ) as {
+      content: { type: string; text?: string }[];
+      structuredContent: unknown;
+    };
+
+    expect(result.content).toHaveLength(2);
+    const feedbackItem = result.content.at(1);
+    expect(feedbackItem?.text).toContain("PLYTH:");
+    expect(feedbackItem?.text).toContain("Expected `fail`");
+    expect(result.structuredContent).toBe(structuredContent);
+    expect(counter.predictionStats().verdicts.miss).toBe(1);
   });
 
   it("keeps truncated evidence vague and counts omitted predictions", () => {
