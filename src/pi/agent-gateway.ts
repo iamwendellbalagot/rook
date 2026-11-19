@@ -1,5 +1,6 @@
 import type { TaskChecklistItem } from "./task-checklist.js";
 import type { SubagentProfile } from "./subagents.js";
+import type { SessionPredictionStats } from "plyth";
 
 export type AgentEvent =
   | { type: "model_request_started" }
@@ -199,6 +200,7 @@ export interface AgentGateway {
   newSession(): Promise<void>;
   resumeSession(path: string): Promise<void>;
   setMode(mode: PermissionMode): void;
+  getPlythStats(): SessionPredictionStats;
   inspectGitChanges(): Promise<string>;
   reviewGitChanges(): Promise<string>;
   exploreReadOnly(task: string): Promise<string>;

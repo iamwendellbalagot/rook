@@ -23,6 +23,12 @@ node bin/rook.mjs --mock
 
 The project is still in early development and is not yet published as an npm release. For provider-backed use, sign in with `/login` from the Rook TUI. Pi stores credentials in its user-level auth store; never put provider secrets in the repository or command history.
 
+### Local PLYTH development dependency
+
+Rook's observe-only PLYTH pilot currently resolves the `plyth` package from the sibling checkout at `../plyth`. Clone the `plyth` repository beside `rook`, then run `npm install` in Rook before typechecking or building. This local dependency is for the pilot integration and is not a published/released package yet.
+
+The initial pilot runs observe-only. For eligible test/build/diagnostic Bash calls, Rook collects optional structured `expect` metadata and compares it with the host result. `/plyth` reports in-memory session counts; feedback is disabled and no event ledger is written.
+
 ## Development
 
 ```sh

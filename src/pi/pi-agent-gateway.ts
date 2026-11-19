@@ -29,7 +29,8 @@ import type {
 import { adaptPiEvent } from "./event-adapter.js";
 import { formatAgentError } from "./errors.js";
 import { createRookBashTool } from "./bash-tool.js";
-import { createPlythSpikeExtension } from "./plyth-spike.js";
+import { createPlythObserveExtension } from "./plyth-observe.js";
+import { SessionCounter } from "plyth";
 import { createChangeImpactTool } from "./change-impact.js";
 import {
   createExecutionPolicyExtension,
@@ -142,6 +143,7 @@ export async function createPiAgentGateway(
   } = {},
 ): Promise<AgentGateway> {
   const handlers = new Set<(event: AgentEvent) => void>();
+  const plythCounter = new SessionCounter();
   const policy = new ToolPolicy(cwd);
   const executionConfig = await loadExecutionPolicyConfig(cwd);
   const subagentProfiles = await loadSubagentProfiles(cwd);
@@ -199,9 +201,7 @@ export async function createPiAgentGateway(
             createToolSearchExtension(),
             createMcpExtension(),
             createToolPolicyExtension(policy),
-            createPlythSpikeExtension({
-              feedback: process.env.PLYTH_SPIKE_FEEDBACK === "1",
-            }),
+            createPlythObserveExtension(plythCounter),
             createExecutionPolicyExtension(
               () => policy.getMode(),
               executionConfig,
@@ -457,6 +457,9 @@ export async function createPiAgentGateway(
       runtime.session.setActiveToolsByName(
         activeToolsForSession(runtime.session, mode, options.readOnlyTools),
       );
+    },
+    getPlythStats() {
+      return plythCounter.predictionStats();
     },
     async inspectGitChanges() {
       return inspectGitWorkspace(cwd);

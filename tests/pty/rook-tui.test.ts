@@ -268,6 +268,18 @@ class EventGateway implements AgentGateway {
     this.modeHistory.push(mode);
   }
 
+  getPlythStats() {
+    return {
+      eligibleCommands: 0,
+      predictedCommands: 0,
+      invalidPredictions: 0,
+      specificPredictions: 0,
+      durationMs: 0,
+      durationSamples: 0,
+      verdicts: { hit: 0, miss: 0, vague: 0, none: 0, unscorable: 0 },
+    };
+  }
+
   getPermissionDecisions(): PermissionDecision[] {
     return [];
   }
@@ -937,6 +949,39 @@ describe("Rook TUI shell", () => {
       await finished;
     },
   );
+
+  it("shows PLYTH observe-only counts without running an inference", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    vi.spyOn(gateway, "getPlythStats").mockReturnValue({
+      eligibleCommands: 4,
+      predictedCommands: 3,
+      invalidPredictions: 1,
+      specificPredictions: 2,
+      durationMs: 1500,
+      durationSamples: 2,
+      verdicts: { hit: 1, miss: 1, vague: 1, none: 1, unscorable: 0 },
+    });
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    const sentBefore = gateway.sentPrompts.length;
+    await app.submit("/plyth");
+    const screen = app.tui.render(100).map(stripTerminalSequences).join("\n");
+    expect(screen).toContain(
+      "PLYTH observe-only · eligible 4 · predicted 3 · invalid 1",
+    );
+    expect(screen).toContain(
+      "hit 1 · miss 1 · vague 1 · none 1 · unscorable 0",
+    );
+    expect(screen).toContain("command time 1500ms across 2 commands");
+    expect(gateway.sentPrompts).toHaveLength(sentBefore);
+    app.stop();
+    await finished;
+  });
 
   it("shows repository status and diff through /diff without prompting the model", async () => {
     const terminal = new FakeTerminal();

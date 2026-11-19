@@ -107,6 +107,10 @@ const BUILTIN_SLASH_COMMANDS: SlashCommandSuggestion[] = [
   { command: "/login", description: "Sign in to a provider" },
   { command: "/logout", description: "Sign out of a provider" },
   { command: "/settings", description: "Adjust thinking level" },
+  {
+    command: "/plyth",
+    description: "Show prediction coverage and verdict counts",
+  },
   { command: "/new", description: "Start a new session" },
   { command: "/sessions", description: "Browse saved sessions" },
   { command: "/resume", description: "Resume a session" },
@@ -1195,7 +1199,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/help":
           removeHome();
           appendText(
-            "Available: /help, /login, /logout, /model, /settings, /mcp, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /ask <question>, /explore <question>, /architect <task>, /agents [name <task>], /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /diff, /review, /undo [confirm], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
+            "Available: /help, /login, /logout, /model, /settings, /plyth, /mcp, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /ask <question>, /explore <question>, /architect <task>, /agents [name <task>], /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /diff, /review, /undo [confirm], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
             "muted",
           );
           return;
@@ -1342,6 +1346,15 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/settings":
           showThinkingMenu();
           return;
+        case "/plyth": {
+          removeHome();
+          const stats = options.gateway.getPlythStats();
+          appendText(
+            `PLYTH observe-only · eligible ${stats.eligibleCommands} · predicted ${stats.predictedCommands} · invalid ${stats.invalidPredictions} · specific ${stats.specificPredictions}\nhit ${stats.verdicts.hit} · miss ${stats.verdicts.miss} · vague ${stats.verdicts.vague} · none ${stats.verdicts.none} · unscorable ${stats.verdicts.unscorable}\ncommand time ${stats.durationMs}ms across ${stats.durationSamples} commands`,
+            "muted",
+          );
+          return;
+        }
         case "/permissions":
           if (prompt === "/permissions") {
             showPermissionDecisions();

@@ -35,6 +35,7 @@
 | Configurable project subagents             | Implemented/limited | `.rook/agents.json` profiles; fresh sessions restricted to fixed read-only tools                                                 |
 | Coding-aware navigation/diagnostics        | Implemented/limited | `rook_code` TypeScript language service for TS/JS symbols and per-file diagnostics                                               |
 | Extension and hook boundary                | Implemented/limited | Inline Rook hooks and selected Pi built-ins only; executable extensions ignored; unclassified tools require interactive approval |
+| PLYTH prediction feedback pilot            | Observe-only        | Optional structured expectation on eligible Bash commands; in-memory counts via `/plyth`; no feedback or event ledger            |
 
 ## SDK-vs-CLI setup gaps
 

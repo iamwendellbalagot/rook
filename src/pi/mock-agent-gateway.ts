@@ -14,6 +14,7 @@ import type {
   ThinkingInfo,
 } from "./agent-gateway.js";
 import type { SubagentProfile } from "./subagents.js";
+import type { SessionPredictionStats } from "plyth";
 
 export class MockAgentGateway implements AgentGateway {
   private running = false;
@@ -119,6 +120,18 @@ export class MockAgentGateway implements AgentGateway {
   }
 
   setMode(_mode: PermissionMode): void {}
+
+  getPlythStats(): SessionPredictionStats {
+    return {
+      eligibleCommands: 0,
+      predictedCommands: 0,
+      invalidPredictions: 0,
+      specificPredictions: 0,
+      durationMs: 0,
+      durationSamples: 0,
+      verdicts: { hit: 0, miss: 0, vague: 0, none: 0, unscorable: 0 },
+    };
+  }
 
   async inspectGitChanges(): Promise<string> {
     return "Git inspection is unavailable in mock mode.";
