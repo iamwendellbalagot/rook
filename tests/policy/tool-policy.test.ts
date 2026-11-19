@@ -123,11 +123,20 @@ describe("ToolPolicy", () => {
 
   it("prompts for unclassified tools and scopes session grants to one tool/source", async () => {
     const policy = new ToolPolicy(await workspace());
+    let prompts = 0;
+    policy.setExternalAccessPrompt(async (request) => {
+      prompts++;
+      expect(request.access).toBe("tool");
+      return "session";
+    });
     expect(
-      (await policy.check("unexpected_extension_tool", {}, "no-ui")).allowed,
+      (await policy.check("unexpected_extension_tool", {}, "plan")).allowed,
     ).toBe(false);
+    expect(prompts).toBe(0);
+    policy.setMode("build");
     const requests: unknown[] = [];
     policy.setExternalAccessPrompt(async (request) => {
+      prompts++;
       requests.push(request);
       return "session";
     });
@@ -148,6 +157,14 @@ describe("ToolPolicy", () => {
     expect(
       (await policy.check("unexpected_extension_tool", {}, "granted")).allowed,
     ).toBe(true);
+    const prompted = prompts;
+    policy.setMode("plan");
+    expect(
+      (await policy.check("unexpected_extension_tool", {}, "plan-with-grant"))
+        .allowed,
+    ).toBe(false);
+    expect(prompts).toBe(prompted);
+    policy.setMode("build");
     expect(
       (await policy.check("another_extension_tool", {}, "other")).allowed,
     ).toBe(true);
@@ -165,6 +182,7 @@ describe("ToolPolicy", () => {
 
   it("redacts credentials embedded in unclassified-tool string arguments", async () => {
     const policy = new ToolPolicy(await workspace());
+    policy.setMode("build");
     let inputSummary = "";
     policy.setExternalAccessPrompt(async (request) => {
       if (request.access === "tool") inputSummary = request.inputSummary;

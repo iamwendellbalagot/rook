@@ -362,7 +362,10 @@ export class ToolPolicy {
       }
     } else {
       const sourceName = toolSourceName(toolName);
-      if (this.hasToolGrant(toolName, sourceName)) {
+      if (this.mode === "plan") {
+        reason =
+          "Plan mode blocks unclassified tools because their effects are unknown.";
+      } else if (this.hasToolGrant(toolName, sourceName)) {
         reason = `Allowed unclassified tool ${toolName} from ${sourceName} by this session's grant.`;
         allowed = true;
       } else if (!this.externalAccessPrompt) {
