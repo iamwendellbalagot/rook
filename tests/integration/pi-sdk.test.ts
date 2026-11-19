@@ -61,6 +61,7 @@ describe("Pi SDK compatibility", () => {
           "rook_inspect",
           "rook_search",
           "rook_map",
+          "rook_code",
           "rook_todo",
         ]),
       );

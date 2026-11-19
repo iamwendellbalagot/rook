@@ -39,6 +39,7 @@ describe("configurable subagents", () => {
       "rook_inspect",
       "rook_search",
       "rook_map",
+      "rook_code",
     ]);
     const prompt = buildSubagentPrompt(profile!, "Review this change");
     expect(prompt).toContain("Do not edit files, run shell commands");

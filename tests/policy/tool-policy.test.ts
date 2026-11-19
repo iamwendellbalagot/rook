@@ -314,6 +314,25 @@ describe("ToolPolicy", () => {
     ).toBe(true);
     policy.finish("map-ok");
     expect(
+      (
+        await policy.check(
+          "rook_code",
+          { action: "definition", path: "src/index.ts", line: 1, column: 1 },
+          "code-ok",
+        )
+      ).allowed,
+    ).toBe(true);
+    policy.finish("code-ok");
+    expect(
+      (
+        await policy.check(
+          "rook_code",
+          { action: "definition", path: "../outside.ts", line: 1, column: 1 },
+          "code-bad",
+        )
+      ).allowed,
+    ).toBe(false);
+    expect(
       (await policy.check("rook_map", { path: "../outside" }, "map-bad"))
         .allowed,
     ).toBe(false);

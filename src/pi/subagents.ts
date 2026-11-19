@@ -8,6 +8,7 @@ export const READ_ONLY_SUBAGENT_TOOLS = [
   "rook_inspect",
   "rook_search",
   "rook_map",
+  "rook_code",
 ] as const;
 
 export type ReadOnlySubagentTool = (typeof READ_ONLY_SUBAGENT_TOOLS)[number];

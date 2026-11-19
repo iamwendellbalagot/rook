@@ -40,6 +40,7 @@ import {
 } from "./plan-inspection-tool.js";
 import { createWorkspaceSearchTool } from "./workspace-search-tool.js";
 import { createWorkspaceMapTool } from "./workspace-map-tool.js";
+import { createCodeIntelligenceTool } from "./code-intelligence-tool.js";
 import {
   createToolPolicyExtension,
   ToolPolicy,
@@ -88,6 +89,7 @@ const PLAN_TOOLS = [
   "rook_inspect",
   "rook_search",
   "rook_map",
+  "rook_code",
   TASK_CHECKLIST_TOOL_NAME,
 ];
 const BUILD_TOOLS = [
@@ -95,6 +97,7 @@ const BUILD_TOOLS = [
   "rook_inspect",
   "rook_search",
   "rook_map",
+  "rook_code",
   "rook_impact",
   TASK_CHECKLIST_TOOL_NAME,
 ];
@@ -232,6 +235,7 @@ export async function createPiAgentGateway(
             "rook_inspect",
             "rook_search",
             "rook_map",
+            "rook_code",
             "rook_impact",
             TASK_CHECKLIST_TOOL_NAME,
             "codemode",
@@ -246,6 +250,7 @@ export async function createPiAgentGateway(
             createPlanInspectionTool(sessionCwd),
             createWorkspaceSearchTool(sessionCwd),
             createWorkspaceMapTool(sessionCwd),
+            createCodeIntelligenceTool(sessionCwd),
             createChangeImpactTool(sessionCwd, executionConfig),
           ],
         })),

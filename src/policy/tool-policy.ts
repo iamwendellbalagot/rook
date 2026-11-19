@@ -22,6 +22,7 @@ const MUTATING_TOOLS = new Set(["edit", "write"]);
 const PLAN_INSPECTION_TOOL = "rook_inspect";
 const WORKSPACE_SEARCH_TOOL = "rook_search";
 const WORKSPACE_MAP_TOOL = "rook_map";
+const CODE_INTELLIGENCE_TOOL = "rook_code";
 const CHANGE_IMPACT_TOOL = "rook_impact";
 const SENSITIVE_SEGMENTS = new Set([
   ".git",
@@ -187,7 +188,8 @@ export class ToolPolicy {
     } else if (
       toolName === PLAN_INSPECTION_TOOL ||
       toolName === WORKSPACE_SEARCH_TOOL ||
-      toolName === WORKSPACE_MAP_TOOL
+      toolName === WORKSPACE_MAP_TOOL ||
+      toolName === CODE_INTELLIGENCE_TOOL
     ) {
       if (this.activeMutations.size) {
         reason =
@@ -199,6 +201,26 @@ export class ToolPolicy {
         )
       ) {
         reason = "Unsupported repository inspection operation.";
+      } else if (
+        toolName === CODE_INTELLIGENCE_TOOL &&
+        (!(["definition", "references", "diagnostics"] as unknown[]).includes(
+          input.action,
+        ) ||
+          typeof input.path !== "string" ||
+          !input.path.trim() ||
+          input.path.length > 1024 ||
+          isAbsolute(input.path) ||
+          input.path.split(/[\\/]+/).includes("..") ||
+          ((input.action === "definition" || input.action === "references") &&
+            ![input.line, input.column].every(
+              (value) =>
+                typeof value === "number" &&
+                Number.isInteger(value) &&
+                value > 0 &&
+                value <= 1_000_000,
+            )))
+      ) {
+        reason = "Code navigation parameters are outside the supported bounds.";
       } else if (
         toolName === WORKSPACE_SEARCH_TOOL &&
         (typeof input.query !== "string" ||

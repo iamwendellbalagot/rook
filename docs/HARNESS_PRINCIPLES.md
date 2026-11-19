@@ -34,7 +34,7 @@ Rook combines selected harness ideas around Pi; it is not a feature-for-feature 
 - Repository-scoped `AGENTS.md` discovery and bounded untrusted injection: `src/repo/instructions.ts`; `/instructions` lists applicable files. Root and current-directory ancestry are included, with named nested paths resolved from the prompt; symlinks, outside paths, and oversized files are skipped.
 - Pi adapter and session lifecycle: `src/pi/pi-agent-gateway.ts`.
 - Tool policy, approvals, and recovery ledger: `src/policy/`.
-- Read-only search/Git inspection and change-impact analysis: `src/pi/`.
+- Read-only search/Git inspection, TypeScript/JavaScript symbol navigation/diagnostics, and change-impact analysis: `src/pi/`.
 - `rook_map` builds a bounded on-demand source/symbol overview, ranks by query and internal importers, and emits no source contents.
 - User-invoked `/review` creates a separate, temporary Pi session in plan mode; it reviews the current Git status/diff without sharing the main conversation or changing the user's active mode. It is not automatic and adds a provider call only when explicitly requested.
 - User-invoked `/explore <question>` uses the same fresh-context, plan-only session pattern for focused repository research, returning a concise answer without adding exploratory tool traces to the main conversation.
