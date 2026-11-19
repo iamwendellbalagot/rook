@@ -305,4 +305,41 @@ describe("Pi SDK compatibility", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it("limits temporary subagent sessions to profile-selected read-only tools", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rook-subagent-session-"));
+    const cwd = join(root, "workspace");
+    const sessionDir = join(root, "sessions");
+    await mkdir(join(cwd, ".rook"), { recursive: true });
+    await writeFile(
+      join(cwd, ".rook", "agents.json"),
+      JSON.stringify({
+        agents: [
+          {
+            name: "reader",
+            description: "Read selected files",
+            instructions: "Answer with file references.",
+            tools: ["read", "rook_search"],
+          },
+        ],
+      }),
+    );
+    const previousRookHome = process.env.ROOK_HOME;
+    process.env.ROOK_HOME = join(root, "rook-home");
+    const gateway = await createPiAgentGateway(cwd, {
+      sessionDir,
+      readOnlyTools: ["read", "rook_search", "write", "bash"],
+    });
+    try {
+      expect(gateway.listSubagents().map(({ name }) => name)).toEqual([
+        "reader",
+      ]);
+      expect(gateway.getActiveTools()).toEqual(["read", "rook_search"]);
+    } finally {
+      await gateway.dispose();
+      if (previousRookHome === undefined) delete process.env.ROOK_HOME;
+      else process.env.ROOK_HOME = previousRookHome;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

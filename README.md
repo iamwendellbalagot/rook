@@ -86,6 +86,23 @@ Use `/diff` for an interactive, read-only Git status and diff review. `/undo` pr
 
 Read-only workflows are explicit: `/ask <question>` answers one question in plan mode and restores the prior mode; `/explore <question>` researches in a fresh, temporary plan-mode session; `/architect <task>` returns a separate implementation proposal without executing it; `/review` sends the current Git status/diff to a read-only review session. These workflows make an extra provider call only when invoked and do not add their tool trace to the main conversation. Their tool restrictions are enforced by Rook; prompt wording alone is not the security boundary.
 
+Projects can define focused read-only subagents in `.rook/agents.json`:
+
+```json
+{
+  "agents": [
+    {
+      "name": "api-reviewer",
+      "description": "Review API changes for compatibility",
+      "instructions": "Focus on request/response contracts and cite relevant files.",
+      "tools": ["read", "rook_inspect", "rook_search"]
+    }
+  ]
+}
+```
+
+Use `/agents` to list profiles or `/agents api-reviewer <task>` to run one in a fresh session. Profiles default to bounded read-only workspace/Git tools; configuration cannot enable file writes, shell, MCP, or executable extensions. Profile instructions are untrusted task guidance and cannot change the tool boundary. Profiles are loaded when Rook starts.
+
 Small tasks default to relevant reads → edit → inspect the diff → focused verification. Checklists and repository-wide exploration are discouraged for straightforward edits. Build mode's optional `rook_impact` analyzes the current diff, direct source dependents, and related tests; use it for shared code, broad changes, or uncertain dependencies, not as a prerequisite for every check. All shell commands still require one-time approval. Successful exact verification commands are not repeated until a Rook edit or non-verification shell command invalidates the record. This is best-effort workflow control, not a shell security boundary; arbitrary shell remains host access, and changes made outside Rook's tool events are not detected. Code-quality preferences are guidance; tool permissions and mode restrictions are enforced by Rook.
 
 Assistant Markdown code fences use language-aware `highlight.js` syntax colors in the terminal. Unknown or unlabelled languages remain readable as plain code; oversized blocks skip highlighting to keep rendering responsive.

@@ -39,6 +39,7 @@ Rook combines selected harness ideas around Pi; it is not a feature-for-feature 
 - User-invoked `/review` creates a separate, temporary Pi session in plan mode; it reviews the current Git status/diff without sharing the main conversation or changing the user's active mode. It is not automatic and adds a provider call only when explicitly requested.
 - User-invoked `/explore <question>` uses the same fresh-context, plan-only session pattern for focused repository research, returning a concise answer without adding exploratory tool traces to the main conversation.
 - User-invoked `/architect <task>` produces a concise, read-only implementation proposal in a fresh session. It does not edit, run shell commands, or automatically hand the proposal to the main agent; implementation remains a separate user-directed step.
+- Project-configured subagents in `.rook/agents.json` run with fresh sessions and profile-selected tools from a fixed read-only allowlist. Their prompt instructions cannot grant capabilities; `/agents` lists profiles and `/agents <name> <task>` invokes one.
 - User-facing mode, command, and review controls: `src/tui/rook-tui.ts`.
 - Local evidence-backed repository memory: `src/memory/` and `src/db/`.
 

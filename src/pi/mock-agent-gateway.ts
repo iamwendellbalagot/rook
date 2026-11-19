@@ -12,6 +12,7 @@ import type {
   SessionMessage,
   ThinkingInfo,
 } from "./agent-gateway.js";
+import type { SubagentProfile } from "./subagents.js";
 
 export class MockAgentGateway implements AgentGateway {
   private running = false;
@@ -132,6 +133,14 @@ export class MockAgentGateway implements AgentGateway {
 
   async architectReadOnly(_task: string): Promise<string> {
     return "Read-only architecture proposals are unavailable in mock mode.";
+  }
+
+  listSubagents(): SubagentProfile[] {
+    return [];
+  }
+
+  async runSubagent(): Promise<string> {
+    throw new Error("Configured subagents are unavailable in mock mode.");
   }
 
   async listRepositoryInstructions(): Promise<string[]> {

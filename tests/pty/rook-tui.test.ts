@@ -28,6 +28,7 @@ import type {
   SessionMessage,
   ThinkingInfo,
 } from "../../src/pi/agent-gateway.js";
+import type { SubagentProfile } from "../../src/pi/subagents.js";
 import type {
   GitSnapshot,
   RepositoryIdentity,
@@ -52,6 +53,15 @@ class EventGateway implements AgentGateway {
   reviewCalls = 0;
   exploreCalls: string[] = [];
   architectCalls: string[] = [];
+  subagentCalls: { name: string; task: string }[] = [];
+  subagents: SubagentProfile[] = [
+    {
+      name: "api-reviewer",
+      description: "Review API changes",
+      instructions: "Check compatibility.",
+      tools: ["read"],
+    },
+  ];
   models: ModelInfo[] = [
     { provider: "openai", id: "gpt-4.1", name: "GPT-4.1" },
     {
@@ -122,6 +132,15 @@ class EventGateway implements AgentGateway {
   async architectReadOnly(task: string): Promise<string> {
     this.architectCalls.push(task);
     return "Proposal: update src/index.ts, then run focused tests.";
+  }
+
+  listSubagents(): SubagentProfile[] {
+    return this.subagents;
+  }
+
+  async runSubagent(name: string, task: string): Promise<string> {
+    this.subagentCalls.push({ name, task });
+    return "API contract remains compatible.";
   }
 
   async listRepositoryInstructions(): Promise<string[]> {
@@ -963,6 +982,31 @@ describe("Rook TUI shell", () => {
     expect(gateway.architectCalls).toEqual(["Add request validation"]);
     expect(gateway.sentPrompts).toEqual([]);
     expect(gateway.modeHistory).toEqual([]);
+
+    terminal.input("\u0003");
+    await finished;
+  });
+
+  it("lists and runs configured read-only subagents", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+
+    await app.submit("/agents");
+    expect(app.tui.render(100).map(stripTerminalSequences).join(" ")).toContain(
+      "api-reviewer",
+    );
+    await app.submit("/agents api-reviewer Check the contract");
+
+    expect(gateway.subagentCalls).toEqual([
+      { name: "api-reviewer", task: "Check the contract" },
+    ]);
+    expect(gateway.sentPrompts).toEqual([]);
 
     terminal.input("\u0003");
     await finished;

@@ -1,4 +1,5 @@
 import type { TaskChecklistItem } from "./task-checklist.js";
+import type { SubagentProfile } from "./subagents.js";
 
 export type AgentEvent =
   | { type: "model_request_started" }
@@ -183,6 +184,8 @@ export interface AgentGateway {
   reviewGitChanges(): Promise<string>;
   exploreReadOnly(task: string): Promise<string>;
   architectReadOnly(task: string): Promise<string>;
+  listSubagents(): SubagentProfile[];
+  runSubagent(name: string, task: string): Promise<string>;
   listRepositoryInstructions?(): Promise<string[]>;
   getUndoPreview(): string;
   undoLastFileChange(): Promise<string>;

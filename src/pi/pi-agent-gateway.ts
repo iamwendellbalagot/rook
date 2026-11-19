@@ -74,6 +74,11 @@ import {
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  buildSubagentPrompt,
+  loadSubagentProfiles,
+  type SubagentProfile,
+} from "./subagents.js";
 
 const AVAILABLE_TOOLS = ["read", "find", "ls", "edit", "write", "bash"];
 const PLAN_TOOLS = [
@@ -101,7 +106,10 @@ function activeToolsFor(mode: PermissionMode): string[] {
 function activeToolsForSession(
   session: AgentSession,
   mode: PermissionMode,
+  readOnlyTools?: string[],
 ): string[] {
+  if (readOnlyTools)
+    return readOnlyTools.filter((name) => PLAN_TOOLS.includes(name));
   const mcpTools = session
     .getAllTools()
     .map((tool) => tool.name)
@@ -126,11 +134,13 @@ export async function createPiAgentGateway(
     repositoryInstructionsExtension?: InlineExtension;
     listRepositoryInstructions?: () => string[] | Promise<string[]>;
     memoryCapture?: MemoryCaptureManager;
+    readOnlyTools?: string[];
   } = {},
 ): Promise<AgentGateway> {
   const handlers = new Set<(event: AgentEvent) => void>();
   const policy = new ToolPolicy(cwd);
   const executionConfig = await loadExecutionPolicyConfig(cwd);
+  const subagentProfiles = await loadSubagentProfiles(cwd);
   const sandboxRuntime = executionConfig.sandboxShell
     ? await detectSandboxRuntime()
     : undefined;
@@ -254,7 +264,7 @@ export async function createPiAgentGateway(
     unsubscribe?.();
     await session.bindExtensions({});
     session.setActiveToolsByName(
-      activeToolsForSession(session, policy.getMode()),
+      activeToolsForSession(session, policy.getMode(), options.readOnlyTools),
     );
     policy.clearMcpSessionGrants();
     checklist = clearChecklistWhenBinding
@@ -436,7 +446,7 @@ export async function createPiAgentGateway(
         );
       policy.setMode(mode);
       runtime.session.setActiveToolsByName(
-        activeToolsForSession(runtime.session, mode),
+        activeToolsForSession(runtime.session, mode, options.readOnlyTools),
       );
     },
     async inspectGitChanges() {
@@ -516,6 +526,33 @@ export async function createPiAgentGateway(
           request,
           "\n</user_task>",
         ].join("\n"),
+      );
+    },
+    listSubagents(): SubagentProfile[] {
+      return subagentProfiles.map((profile) => ({
+        ...profile,
+        tools: [...profile.tools],
+      }));
+    },
+    async runSubagent(name, task) {
+      const profile = subagentProfiles.find(
+        (candidate) => candidate.name === name,
+      );
+      if (!profile) throw new Error(`No configured subagent named '${name}'.`);
+      const request = task.trim();
+      if (!request) throw new Error("A subagent task is required.");
+      const selectedModel = runtime.session.model;
+      if (!selectedModel)
+        throw new Error("Select a model before invoking a subagent.");
+      return runTemporaryReadOnlyTask(
+        cwd,
+        {
+          provider: selectedModel.provider,
+          id: selectedModel.id,
+          name: selectedModel.name,
+        },
+        buildSubagentPrompt(profile, request),
+        { tools: profile.tools },
       );
     },
     async listRepositoryInstructions() {
@@ -645,11 +682,15 @@ async function runTemporaryReadOnlyTask(
   cwd: string,
   selectedModel: ModelInfo,
   prompt: string,
+  options: { tools?: string[] } = {},
 ): Promise<string> {
   const sessionDir = await mkdtemp(join(tmpdir(), "rook-readonly-session-"));
   let reviewer: AgentGateway | undefined;
   try {
-    reviewer = await createPiAgentGateway(cwd, { sessionDir });
+    reviewer = await createPiAgentGateway(cwd, {
+      sessionDir,
+      ...(options.tools ? { readOnlyTools: options.tools } : {}),
+    });
     reviewer.setMode("plan");
     const reviewModel = (await reviewer.listModels()).find(
       (model) =>

@@ -128,6 +128,7 @@ const BUILTIN_SLASH_COMMANDS: SlashCommandSuggestion[] = [
     command: "/architect",
     description: "Propose an implementation in fresh context",
   },
+  { command: "/agents", description: "List or invoke read-only subagents" },
   { command: "/undo", description: "Review or restore Rook's last file edit" },
   { command: "/memory", description: "Manage repository memory" },
   { command: "/help", description: "Show available commands" },
@@ -1164,7 +1165,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/help":
           removeHome();
           appendText(
-            "Available: /help, /login, /logout, /model, /settings, /mcp, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /ask <question>, /explore <question>, /architect <task>, /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /diff, /review, /undo [confirm], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
+            "Available: /help, /login, /logout, /model, /settings, /mcp, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /ask <question>, /explore <question>, /architect <task>, /agents [name <task>], /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /diff, /review, /undo [confirm], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
             "muted",
           );
           return;
@@ -1235,6 +1236,53 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           try {
             appendText(
               safeTerminalText(await options.gateway.architectReadOnly(task)),
+              "muted",
+            );
+          } catch (error) {
+            appendText(errorMessage(error), "error");
+          }
+          return;
+        }
+        case "/agents": {
+          const agents = options.gateway.listSubagents();
+          const request = prompt.slice("/agents".length).trim();
+          if (!request) {
+            appendText(
+              agents.length
+                ? `Configured read-only subagents:\n${agents.map((agent) => `  /agents ${agent.name} <task> — ${agent.description}`).join("\n")}`
+                : "No project subagents configured. Add read-only profiles to .rook/agents.json.",
+              "muted",
+            );
+            return;
+          }
+          if (request.length > 4_200) {
+            appendText(
+              "Subagent tasks are limited to 4,200 characters.",
+              "error",
+            );
+            return;
+          }
+          const [name, ...taskParts] = request.split(/\s+/);
+          const task = taskParts.join(" ").trim();
+          if (!task) {
+            appendText("Usage: /agents <name> <task>", "error");
+            return;
+          }
+          if (!agents.some((agent) => agent.name === name)) {
+            appendText(
+              `Unknown subagent '${name}'. Use /agents to list configured agents.`,
+              "error",
+            );
+            return;
+          }
+          removeHome();
+          appendText(
+            `Running read-only subagent '${name}' in fresh context…`,
+            "muted",
+          );
+          try {
+            appendText(
+              safeTerminalText(await options.gateway.runSubagent(name!, task)),
               "muted",
             );
           } catch (error) {
