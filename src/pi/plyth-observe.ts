@@ -15,7 +15,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 const GUIDANCE =
-  "For test, build, and diagnostic bash commands, optionally predict expect.outcome (pass, fail, or error) and a short discriminating expect.evidence label before execution. Omit expect when uncertain; it never changes the command.";
+  "For eligible test, build, and diagnostic bash commands, include expect.outcome (pass, fail, or error) when reasonably predictable. Use expect.evidence as a short exact substring from a known test name or stable error label, not a prose summary or guessed aggregate count. Omit expect only when the result is genuinely uncertain; it never changes the command.";
 
 export function createPlythObserveExtension(
   counter: SessionCounter,

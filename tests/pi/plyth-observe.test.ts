@@ -51,7 +51,12 @@ describe("PLYTH Rook observe-only adapter", () => {
     expect(before.systemPrompt).toContain(
       "PLYTH observe-only prediction guidance",
     );
-    expect(before.systemPrompt).toContain("Omit expect when uncertain");
+    expect(before.systemPrompt).toContain(
+      "known test name or stable error label",
+    );
+    expect(before.systemPrompt).toContain(
+      "when the result is genuinely uncertain",
+    );
 
     handlers.get("tool_call")?.(
       {
