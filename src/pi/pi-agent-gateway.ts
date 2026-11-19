@@ -29,6 +29,8 @@ import type {
 import { adaptPiEvent } from "./event-adapter.js";
 import { formatAgentError } from "./errors.js";
 import { createRookBashTool } from "./bash-tool.js";
+import { createPlythObserveExtension } from "./plyth-observe.js";
+import { SessionCounter } from "plyth";
 import { createChangeImpactTool } from "./change-impact.js";
 import {
   createExecutionPolicyExtension,
@@ -40,11 +42,13 @@ import {
 } from "./plan-inspection-tool.js";
 import { createWorkspaceSearchTool } from "./workspace-search-tool.js";
 import { createWorkspaceMapTool } from "./workspace-map-tool.js";
+import { createCodeIntelligenceTool } from "./code-intelligence-tool.js";
 import {
   createToolPolicyExtension,
   ToolPolicy,
 } from "../policy/tool-policy.js";
 import { WorkspaceModelConfiguration } from "./workspace-models.js";
+import { detectSandboxRuntime } from "../policy/sandbox.js";
 import {
   buildReadOnlyReviewPrompt,
   runReadOnlyReview,
@@ -53,6 +57,11 @@ import {
   createMemoryContextExtension,
   type RetrievedMemoryContext,
 } from "../memory/context.js";
+import {
+  createRepositoryInstructionsExtension,
+  type RepositoryInstructions,
+} from "../repo/instructions.js";
+import type { InlineExtension } from "@earendil-works/pi-coding-agent";
 import type { MemoryCaptureManager } from "../memory/capture.js";
 import {
   createTaskChecklistTool,
@@ -68,6 +77,11 @@ import {
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  buildSubagentPrompt,
+  loadSubagentProfiles,
+  type SubagentProfile,
+} from "./subagents.js";
 
 const AVAILABLE_TOOLS = ["read", "find", "ls", "edit", "write", "bash"];
 const PLAN_TOOLS = [
@@ -77,6 +91,7 @@ const PLAN_TOOLS = [
   "rook_inspect",
   "rook_search",
   "rook_map",
+  "rook_code",
   TASK_CHECKLIST_TOOL_NAME,
 ];
 const BUILD_TOOLS = [
@@ -84,6 +99,7 @@ const BUILD_TOOLS = [
   "rook_inspect",
   "rook_search",
   "rook_map",
+  "rook_code",
   "rook_impact",
   TASK_CHECKLIST_TOOL_NAME,
 ];
@@ -95,7 +111,10 @@ function activeToolsFor(mode: PermissionMode): string[] {
 function activeToolsForSession(
   session: AgentSession,
   mode: PermissionMode,
+  readOnlyTools?: string[],
 ): string[] {
+  if (readOnlyTools)
+    return readOnlyTools.filter((name) => PLAN_TOOLS.includes(name));
   const mcpTools = session
     .getAllTools()
     .map((tool) => tool.name)
@@ -114,12 +133,27 @@ export async function createPiAgentGateway(
     memoryContext?: (
       prompt: string,
     ) => RetrievedMemoryContext | Promise<RetrievedMemoryContext>;
+    repositoryInstructions?: (
+      prompt: string,
+    ) => RepositoryInstructions | Promise<RepositoryInstructions>;
+    repositoryInstructionsExtension?: InlineExtension;
+    listRepositoryInstructions?: () => string[] | Promise<string[]>;
     memoryCapture?: MemoryCaptureManager;
+    readOnlyTools?: string[];
   } = {},
 ): Promise<AgentGateway> {
   const handlers = new Set<(event: AgentEvent) => void>();
+  const plythCounter = new SessionCounter();
   const policy = new ToolPolicy(cwd);
   const executionConfig = await loadExecutionPolicyConfig(cwd);
+  const subagentProfiles = await loadSubagentProfiles(cwd);
+  const sandboxRuntime = executionConfig.sandboxShell
+    ? await detectSandboxRuntime()
+    : undefined;
+  policy.setSandboxShell(executionConfig.sandboxShell);
+  policy.setSandboxRuntimeAvailable(
+    !executionConfig.sandboxShell || Boolean(sandboxRuntime),
+  );
   let refreshWorkspaceModels = async (): Promise<void> => {};
   let checklist: TaskChecklistItem[] = [];
   let clearChecklistWhenBinding = false;
@@ -167,6 +201,7 @@ export async function createPiAgentGateway(
             createToolSearchExtension(),
             createMcpExtension(),
             createToolPolicyExtension(policy),
+            createPlythObserveExtension(plythCounter),
             createExecutionPolicyExtension(
               () => policy.getMode(),
               executionConfig,
@@ -174,6 +209,15 @@ export async function createPiAgentGateway(
             ...(options.memoryContext
               ? [createMemoryContextExtension(options.memoryContext)]
               : []),
+            ...(options.repositoryInstructionsExtension
+              ? [options.repositoryInstructionsExtension]
+              : options.repositoryInstructions
+                ? [
+                    createRepositoryInstructionsExtension(
+                      options.repositoryInstructions,
+                    ),
+                  ]
+                : []),
             ...(options.memoryCapture
               ? [options.memoryCapture.createExtension()]
               : []),
@@ -195,6 +239,7 @@ export async function createPiAgentGateway(
             "rook_inspect",
             "rook_search",
             "rook_map",
+            "rook_code",
             "rook_impact",
             TASK_CHECKLIST_TOOL_NAME,
             "codemode",
@@ -202,10 +247,14 @@ export async function createPiAgentGateway(
           ],
           customTools: [
             taskChecklistTool,
-            createRookBashTool(sessionCwd),
+            createRookBashTool(sessionCwd, {
+              sandbox: executionConfig.sandboxShell,
+              ...(sandboxRuntime ? { sandboxRuntime } : {}),
+            }),
             createPlanInspectionTool(sessionCwd),
             createWorkspaceSearchTool(sessionCwd),
             createWorkspaceMapTool(sessionCwd),
+            createCodeIntelligenceTool(sessionCwd),
             createChangeImpactTool(sessionCwd, executionConfig),
           ],
         })),
@@ -224,9 +273,9 @@ export async function createPiAgentGateway(
     unsubscribe?.();
     await session.bindExtensions({});
     session.setActiveToolsByName(
-      activeToolsForSession(session, policy.getMode()),
+      activeToolsForSession(session, policy.getMode(), options.readOnlyTools),
     );
-    policy.clearMcpSessionGrants();
+    policy.clearSessionPermissionGrants();
     checklist = clearChecklistWhenBinding
       ? []
       : restoreTaskChecklistFromEntries(session.sessionManager.getBranch());
@@ -406,8 +455,11 @@ export async function createPiAgentGateway(
         );
       policy.setMode(mode);
       runtime.session.setActiveToolsByName(
-        activeToolsForSession(runtime.session, mode),
+        activeToolsForSession(runtime.session, mode, options.readOnlyTools),
       );
+    },
+    getPlythStats() {
+      return plythCounter.predictionStats();
     },
     async inspectGitChanges() {
       return inspectGitWorkspace(cwd);
@@ -488,6 +540,36 @@ export async function createPiAgentGateway(
         ].join("\n"),
       );
     },
+    listSubagents(): SubagentProfile[] {
+      return subagentProfiles.map((profile) => ({
+        ...profile,
+        tools: [...profile.tools],
+      }));
+    },
+    async runSubagent(name, task) {
+      const profile = subagentProfiles.find(
+        (candidate) => candidate.name === name,
+      );
+      if (!profile) throw new Error(`No configured subagent named '${name}'.`);
+      const request = task.trim();
+      if (!request) throw new Error("A subagent task is required.");
+      const selectedModel = runtime.session.model;
+      if (!selectedModel)
+        throw new Error("Select a model before invoking a subagent.");
+      return runTemporaryReadOnlyTask(
+        cwd,
+        {
+          provider: selectedModel.provider,
+          id: selectedModel.id,
+          name: selectedModel.name,
+        },
+        buildSubagentPrompt(profile, request),
+        { tools: profile.tools },
+      );
+    },
+    async listRepositoryInstructions() {
+      return (await options.listRepositoryInstructions?.()) ?? [];
+    },
     getUndoPreview() {
       return policy.getUndoPreview();
     },
@@ -502,6 +584,9 @@ export async function createPiAgentGateway(
     },
     getExternalAccessGrants(): ExternalAccessGrant[] {
       return policy.getExternalAccessGrants();
+    },
+    getSessionPermissionGrants() {
+      return policy.getSessionPermissionGrants();
     },
     revokeExternalAccessGrant(id: string): boolean {
       return policy.revokeExternalAccessGrant(id);
@@ -612,11 +697,15 @@ async function runTemporaryReadOnlyTask(
   cwd: string,
   selectedModel: ModelInfo,
   prompt: string,
+  options: { tools?: string[] } = {},
 ): Promise<string> {
   const sessionDir = await mkdtemp(join(tmpdir(), "rook-readonly-session-"));
   let reviewer: AgentGateway | undefined;
   try {
-    reviewer = await createPiAgentGateway(cwd, { sessionDir });
+    reviewer = await createPiAgentGateway(cwd, {
+      sessionDir,
+      ...(options.tools ? { readOnlyTools: options.tools } : {}),
+    });
     reviewer.setMode("plan");
     const reviewModel = (await reviewer.listModels()).find(
       (model) =>

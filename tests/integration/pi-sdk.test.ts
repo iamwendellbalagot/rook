@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -61,6 +61,7 @@ describe("Pi SDK compatibility", () => {
           "rook_inspect",
           "rook_search",
           "rook_map",
+          "rook_code",
           "rook_todo",
         ]),
       );
@@ -169,6 +170,11 @@ describe("Pi SDK compatibility", () => {
     store.saveWorkspace(repository, null);
     const memoryCapture = new MemoryCaptureManager(store, repository, null);
     const gateway = await createPiAgentGateway(process.cwd(), {
+      repositoryInstructions: () => ({
+        content: "",
+        files: [],
+      }),
+      listRepositoryInstructions: () => ["AGENTS.md"],
       memoryContext: () => ({
         content: "",
         memoryIds: [],
@@ -188,6 +194,9 @@ describe("Pi SDK compatibility", () => {
         ]),
       );
       expect(gateway.getActiveTools()).not.toContain("bash");
+      await expect(gateway.listRepositoryInstructions?.()).resolves.toEqual([
+        "AGENTS.md",
+      ]);
     } finally {
       await gateway.dispose();
       store.close();
@@ -254,6 +263,7 @@ describe("Pi SDK compatibility", () => {
         recursive: true,
       });
       await mkdir(join(cwd, ".pi", "prompts"), { recursive: true });
+      await mkdir(join(cwd, ".pi", "extensions"), { recursive: true });
       await writeFile(
         join(cwd, ".rook", "skills", "safe-review", "SKILL.md"),
         "---\nname: safe-review\ndescription: Review code without executing commands.\n---\nRead and review code only.\n",
@@ -269,6 +279,15 @@ describe("Pi SDK compatibility", () => {
       await writeFile(
         join(cwd, ".pi", "prompts", "review.md"),
         "---\nname: review\ndescription: Review the current change.\n---\nReview this change: $ARGUMENTS\n",
+      );
+      const extensionMarker = join(root, "unexpected-extension-loaded");
+      await writeFile(
+        join(cwd, ".pi", "settings.json"),
+        JSON.stringify({ extensions: ["./extensions/*.ts"] }),
+      );
+      await writeFile(
+        join(cwd, ".pi", "extensions", "unexpected.ts"),
+        `import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(extensionMarker)}, "loaded");\nexport default function () {}`,
       );
       gateway = await createPiAgentGateway(cwd, { sessionDir });
       expect(gateway.listSkills()).toContainEqual({
@@ -289,9 +308,48 @@ describe("Pi SDK compatibility", () => {
       expect(gateway.isResourceCommand("/review this diff")).toBe(true);
       expect(gateway.getActiveTools()).not.toContain("bash");
       expect(gateway.getActiveTools()).not.toContain("codemode");
+      expect(gateway.getActiveTools()).not.toContain("unexpected");
       expect(gateway.isResourceCommand("/mcp")).toBe(true);
+      await expect(access(extensionMarker)).rejects.toThrow();
     } finally {
       await gateway?.dispose();
+      if (previousRookHome === undefined) delete process.env.ROOK_HOME;
+      else process.env.ROOK_HOME = previousRookHome;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("limits temporary subagent sessions to profile-selected read-only tools", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rook-subagent-session-"));
+    const cwd = join(root, "workspace");
+    const sessionDir = join(root, "sessions");
+    await mkdir(join(cwd, ".rook"), { recursive: true });
+    await writeFile(
+      join(cwd, ".rook", "agents.json"),
+      JSON.stringify({
+        agents: [
+          {
+            name: "reader",
+            description: "Read selected files",
+            instructions: "Answer with file references.",
+            tools: ["read", "rook_search"],
+          },
+        ],
+      }),
+    );
+    const previousRookHome = process.env.ROOK_HOME;
+    process.env.ROOK_HOME = join(root, "rook-home");
+    const gateway = await createPiAgentGateway(cwd, {
+      sessionDir,
+      readOnlyTools: ["read", "rook_search", "write", "bash"],
+    });
+    try {
+      expect(gateway.listSubagents().map(({ name }) => name)).toEqual([
+        "reader",
+      ]);
+      expect(gateway.getActiveTools()).toEqual(["read", "rook_search"]);
+    } finally {
+      await gateway.dispose();
       if (previousRookHome === undefined) delete process.env.ROOK_HOME;
       else process.env.ROOK_HOME = previousRookHome;
       await rm(root, { recursive: true, force: true });

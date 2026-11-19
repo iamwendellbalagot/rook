@@ -1,4 +1,6 @@
 import type { TaskChecklistItem } from "./task-checklist.js";
+import type { SubagentProfile } from "./subagents.js";
+import type { SessionPredictionStats } from "plyth";
 
 export type AgentEvent =
   | { type: "model_request_started" }
@@ -114,12 +116,22 @@ export type ExternalAccessRequest =
       access: "execute";
       command: string;
       timeoutSeconds: number;
+      sandboxed: boolean;
+      reason?: string;
     }
   | {
       toolName: string;
       serverName: string;
       access: "mcp";
       inputSummary: string;
+      reason?: string;
+    }
+  | {
+      toolName: string;
+      sourceName: string;
+      access: "tool";
+      inputSummary: string;
+      reason: string;
     };
 
 export type ExternalAccessChoice = "once" | "session" | "deny";
@@ -129,6 +141,16 @@ export interface ExternalAccessGrant {
   path: string;
   requestedPath: string;
   access: "read" | "write";
+}
+
+export interface SessionPermissionGrant {
+  id: string;
+  type: "shell" | "tool";
+  description: string;
+  identity: string;
+  sourceName: string;
+  workspace?: string;
+  sandboxed?: boolean;
 }
 
 export type PermissionMode = "plan" | "build";
@@ -178,10 +200,14 @@ export interface AgentGateway {
   newSession(): Promise<void>;
   resumeSession(path: string): Promise<void>;
   setMode(mode: PermissionMode): void;
+  getPlythStats(): SessionPredictionStats;
   inspectGitChanges(): Promise<string>;
   reviewGitChanges(): Promise<string>;
   exploreReadOnly(task: string): Promise<string>;
   architectReadOnly(task: string): Promise<string>;
+  listSubagents(): SubagentProfile[];
+  runSubagent(name: string, task: string): Promise<string>;
+  listRepositoryInstructions?(): Promise<string[]>;
   getUndoPreview(): string;
   undoLastFileChange(): Promise<string>;
   getPermissionDecisions(): PermissionDecision[];
@@ -191,6 +217,7 @@ export interface AgentGateway {
       | undefined,
   ): void;
   getExternalAccessGrants(): ExternalAccessGrant[];
+  getSessionPermissionGrants(): SessionPermissionGrant[];
   revokeExternalAccessGrant(id: string): boolean;
   getActiveTools(): string[];
   subscribe(handler: (event: AgentEvent) => void): () => void;

@@ -16,18 +16,43 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: rook
+      - uses: actions/checkout@v4
+        with:
+          repository: iamwendellbalagot/plyth
+          path: plyth
+          ref: main
       - uses: actions/setup-node@v4
         with:
           node-version: 22.19.0
           cache: npm
+          cache-dependency-path: rook/package-lock.json
       - run: npm ci
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run test:pty
-      - run: npm run test:integration
+        working-directory: plyth
       - run: npm run build
+        working-directory: plyth
+      - run: npm ci
+        working-directory: rook
+      - run: npm run lint
+        working-directory: rook
+      - run: npm run typecheck
+        working-directory: rook
+      - run: npm test
+        working-directory: rook
+      - run: npm run test:pty
+        working-directory: rook
+      - run: npm run test:integration
+        working-directory: rook
+      - run: npm run build
+        working-directory: rook
       - run: npm run smoke
+        working-directory: rook
       - run: npm run benchmark:memory
+        working-directory: rook
       - run: npm run benchmark:fts
+        working-directory: rook
+      - run: npm run eval:coding -- verify-fixtures
+        working-directory: rook
       - run: npm pack --dry-run
+        working-directory: rook

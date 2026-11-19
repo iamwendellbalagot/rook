@@ -107,6 +107,10 @@ const BUILTIN_SLASH_COMMANDS: SlashCommandSuggestion[] = [
   { command: "/login", description: "Sign in to a provider" },
   { command: "/logout", description: "Sign out of a provider" },
   { command: "/settings", description: "Adjust thinking level" },
+  {
+    command: "/plyth",
+    description: "Show prediction coverage and verdict counts",
+  },
   { command: "/new", description: "Start a new session" },
   { command: "/sessions", description: "Browse saved sessions" },
   { command: "/resume", description: "Resume a session" },
@@ -114,6 +118,10 @@ const BUILTIN_SLASH_COMMANDS: SlashCommandSuggestion[] = [
   { command: "/compact", description: "Compact session context" },
   { command: "/skills", description: "List available skills" },
   { command: "/prompts", description: "List prompt templates" },
+  {
+    command: "/instructions",
+    description: "Show applicable repository instruction files",
+  },
   { command: "/steer", description: "Steer the current response" },
   { command: "/follow-up", description: "Queue a follow-up" },
   { command: "/permissions", description: "Review access grants" },
@@ -124,6 +132,7 @@ const BUILTIN_SLASH_COMMANDS: SlashCommandSuggestion[] = [
     command: "/architect",
     description: "Propose an implementation in fresh context",
   },
+  { command: "/agents", description: "List or invoke read-only subagents" },
   { command: "/undo", description: "Review or restore Rook's last file edit" },
   { command: "/memory", description: "Manage repository memory" },
   { command: "/help", description: "Show available commands" },
@@ -206,7 +215,7 @@ class ExternalAccessPromptPanel implements Component {
         { choice: "once", label: "Allow this call once" },
         {
           choice: "session",
-          label: `Allow server ${safeTerminalText(this.request.serverName)} for this session`,
+          label: `Allow this tool from ${safeTerminalText(this.request.serverName)} for this session`,
         },
       ];
     }
@@ -214,8 +223,24 @@ class ExternalAccessPromptPanel implements Component {
       return [
         { choice: "deny", label: "Deny" },
         ...(this.canApproveShell
-          ? [{ choice: "once" as const, label: "Run command once" }]
+          ? [
+              { choice: "once" as const, label: "Allow once" },
+              {
+                choice: "session" as const,
+                label: "Allow this command for this session",
+              },
+            ]
           : []),
+      ];
+    }
+    if (this.request?.access === "tool") {
+      return [
+        { choice: "deny", label: "Deny tool call" },
+        { choice: "once", label: "Allow this call once" },
+        {
+          choice: "session",
+          label: `Allow this tool from ${safeTerminalText(this.request.sourceName)} for this session`,
+        },
       ];
     }
     return [
@@ -246,16 +271,20 @@ class ExternalAccessPromptPanel implements Component {
     if (!this.request || width <= 0) return [];
     const operation = this.request.access;
     let body =
-      this.request.access === "mcp"
+      this.request.access === "mcp" || this.request.access === "tool"
         ? [
             tone(
-              `Rook recommends an MCP call · ${safeTerminalText(this.request.serverName)}`,
+              this.request.access === "mcp"
+                ? `Rook recommends an MCP call · ${safeTerminalText(this.request.serverName)}`
+                : `Unclassified tool call · ${safeTerminalText(this.request.sourceName)}`,
               "amber",
               true,
             ),
             ...wrapTextWithAnsi(
               tone(
-                "This external MCP server may access data or perform actions outside Rook's workspace policy.",
+                this.request.access === "mcp"
+                  ? "This external MCP server may access data or perform actions outside Rook's workspace policy."
+                  : "Rook has no policy classification for this registered tool. Review its arguments before allowing it.",
                 "amber",
               ),
               width,
@@ -264,6 +293,12 @@ class ExternalAccessPromptPanel implements Component {
               `Tool: ${safeTerminalText(this.request.toolName)}`,
               width,
             ),
+            ...(this.request.reason
+              ? wrapTextWithAnsi(
+                  `Why approval: ${safeTerminalText(this.request.reason)}`,
+                  width,
+                )
+              : []),
             ...wrapTextWithAnsi(
               `Arguments: ${safeTerminalText(this.request.inputSummary)}`,
               width,
@@ -274,9 +309,15 @@ class ExternalAccessPromptPanel implements Component {
               tone("Run terminal command · bash", "amber", true),
               ...wrapTextWithAnsi(
                 tone(
-                  "Runs on your host, NOT sandboxed: can access files outside the project, credentials, and network.",
+                  this.request.sandboxed
+                    ? "Runs in an OS sandbox: writes are limited to the workspace and temporary directory; network access is disabled."
+                    : "Runs on your host, NOT sandboxed: can access files outside the project, credentials, and network (explicit policy opt-out).",
                   "amber",
                 ),
+                width,
+              ),
+              ...wrapTextWithAnsi(
+                `Why approval: ${safeTerminalText(this.request.reason ?? "Command needs review.")}`,
                 width,
               ),
               ...wrapTextWithAnsi(
@@ -304,7 +345,7 @@ class ExternalAccessPromptPanel implements Component {
                 Math.max(1, width - visibleWidth("Folder: ")),
               )}`,
             ];
-    this.canApproveShell = body.length + 3 <= this.availableRows();
+    this.canApproveShell = body.length + 4 <= this.availableRows();
     if (this.request.access === "execute" && !this.canApproveShell) {
       body = wrapTextWithAnsi(
         "Command cannot be fully reviewed at this terminal size. Enlarge the terminal or deny and request a shorter command.",
@@ -1158,7 +1199,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/help":
           removeHome();
           appendText(
-            "Available: /help, /login, /logout, /model, /settings, /mcp, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /ask <question>, /explore <question>, /architect <task>, /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /diff, /review, /undo [confirm], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
+            "Available: /help, /login, /logout, /model, /settings, /plyth, /mcp, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /ask <question>, /explore <question>, /architect <task>, /agents [name <task>], /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /diff, /review, /undo [confirm], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
             "muted",
           );
           return;
@@ -1236,6 +1277,53 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           }
           return;
         }
+        case "/agents": {
+          const agents = options.gateway.listSubagents();
+          const request = prompt.slice("/agents".length).trim();
+          if (!request) {
+            appendText(
+              agents.length
+                ? `Configured read-only subagents:\n${agents.map((agent) => `  /agents ${agent.name} <task> — ${agent.description}`).join("\n")}`
+                : "No project subagents configured. Add read-only profiles to .rook/agents.json.",
+              "muted",
+            );
+            return;
+          }
+          if (request.length > 4_200) {
+            appendText(
+              "Subagent tasks are limited to 4,200 characters.",
+              "error",
+            );
+            return;
+          }
+          const [name, ...taskParts] = request.split(/\s+/);
+          const task = taskParts.join(" ").trim();
+          if (!task) {
+            appendText("Usage: /agents <name> <task>", "error");
+            return;
+          }
+          if (!agents.some((agent) => agent.name === name)) {
+            appendText(
+              `Unknown subagent '${name}'. Use /agents to list configured agents.`,
+              "error",
+            );
+            return;
+          }
+          removeHome();
+          appendText(
+            `Running read-only subagent '${name}' in fresh context…`,
+            "muted",
+          );
+          try {
+            appendText(
+              safeTerminalText(await options.gateway.runSubagent(name!, task)),
+              "muted",
+            );
+          } catch (error) {
+            appendText(errorMessage(error), "error");
+          }
+          return;
+        }
         case "/undo":
           removeHome();
           if (prompt === "/undo") {
@@ -1258,11 +1346,24 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/settings":
           showThinkingMenu();
           return;
+        case "/plyth": {
+          removeHome();
+          const stats = options.gateway.getPlythStats();
+          appendText(
+            `PLYTH observe-only · eligible ${stats.eligibleCommands} · predicted ${stats.predictedCommands} · invalid ${stats.invalidPredictions} · specific ${stats.specificPredictions}\nhit ${stats.verdicts.hit} · miss ${stats.verdicts.miss} · vague ${stats.verdicts.vague} · none ${stats.verdicts.none} · unscorable ${stats.verdicts.unscorable}\ncommand time ${stats.durationMs}ms across ${stats.durationSamples} commands`,
+            "muted",
+          );
+          return;
+        }
         case "/permissions":
-          if (prompt.startsWith("/permissions revoke ")) {
+          if (prompt === "/permissions") {
+            showPermissionDecisions();
+          } else if (prompt === "/permissions revoke") {
+            appendText("Usage: /permissions revoke <grant-id>", "error");
+          } else if (prompt.startsWith("/permissions revoke ")) {
             revokeExternalGrant(prompt.slice("/permissions revoke ".length));
           } else {
-            showPermissionDecisions();
+            appendText("Usage: /permissions [revoke <grant-id>]", "error");
           }
           return;
         case "/new":
@@ -1294,6 +1395,18 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
             options.gateway.listPromptTemplates(),
           );
           return;
+        case "/instructions": {
+          removeHome();
+          const files =
+            (await options.gateway.listRepositoryInstructions?.()) ?? [];
+          appendText(
+            files.length
+              ? `Loaded repository instructions:\n${files.map((path) => `  ${safeTerminalText(path)}`).join("\n")}`
+              : "No applicable AGENTS.md files were loaded.",
+            "muted",
+          );
+          return;
+        }
         case "/steer":
         case "/follow-up": {
           const text = prompt.slice(command.length).trim();
@@ -1792,6 +1905,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
 
   function showPermissionDecisions(): void {
     const grants = options.gateway.getExternalAccessGrants();
+    const sessionGrants = options.gateway.getSessionPermissionGrants();
     if (grants.length) {
       appendText(
         `External folder grants (session only):\n${grants
@@ -1803,8 +1917,17 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         "muted",
       );
     }
+    if (sessionGrants.length)
+      appendText(
+        `Session permission grants:\n${formatSessionPermissionGrants(sessionGrants)}`,
+        "muted",
+      );
     const decisions = options.gateway.getPermissionDecisions();
-    if (decisions.length === 0 && grants.length === 0) {
+    if (
+      decisions.length === 0 &&
+      grants.length === 0 &&
+      sessionGrants.length === 0
+    ) {
       appendText(
         "No tool permission decisions have been recorded this session.",
         "muted",
@@ -1820,12 +1943,24 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     }
   }
 
+  function formatSessionPermissionGrants(
+    grants: ReturnType<AgentGateway["getSessionPermissionGrants"]>,
+  ): string {
+    return grants
+      .map((grant) =>
+        grant.type === "shell"
+          ? `SHELL ${safeTerminalText(JSON.stringify(grant.description))} in ${safeTerminalText(grant.workspace ?? "workspace")} · ${grant.sandboxed ? "sandboxed" : "host"} · /permissions revoke ${grant.id}`
+          : `TOOL ${safeTerminalText(grant.description)} from ${safeTerminalText(grant.sourceName)} · /permissions revoke ${grant.id}`,
+      )
+      .join("\n");
+  }
+
   function revokeExternalGrant(id: string): void {
     const revoked = options.gateway.revokeExternalAccessGrant(id.trim());
     appendText(
       revoked
-        ? "External folder grant revoked."
-        : "No external folder grant matches that ID.",
+        ? "Permission grant revoked."
+        : "No permission grant matches that ID.",
       revoked ? "muted" : "error",
     );
   }
@@ -1907,7 +2042,9 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         ? "bash requests approval to run a terminal command on your host."
         : operation === "mcp"
           ? `Rook recommends calling MCP tool ${safeTerminalText(pending.request.toolName)}; approval is required before the external call.`
-          : `${pending.request.toolName} requests ${operation} access to ${safeTerminalText(pending.request.path)}.`,
+          : operation === "tool"
+            ? `Unclassified tool ${safeTerminalText(pending.request.toolName)} requests approval before execution.`
+            : `${pending.request.toolName} requests ${operation} access to ${safeTerminalText(pending.request.path)}.`,
       "muted",
     );
   }

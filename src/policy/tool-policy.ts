@@ -12,6 +12,7 @@ import type {
   ExternalAccessChoice,
   ExternalAccessGrant,
   ExternalAccessRequest,
+  SessionPermissionGrant,
 } from "../pi/agent-gateway.js";
 import { TASK_CHECKLIST_TOOL_NAME } from "../pi/task-checklist.js";
 import { MAX_SHELL_COMMAND_LENGTH, shellTimeout } from "./shell-limits.js";
@@ -22,6 +23,7 @@ const MUTATING_TOOLS = new Set(["edit", "write"]);
 const PLAN_INSPECTION_TOOL = "rook_inspect";
 const WORKSPACE_SEARCH_TOOL = "rook_search";
 const WORKSPACE_MAP_TOOL = "rook_map";
+const CODE_INTELLIGENCE_TOOL = "rook_code";
 const CHANGE_IMPACT_TOOL = "rook_impact";
 const SENSITIVE_SEGMENTS = new Set([
   ".git",
@@ -44,9 +46,13 @@ export class ToolPolicy {
   private readonly shellCommands = new Map<string, string>();
   private readonly successfulChecks = new Map<string, number>();
   private readonly externalGrants: ExternalAccessGrant[] = [];
-  private readonly mcpSessionGrants = new Set<string>();
+  private readonly sessionPermissionGrants: SessionPermissionGrant[] = [];
+  private permissionGrantGeneration = 0;
+  private mcpAuthorizationGeneration = 0;
   private explicitMcpAuthorization: Set<string> | "all" | undefined;
   private mcpUserDenied = false;
+  private sandboxShell = true;
+  private sandboxRuntimeAvailable = true;
   private externalAccessPrompt:
     | ((request: ExternalAccessRequest) => Promise<ExternalAccessChoice>)
     | undefined = undefined;
@@ -86,6 +92,18 @@ export class ToolPolicy {
     this.mode = mode;
   }
 
+  setSandboxShell(enabled: boolean): void {
+    this.sandboxShell = enabled;
+  }
+
+  isSandboxShellEnabled(): boolean {
+    return this.sandboxShell;
+  }
+
+  setSandboxRuntimeAvailable(available: boolean): void {
+    this.sandboxRuntimeAvailable = available;
+  }
+
   getMode(): PermissionMode {
     return this.mode;
   }
@@ -108,23 +126,40 @@ export class ToolPolicy {
 
   revokeExternalAccessGrant(id: string): boolean {
     const index = this.externalGrants.findIndex((grant) => grant.id === id);
-    if (index < 0) return false;
-    this.externalGrants.splice(index, 1);
+    if (index >= 0) {
+      this.externalGrants.splice(index, 1);
+      this.permissionGrantGeneration++;
+      return true;
+    }
+    const sessionIndex = this.sessionPermissionGrants.findIndex(
+      (grant) => grant.id === id,
+    );
+    if (sessionIndex < 0) return false;
+    this.sessionPermissionGrants.splice(sessionIndex, 1);
+    this.permissionGrantGeneration++;
     return true;
+  }
+
+  getSessionPermissionGrants(): SessionPermissionGrant[] {
+    return this.sessionPermissionGrants.map((grant) => ({ ...grant }));
   }
 
   setMcpUserAuthorization(prompt: string): void {
     this.explicitMcpAuthorization = explicitMcpTools(prompt);
     this.mcpUserDenied = explicitlyDeniesMcp(prompt);
+    this.mcpAuthorizationGeneration++;
   }
 
   clearMcpUserAuthorization(): void {
     this.explicitMcpAuthorization = undefined;
     this.mcpUserDenied = false;
+    this.mcpAuthorizationGeneration++;
   }
 
-  clearMcpSessionGrants(): void {
-    this.mcpSessionGrants.clear();
+  clearSessionPermissionGrants(): void {
+    this.sessionPermissionGrants.splice(0);
+    this.externalGrants.splice(0);
+    this.permissionGrantGeneration++;
   }
 
   async check(
@@ -173,7 +208,8 @@ export class ToolPolicy {
     } else if (
       toolName === PLAN_INSPECTION_TOOL ||
       toolName === WORKSPACE_SEARCH_TOOL ||
-      toolName === WORKSPACE_MAP_TOOL
+      toolName === WORKSPACE_MAP_TOOL ||
+      toolName === CODE_INTELLIGENCE_TOOL
     ) {
       if (this.activeMutations.size) {
         reason =
@@ -185,6 +221,26 @@ export class ToolPolicy {
         )
       ) {
         reason = "Unsupported repository inspection operation.";
+      } else if (
+        toolName === CODE_INTELLIGENCE_TOOL &&
+        (!(["definition", "references", "diagnostics"] as unknown[]).includes(
+          input.action,
+        ) ||
+          typeof input.path !== "string" ||
+          !input.path.trim() ||
+          input.path.length > 1024 ||
+          isAbsolute(input.path) ||
+          input.path.split(/[\\/]+/).includes("..") ||
+          ((input.action === "definition" || input.action === "references") &&
+            ![input.line, input.column].every(
+              (value) =>
+                typeof value === "number" &&
+                Number.isInteger(value) &&
+                value > 0 &&
+                value <= 1_000_000,
+            )))
+      ) {
+        reason = "Code navigation parameters are outside the supported bounds.";
       } else if (
         toolName === WORKSPACE_SEARCH_TOOL &&
         (typeof input.query !== "string" ||
@@ -248,7 +304,7 @@ export class ToolPolicy {
       } else if (
         this.explicitMcpAuthorization === "all" ||
         this.explicitMcpAuthorization?.has(toolName) ||
-        this.mcpSessionGrants.has(match[1]!)
+        this.hasMcpToolGrant(toolName, match[1]!)
       ) {
         reason = "Allowed MCP call by explicit user request or session grant.";
         allowed = true;
@@ -259,18 +315,39 @@ export class ToolPolicy {
             "MCP use requires user approval; no interactive approval handler is available.";
         } else {
           try {
+            const authorization = this.explicitMcpAuthorization;
+            const authorizationGeneration = this.mcpAuthorizationGeneration;
+            const mode = this.mode;
+            const grantGeneration = this.permissionGrantGeneration;
             const choice = await prompt({
               toolName,
               serverName: match[1]!,
               access: "mcp",
               inputSummary: summarizeMcpInput(input),
+              reason:
+                "Rook initiated this MCP call without an explicit user request.",
             });
-            if (choice === "once") {
+            if (
+              this.mode !== mode ||
+              this.permissionGrantGeneration !== grantGeneration ||
+              this.externalAccessPrompt !== prompt ||
+              this.explicitMcpAuthorization !== authorization ||
+              this.mcpAuthorizationGeneration !== authorizationGeneration
+            ) {
+              reason =
+                "MCP approval expired after a session or authorization change.";
+            } else if (
+              authorization === undefined &&
+              (this.mcpUserDenied ||
+                this.explicitMcpAuthorization !== undefined)
+            ) {
+              reason = "MCP approval expired after a new user authorization.";
+            } else if (choice === "once") {
               reason = "Allowed this MCP call once with user approval.";
               allowed = true;
             } else if (choice === "session") {
-              this.mcpSessionGrants.add(match[1]!);
-              reason = `Allowed MCP server ${match[1]} for this session.`;
+              this.addToolGrant(toolName, match[1]!);
+              reason = `Allowed MCP tool ${toolName} from ${match[1]} for this session.`;
               allowed = true;
             } else {
               reason = "MCP call denied by the user.";
@@ -284,7 +361,55 @@ export class ToolPolicy {
         }
       }
     } else {
-      reason = "This tool is not classified by Rook and is denied by default.";
+      const sourceName = toolSourceName(toolName);
+      if (this.mode === "plan") {
+        reason =
+          "Plan mode blocks unclassified tools because their effects are unknown.";
+      } else if (this.hasToolGrant(toolName, sourceName)) {
+        reason = `Allowed unclassified tool ${toolName} from ${sourceName} by this session's grant.`;
+        allowed = true;
+      } else if (!this.externalAccessPrompt) {
+        reason =
+          "This tool is not classified by Rook; no interactive approval handler is available.";
+      } else {
+        const prompt = this.externalAccessPrompt;
+        const mode = this.mode;
+        const grantGeneration = this.permissionGrantGeneration;
+        const authorizationGeneration = this.mcpAuthorizationGeneration;
+        try {
+          const choice = await prompt({
+            toolName,
+            sourceName,
+            access: "tool",
+            inputSummary: summarizeMcpInput(input),
+            reason:
+              "Rook has no registered policy classification for this tool.",
+          });
+          if (
+            this.mode !== mode ||
+            this.permissionGrantGeneration !== grantGeneration ||
+            this.mcpAuthorizationGeneration !== authorizationGeneration ||
+            this.externalAccessPrompt !== prompt
+          ) {
+            reason =
+              "Tool approval expired after a mode, session, or approval-handler change.";
+          } else if (choice === "once") {
+            reason = `Allowed unclassified tool ${toolName} from ${sourceName} once with user approval.`;
+            allowed = true;
+          } else if (choice === "session") {
+            this.addToolGrant(toolName, sourceName);
+            reason = `Allowed unclassified tool ${toolName} from ${sourceName} for this session.`;
+            allowed = true;
+          } else {
+            reason = `Unclassified tool ${toolName} denied by the user.`;
+          }
+        } catch (error) {
+          reason =
+            error instanceof Error
+              ? `Unclassified tool approval failed: ${error.message}`
+              : "Unclassified tool approval failed; call denied.";
+        }
+      }
     }
 
     const decision = { toolName, allowed, reason, timestamp: new Date() };
@@ -310,6 +435,8 @@ export class ToolPolicy {
   ): Promise<string> {
     if (this.mode !== "build")
       return "Plan mode blocks shell execution; switch to /build to run terminal commands.";
+    if (this.sandboxShell && !this.sandboxRuntimeAvailable)
+      return "Shell execution is disabled because the required Bubblewrap sandbox runtime is unavailable; Rook will not fall back to host execution.";
     if (this.activeMutations.size > 0)
       return "Another file mutation or shell command is active; concurrent execution is denied.";
     const command = input.command;
@@ -321,14 +448,33 @@ export class ToolPolicy {
     ) {
       return `A nonempty shell command of at most ${MAX_SHELL_COMMAND_LENGTH} characters without control codes is required.`;
     }
+    let timeoutSeconds: number;
+    try {
+      timeoutSeconds = shellTimeout(input.timeout);
+    } catch (error) {
+      return error instanceof Error ? error.message : "Invalid shell timeout.";
+    }
+    const classification = classifyShellCommand(command);
+    if (classification.kind === "routine" && this.sandboxShell) {
+      this.activeMutations.add(toolCallId);
+      this.shellCommands.set(toolCallId, command);
+      return "Allowed routine command inside the OS sandbox; network access is disabled.";
+    }
+    const root = await (this.workspaceRoot ??= realpath(this.cwd));
+    const grantIdentity = shellGrantIdentity(command, root, this.sandboxShell);
+    if (this.hasShellGrant(grantIdentity)) {
+      this.activeMutations.add(toolCallId);
+      this.shellCommands.set(toolCallId, command);
+      return "Allowed by this session's exact-command shell grant.";
+    }
     const prompt = this.externalAccessPrompt;
     if (!prompt)
-      return "Shell execution requires interactive command approval; no approval handler is available.";
+      return "Shell execution requires approval for a destructive or unclassified command; no interactive approval handler is available.";
+    const mode = this.mode;
+    const grantGeneration = this.permissionGrantGeneration;
     this.activeMutations.add(toolCallId);
     let allowed = false;
     try {
-      const timeoutSeconds = shellTimeout(input.timeout);
-      const root = await (this.workspaceRoot ??= realpath(this.cwd));
       const choice = await prompt({
         toolName: "bash",
         path: root,
@@ -336,14 +482,28 @@ export class ToolPolicy {
         access: "execute",
         command,
         timeoutSeconds,
+        sandboxed: this.sandboxShell,
+        reason: classification.reason,
       });
-      if (choice !== "once")
-        return "Shell command execution was denied; each command requires one-time approval.";
-      if (this.mode !== "build" || this.externalAccessPrompt !== prompt)
+      if (choice === "deny")
+        return "Shell command execution was denied by the user.";
+      if (
+        this.mode !== mode ||
+        mode !== "build" ||
+        this.permissionGrantGeneration !== grantGeneration ||
+        this.externalAccessPrompt !== prompt
+      )
         return "Shell approval expired after a mode or approval-handler change.";
+      if (choice === "session") this.addShellGrant(grantIdentity, root);
       allowed = true;
       this.shellCommands.set(toolCallId, command);
-      return "Allowed once for this host shell command; execution is not sandboxed.";
+      return this.sandboxShell
+        ? choice === "session"
+          ? "Allowed for this exact command and workspace for this session; execution is sandboxed."
+          : "Allowed once for this command; execution is sandboxed."
+        : choice === "session"
+          ? "Allowed for this exact host command and workspace for this session by explicit policy opt-out; execution is not sandboxed."
+          : "Allowed once for this host shell command by explicit policy opt-out; execution is not sandboxed.";
     } catch (error) {
       return error instanceof Error
         ? `Shell execution denied: ${error.message}`
@@ -479,6 +639,53 @@ export class ToolPolicy {
     this.changeVersion++;
     this.successfulChecks.clear();
   }
+
+  private hasToolGrant(toolName: string, sourceName: string): boolean {
+    return this.sessionPermissionGrants.some(
+      (grant) =>
+        grant.type === "tool" &&
+        grant.identity === toolName &&
+        grant.sourceName === sourceName,
+    );
+  }
+
+  private hasMcpToolGrant(toolName: string, serverName: string): boolean {
+    return this.sessionPermissionGrants.some(
+      (grant) =>
+        grant.type === "tool" &&
+        grant.identity === toolName &&
+        grant.sourceName === serverName,
+    );
+  }
+
+  private addToolGrant(toolName: string, sourceName: string): void {
+    if (this.hasToolGrant(toolName, sourceName)) return;
+    this.sessionPermissionGrants.push({
+      id: randomUUID(),
+      type: "tool",
+      description: toolName,
+      identity: toolName,
+      sourceName,
+    });
+  }
+
+  private hasShellGrant(identity: string): boolean {
+    return this.sessionPermissionGrants.some(
+      (grant) => grant.type === "shell" && grant.identity === identity,
+    );
+  }
+
+  private addShellGrant(identity: string, workspace: string): void {
+    this.sessionPermissionGrants.push({
+      id: randomUUID(),
+      type: "shell",
+      description: commandFromGrantIdentity(identity),
+      identity,
+      sourceName: "bash",
+      workspace,
+      sandboxed: identity.split("\0")[1] === "sandboxed",
+    });
+  }
 }
 
 function explicitMcpTools(prompt: string): Set<string> | "all" | undefined {
@@ -511,20 +718,120 @@ function explicitlyDeniesMcp(prompt: string): boolean {
 
 function summarizeMcpInput(input: Record<string, unknown>): string {
   try {
-    const serialized = JSON.stringify(input, (key, value: unknown) => {
+    let remaining = 100;
+    const sanitize = (value: unknown, depth = 0, key = ""): unknown => {
       if (
         /(?:secret|token|password|authorization|api.?key|credential)/i.test(key)
       )
         return "[redacted]";
-      if (typeof value === "string") {
-        return value.length > 200 ? `${value.slice(0, 197)}...` : value;
-      }
-      return value;
-    });
+      if (typeof value === "string") return redactSummaryString(value);
+      if (!value || typeof value !== "object") return value;
+      if (depth >= 5 || remaining <= 0) return "[truncated]";
+      remaining--;
+      if (Array.isArray(value))
+        return value.slice(0, 20).map((item) => sanitize(item, depth + 1));
+      return Object.fromEntries(
+        Object.entries(value)
+          .slice(0, 20)
+          .map(([childKey, childValue]) => [
+            childKey,
+            sanitize(childValue, depth + 1, childKey),
+          ]),
+      );
+    };
+    const serialized = JSON.stringify(sanitize(input));
     return (serialized ?? "{}").slice(0, 800);
   } catch {
     return "<unavailable>";
   }
+}
+
+function redactSummaryString(value: string): string {
+  return value
+    .replace(
+      /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/gi,
+      "[redacted private key]",
+    )
+    .replace(/\b(Bearer\s+)\S+/gi, "$1[redacted]")
+    .replace(
+      /\b(?:Authorization|Token|API[_-]?Key|Access[_-]?Token|Password|Secret)\s*[:=]?\s+(?:Bearer\s+)?\S+/gi,
+      "[redacted]",
+    )
+    .replace(
+      /\b(?:gh[pousr]_|github_pat_|sk-|AIza)[A-Za-z0-9_-]{16,}/g,
+      "[redacted token]",
+    )
+    .replace(/\bAKIA[0-9A-Z]{16}\b/g, "[redacted AWS key]")
+    .replace(
+      /\b(?:API[_-]?KEY|ACCESS[_-]?TOKEN|AUTH[_-]?TOKEN|PASSWORD|SECRET)\s*[:=]\s*[^\s,;]+/gi,
+      "[redacted credential]",
+    )
+    .slice(0, 200);
+}
+
+function toolSourceName(toolName: string): string {
+  const mcp = /^mcp__([a-zA-Z0-9_-]+)__/.exec(toolName);
+  if (mcp) return mcp[1]!;
+  const namespace = /^([a-zA-Z0-9_-]+)[.:]/.exec(toolName);
+  return namespace?.[1] ?? `registered:${toolName}`;
+}
+
+function shellGrantIdentity(
+  command: string,
+  workspace: string,
+  sandboxed: boolean,
+): string {
+  return `${workspace}\0${sandboxed ? "sandboxed" : "host"}\0${command}`;
+}
+
+function commandFromGrantIdentity(identity: string): string {
+  return identity.split("\0").at(-1) ?? identity;
+}
+
+function classifyShellCommand(command: string): {
+  kind: "routine" | "review";
+  reason: string;
+} {
+  const trimmed = command.trim();
+  const safePath = String.raw`(?:\.|[\w./-]+)`;
+  const routineCommands = [
+    /^pwd$/,
+    new RegExp(`^ls(?:\\s+-[A-Za-z]+)?(?:\\s+${safePath})?$`),
+    /^git status(?: --short)?$/,
+    /^git diff(?: --check| --stat| --name-only)?$/,
+    /^git diff --stat -- [\w./-]+$/,
+    /^git log(?: -[0-9]{1,2})?$/,
+    /^git branch --show-current$/,
+    /^(?:npm|pnpm|yarn|bun) (?:test|run (?:test(?::[\w:-]+)?|typecheck|check|lint|build))$/,
+    /^(?:npx|pnpm exec|yarn exec|bunx) (?:vitest|jest|mocha|pytest|tsc|eslint)(?:\s+--(?:run|noEmit|check))?$/,
+    /^go test(?:\s+\.\/[-\w./]+)?$/,
+    /^cargo test(?:\s+[-\w./]+)?$/,
+    /^python(?:3)? -m pytest(?:\s+[-\w./]+)?$/,
+  ];
+  if (
+    !/[;&|`$<>\n\r]/.test(trimmed) &&
+    !/(?:^|[\s/])(?:\/|~|\.\.?\/|\.\.?$)/.test(trimmed) &&
+    !/(?:^|[\\/])\.\.(?:[\\/]|$)/.test(trimmed) &&
+    !/(?:^|\s)(?:\.env(?:\.[\w-]+)?|\.ssh|\.aws|credentials|id_rsa|id_ed25519)(?:\/|\s|$)/i.test(
+      trimmed,
+    ) &&
+    routineCommands.some((pattern) => pattern.test(trimmed))
+  ) {
+    return {
+      kind: "routine",
+      reason: "Recognized routine development command.",
+    };
+  }
+  const destructive =
+    /\b(?:rm|rmdir|dd|mkfs|shutdown|reboot|kill|pkill|chmod|chown|curl|wget|sudo|su|docker|podman|kubectl|terraform|tofu|aws|az|gcloud)\b|\bgit\s+(?:reset|clean|checkout|restore|push|rebase|commit|merge|tag)\b|\b(?:--force|--hard|--delete|--force-with-lease)\b/i.test(
+      trimmed,
+    );
+  return {
+    kind: "review",
+    reason: destructive
+      ? "Command may modify or delete files, rewrite history, or cross the workspace boundary."
+      : "Command is outside the conservative routine-command allowlist and needs review.",
+  };
 }
 
 function isVerificationCommand(value: unknown): value is string {

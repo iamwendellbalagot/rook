@@ -3,6 +3,7 @@ import type {
   AgentGateway,
   AgentResource,
   ExternalAccessGrant,
+  SessionPermissionGrant,
   ModelInfo,
   PermissionDecision,
   PermissionMode,
@@ -12,6 +13,8 @@ import type {
   SessionMessage,
   ThinkingInfo,
 } from "./agent-gateway.js";
+import type { SubagentProfile } from "./subagents.js";
+import type { SessionPredictionStats } from "plyth";
 
 export class MockAgentGateway implements AgentGateway {
   private running = false;
@@ -118,6 +121,18 @@ export class MockAgentGateway implements AgentGateway {
 
   setMode(_mode: PermissionMode): void {}
 
+  getPlythStats(): SessionPredictionStats {
+    return {
+      eligibleCommands: 0,
+      predictedCommands: 0,
+      invalidPredictions: 0,
+      specificPredictions: 0,
+      durationMs: 0,
+      durationSamples: 0,
+      verdicts: { hit: 0, miss: 0, vague: 0, none: 0, unscorable: 0 },
+    };
+  }
+
   async inspectGitChanges(): Promise<string> {
     return "Git inspection is unavailable in mock mode.";
   }
@@ -132,6 +147,18 @@ export class MockAgentGateway implements AgentGateway {
 
   async architectReadOnly(_task: string): Promise<string> {
     return "Read-only architecture proposals are unavailable in mock mode.";
+  }
+
+  listSubagents(): SubagentProfile[] {
+    return [];
+  }
+
+  async runSubagent(): Promise<string> {
+    throw new Error("Configured subagents are unavailable in mock mode.");
+  }
+
+  async listRepositoryInstructions(): Promise<string[]> {
+    return [];
   }
 
   getUndoPreview(): string {
@@ -149,6 +176,10 @@ export class MockAgentGateway implements AgentGateway {
   setExternalAccessPrompt(): void {}
 
   getExternalAccessGrants(): ExternalAccessGrant[] {
+    return [];
+  }
+
+  getSessionPermissionGrants(): SessionPermissionGrant[] {
     return [];
   }
 

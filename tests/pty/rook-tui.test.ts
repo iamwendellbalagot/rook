@@ -21,6 +21,7 @@ import type {
   ModelInfo,
   PermissionDecision,
   PermissionMode,
+  SessionPermissionGrant,
   ProviderAuthInteraction,
   ProviderAuthType,
   ProviderInfo,
@@ -28,6 +29,7 @@ import type {
   SessionMessage,
   ThinkingInfo,
 } from "../../src/pi/agent-gateway.js";
+import type { SubagentProfile } from "../../src/pi/subagents.js";
 import type {
   GitSnapshot,
   RepositoryIdentity,
@@ -47,11 +49,21 @@ class EventGateway implements AgentGateway {
     | ((request: ExternalAccessRequest) => Promise<ExternalAccessChoice>)
     | undefined = undefined;
   externalGrants: ExternalAccessGrant[] = [];
+  sessionPermissionGrants: SessionPermissionGrant[] = [];
   queuedMessages: { text: string; disposition: string }[] = [];
   sentPrompts: string[] = [];
   reviewCalls = 0;
   exploreCalls: string[] = [];
   architectCalls: string[] = [];
+  subagentCalls: { name: string; task: string }[] = [];
+  subagents: SubagentProfile[] = [
+    {
+      name: "api-reviewer",
+      description: "Review API changes",
+      instructions: "Check compatibility.",
+      tools: ["read"],
+    },
+  ];
   models: ModelInfo[] = [
     { provider: "openai", id: "gpt-4.1", name: "GPT-4.1" },
     {
@@ -122,6 +134,19 @@ class EventGateway implements AgentGateway {
   async architectReadOnly(task: string): Promise<string> {
     this.architectCalls.push(task);
     return "Proposal: update src/index.ts, then run focused tests.";
+  }
+
+  listSubagents(): SubagentProfile[] {
+    return this.subagents;
+  }
+
+  async runSubagent(name: string, task: string): Promise<string> {
+    this.subagentCalls.push({ name, task });
+    return "API contract remains compatible.";
+  }
+
+  async listRepositoryInstructions(): Promise<string[]> {
+    return ["AGENTS.md", "src/AGENTS.md"];
   }
 
   getUndoPreview(): string {
@@ -243,6 +268,18 @@ class EventGateway implements AgentGateway {
     this.modeHistory.push(mode);
   }
 
+  getPlythStats() {
+    return {
+      eligibleCommands: 0,
+      predictedCommands: 0,
+      invalidPredictions: 0,
+      specificPredictions: 0,
+      durationMs: 0,
+      durationSamples: 0,
+      verdicts: { hit: 0, miss: 0, vague: 0, none: 0, unscorable: 0 },
+    };
+  }
+
   getPermissionDecisions(): PermissionDecision[] {
     return [];
   }
@@ -259,12 +296,21 @@ class EventGateway implements AgentGateway {
     return this.externalGrants;
   }
 
+  getSessionPermissionGrants(): SessionPermissionGrant[] {
+    return this.sessionPermissionGrants;
+  }
+
   revokeExternalAccessGrant(id: string): boolean {
     const previous = this.externalGrants.length;
     this.externalGrants = this.externalGrants.filter(
       (grant) => grant.id !== id,
     );
-    return previous !== this.externalGrants.length;
+    if (previous !== this.externalGrants.length) return true;
+    const sessionPrevious = this.sessionPermissionGrants.length;
+    this.sessionPermissionGrants = this.sessionPermissionGrants.filter(
+      (grant) => grant.id !== id,
+    );
+    return sessionPrevious !== this.sessionPermissionGrants.length;
   }
 
   getActiveTools(): string[] {
@@ -333,7 +379,7 @@ class FakeTerminal implements Terminal {
 describe("Rook TUI shell", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("shows shell commands and host warnings, defaults to deny, and only permits one-time execution", async () => {
+  it("shows shell review details, defaults to deny, and offers exact-command session approval", async () => {
     const terminal = new FakeTerminal();
     const gateway = new EventGateway();
     const app = createRookTui({
@@ -350,18 +396,19 @@ describe("Rook TUI shell", () => {
       access: "execute",
       command: "node --version",
       timeoutSeconds: 120,
+      sandboxed: true,
+      reason: "Command needs review.",
     };
     const denied = gateway.externalAccessPrompt!(request);
     app.tui.renderNow(true);
-    const screen = app.tui
-      .getScreenLines()
-      .map(stripTerminalSequences)
-      .join("\n");
+    app.tui.renderNow(true);
+    const screen = app.tui.render(120).map(stripTerminalSequences).join("\n");
     expect(screen).toContain('Command: "node --version"');
-    expect(screen).toContain("NOT sandboxed");
+    expect(screen).toContain("Why approval: Command needs review.");
+    expect(screen).toContain("workspace and temporary directory");
     expect(screen).toContain("Timeout: 120s");
     expect(screen).toContain("[Deny]");
-    expect(screen).not.toContain("for this session");
+    expect(screen).toContain("Allow this command for this session");
     terminal.input("\r");
     expect(await denied).toBe("deny");
     const approved = gateway.externalAccessPrompt!(request);
@@ -382,6 +429,79 @@ describe("Rook TUI shell", () => {
     const cancelled = gateway.externalAccessPrompt!(request);
     terminal.input("\u0003");
     expect(await cancelled).toBe("deny");
+    app.stop();
+    await finished;
+  });
+
+  it("lists and revokes exact-command and per-tool session grants", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    gateway.sessionPermissionGrants = [
+      {
+        id: "shell-grant",
+        type: "shell",
+        description: "node custom-script",
+        identity: "/workspace/sample-project\0sandboxed\0node custom-script",
+        sourceName: "bash",
+        workspace: "/workspace/sample-project",
+      },
+      {
+        id: "tool-grant",
+        type: "tool",
+        description: "mcp__docs__search",
+        identity: "mcp__docs__search",
+        sourceName: "docs",
+      },
+    ];
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    await app.submit("/build");
+    await app.submit("/permissions");
+    app.tui.renderNow(true);
+    const screen = app.tui.render(120).map(stripTerminalSequences).join("\n");
+    expect(screen).toContain('SHELL "node custom-script"');
+    expect(screen).toContain("TOOL mcp__docs__search from docs");
+    expect(screen).toContain("/permissions revoke shell-grant");
+    expect(screen).toContain("/permissions revoke tool-grant");
+    await app.submit("/permissions revoke shell-grant");
+    expect(gateway.sessionPermissionGrants.map((grant) => grant.id)).toEqual([
+      "tool-grant",
+    ]);
+    app.stop();
+    await finished;
+  });
+
+  it("shows bounded unclassified-tool details and defaults to deny", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    const request = gateway.externalAccessPrompt!({
+      toolName: "plugin__publish",
+      sourceName: "plugin",
+      access: "tool",
+      inputSummary: '{"destination":"preview"}',
+      reason: "Unclassified tool requires review.",
+    });
+    app.tui.renderNow(true);
+    const screen = app.tui.render(120).join("\n");
+    expect(screen).toContain("Unclassified tool call · plugin");
+    expect(screen).toContain("plugin__publish");
+    expect(screen).toContain('Arguments: {"destination":"preview"}');
+    expect(screen).toContain(
+      "Why approval: Unclassified tool requires review.",
+    );
+    expect(screen).toContain("[Deny tool call]");
+    terminal.input("\r");
+    await expect(request).resolves.toBe("deny");
     app.stop();
     await finished;
   });
@@ -830,6 +950,39 @@ describe("Rook TUI shell", () => {
     },
   );
 
+  it("shows PLYTH observe-only counts without running an inference", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    vi.spyOn(gateway, "getPlythStats").mockReturnValue({
+      eligibleCommands: 4,
+      predictedCommands: 3,
+      invalidPredictions: 1,
+      specificPredictions: 2,
+      durationMs: 1500,
+      durationSamples: 2,
+      verdicts: { hit: 1, miss: 1, vague: 1, none: 1, unscorable: 0 },
+    });
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    const sentBefore = gateway.sentPrompts.length;
+    await app.submit("/plyth");
+    const screen = app.tui.render(100).map(stripTerminalSequences).join("\n");
+    expect(screen).toContain(
+      "PLYTH observe-only · eligible 4 · predicted 3 · invalid 1",
+    );
+    expect(screen).toContain(
+      "hit 1 · miss 1 · vague 1 · none 1 · unscorable 0",
+    );
+    expect(screen).toContain("command time 1500ms across 2 commands");
+    expect(gateway.sentPrompts).toHaveLength(sentBefore);
+    app.stop();
+    await finished;
+  });
+
   it("shows repository status and diff through /diff without prompting the model", async () => {
     const terminal = new FakeTerminal();
     const gateway = new EventGateway();
@@ -919,6 +1072,30 @@ describe("Rook TUI shell", () => {
     await finished;
   });
 
+  it("lists applicable project instruction files", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+
+    await app.submit("/instructions");
+    app.tui.renderNow(true);
+
+    const screen = app.tui
+      .getScreenLines()
+      .map(stripTerminalSequences)
+      .join("\n");
+    expect(screen).toContain("AGENTS.md");
+    expect(screen).toContain("src/AGENTS.md");
+
+    terminal.input("\u0003");
+    await finished;
+  });
+
   it("runs /architect as an explicit read-only proposal without editing or submitting", async () => {
     const terminal = new FakeTerminal();
     const gateway = new EventGateway();
@@ -934,6 +1111,31 @@ describe("Rook TUI shell", () => {
     expect(gateway.architectCalls).toEqual(["Add request validation"]);
     expect(gateway.sentPrompts).toEqual([]);
     expect(gateway.modeHistory).toEqual([]);
+
+    terminal.input("\u0003");
+    await finished;
+  });
+
+  it("lists and runs configured read-only subagents", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+
+    await app.submit("/agents");
+    expect(app.tui.render(100).map(stripTerminalSequences).join(" ")).toContain(
+      "api-reviewer",
+    );
+    await app.submit("/agents api-reviewer Check the contract");
+
+    expect(gateway.subagentCalls).toEqual([
+      { name: "api-reviewer", task: "Check the contract" },
+    ]);
+    expect(gateway.sentPrompts).toEqual([]);
 
     terminal.input("\u0003");
     await finished;
@@ -1212,6 +1414,7 @@ describe("Rook TUI shell", () => {
       serverName: "docs",
       access: "mcp",
       inputSummary: '{"query":"Rook MCP"}',
+      reason: "Rook recommends this call.",
     });
     expect(mcpRequest).toBeDefined();
     app.tui.renderNow(true);
@@ -1222,7 +1425,7 @@ describe("Rook TUI shell", () => {
     terminal.input("\u001b[B");
     terminal.input("\u001b[B");
     expect(app.tui.render(100).join("\n")).toContain(
-      "3. [Allow server docs for this session]",
+      "3. [Allow this tool from docs for this session]",
     );
     terminal.input("\r");
     await expect(mcpRequest).resolves.toBe("session");

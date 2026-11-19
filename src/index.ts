@@ -6,6 +6,16 @@ import { RookStore } from "./db/store.js";
 import { retrieveMemoryContext } from "./memory/context.js";
 import { MemoryCaptureManager } from "./memory/capture.js";
 import { resolveWorkspace } from "./repo/workspace.js";
+import {
+  createRepositoryInstructionsExtension,
+  loadRepositoryInstructions,
+} from "./repo/instructions.js";
+import {
+  createWorktree,
+  inspectWorktreeChanges,
+  listWorktrees,
+  removeWorktree,
+} from "./repo/worktrees.js";
 import { createRookTui } from "./tui/rook-tui.js";
 import { initialAppState, reduceAppState, type AppState } from "./app/state.js";
 import {
@@ -39,6 +49,10 @@ export function parseCliArguments(
 }
 
 export async function main(args = process.argv.slice(2)): Promise<void> {
+  if (args[0] === "worktree") {
+    await runWorktreeCommand(args.slice(1));
+    return;
+  }
   if (
     args[0] === "skills" &&
     (args.length === 1 ||
@@ -53,7 +67,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   }
   if (args.includes("--help") || args.includes("-h")) {
     console.log(
-      "Usage: rook [--cwd PATH] [--mock] [PROMPT]\n       rook skills [list|install|remove] ...\n\nStart the Rook TUI, send a one-shot prompt, or manage Rook-scoped skills.",
+      "Usage: rook [--cwd PATH] [--mock] [PROMPT]\n       rook skills [list|install|remove] ...\n       rook worktree [create|list|remove] ...\n\nStart the Rook TUI, send a one-shot prompt, manage Rook-scoped skills, or manage isolated Git worktrees.",
     );
     return;
   }
@@ -92,10 +106,38 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
             );
           }
         : undefined;
+    let loadedInstructionFiles: string[] | undefined;
+    const repositoryInstructionsExtension = workspace
+      ? createRepositoryInstructionsExtension(async (userPrompt) => {
+          const result = await loadRepositoryInstructions(
+            workspace.repository.root,
+            userPrompt,
+            { cwd },
+          );
+          loadedInstructionFiles = result.files;
+          return result;
+        })
+      : undefined;
     const gateway = mock
       ? new MockAgentGateway()
       : await createPiAgentGateway(cwd, {
           ...(memoryContext ? { memoryContext } : {}),
+          ...(repositoryInstructionsExtension
+            ? { repositoryInstructionsExtension }
+            : {}),
+          ...(workspace
+            ? {
+                listRepositoryInstructions: async () =>
+                  loadedInstructionFiles ??
+                  (
+                    await loadRepositoryInstructions(
+                      workspace.repository.root,
+                      "",
+                      { cwd },
+                    )
+                  ).files,
+              }
+            : {}),
           ...(memoryCapture ? { memoryCapture } : {}),
         });
     await runApplication({
@@ -108,6 +150,67 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   } finally {
     store?.close();
   }
+}
+
+async function runWorktreeCommand(args: string[]): Promise<void> {
+  const [action, ...rest] = args;
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log(
+      "Usage: rook worktree create [PATH] [--cwd REPOSITORY]\n       rook worktree list [--cwd REPOSITORY]\n       rook worktree diff PATH\n       rook worktree remove PATH [--cwd REPOSITORY]",
+    );
+    return;
+  }
+  if (action === "create") {
+    const cwdIndex = rest.indexOf("--cwd");
+    const path = rest[0]?.startsWith("--") ? undefined : rest[0];
+    const cwd = cwdIndex >= 0 ? rest[cwdIndex + 1] : process.cwd();
+    if (!cwd) throw new Error("--cwd requires a path.");
+    const worktree = await createWorktree(cwd, path);
+    console.log(
+      `Created detached worktree: ${worktree.path}\nCommit: ${worktree.head}`,
+    );
+    console.log(
+      `Start Rook there with: rook --cwd ${JSON.stringify(worktree.path)}`,
+    );
+    return;
+  }
+  if (action === "list") {
+    const cwdIndex = rest.indexOf("--cwd");
+    const cwd = cwdIndex >= 0 ? rest[cwdIndex + 1] : process.cwd();
+    if (!cwd) throw new Error("--cwd requires a path.");
+    const worktrees = await listWorktrees(cwd);
+    console.log(
+      worktrees.length
+        ? worktrees
+            .map(
+              (worktree) =>
+                `${worktree.path}  ${worktree.branch ?? "detached"}  ${worktree.head ?? ""}`,
+            )
+            .join("\n")
+        : "No worktrees registered.",
+    );
+    return;
+  }
+  if (action === "diff") {
+    const [path] = rest;
+    if (!path) throw new Error("Usage: rook worktree diff <path>");
+    console.log(await inspectWorktreeChanges(path));
+    return;
+  }
+  if (action === "remove") {
+    const [path, ...options] = rest;
+    const cwdIndex = options.indexOf("--cwd");
+    const cwd = cwdIndex >= 0 ? options[cwdIndex + 1] : process.cwd();
+    if (!path || !cwd) {
+      throw new Error("Usage: rook worktree remove <path> [--cwd REPOSITORY]");
+    }
+    await removeWorktree(cwd, path);
+    console.log(`Removed worktree: ${path}`);
+    return;
+  }
+  throw new Error(
+    "Usage: rook worktree [create [PATH] [--cwd REPOSITORY]|list [--cwd REPOSITORY]|diff PATH|remove PATH [--cwd REPOSITORY]]",
+  );
 }
 
 async function runSkillCommand(args: string[]): Promise<void> {

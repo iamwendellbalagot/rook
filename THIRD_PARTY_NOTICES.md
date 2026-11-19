@@ -5,6 +5,8 @@ Rook uses the following runtime dependencies. Pi package metadata declares the M
 - `@earendil-works/pi-coding-agent` 1.5.2 — `https://github.com/earendil-works/pi/tree/main/packages/coding-agent`
 - `@earendil-works/pi-tui` 1.5.2 — `https://github.com/earendil-works/pi/tree/main/packages/tui`
 - `highlight.js` 11.11.1 — `https://github.com/highlightjs/highlight.js`
+- `typescript` 7.0.2 and `typescript-legacy` 5.9.3 — `https://github.com/microsoft/TypeScript`
+- `typescript` 7.0.2 and `typescript-legacy` 5.9.3 — `https://github.com/microsoft/TypeScript`
 
 MIT License
 
