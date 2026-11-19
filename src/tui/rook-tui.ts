@@ -114,6 +114,10 @@ const BUILTIN_SLASH_COMMANDS: SlashCommandSuggestion[] = [
   { command: "/compact", description: "Compact session context" },
   { command: "/skills", description: "List available skills" },
   { command: "/prompts", description: "List prompt templates" },
+  {
+    command: "/instructions",
+    description: "Show applicable repository instruction files",
+  },
   { command: "/steer", description: "Steer the current response" },
   { command: "/follow-up", description: "Queue a follow-up" },
   { command: "/permissions", description: "Review access grants" },
@@ -1294,6 +1298,18 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
             options.gateway.listPromptTemplates(),
           );
           return;
+        case "/instructions": {
+          removeHome();
+          const files =
+            (await options.gateway.listRepositoryInstructions?.()) ?? [];
+          appendText(
+            files.length
+              ? `Loaded repository instructions:\n${files.map((path) => `  ${safeTerminalText(path)}`).join("\n")}`
+              : "No applicable AGENTS.md files were loaded.",
+            "muted",
+          );
+          return;
+        }
         case "/steer":
         case "/follow-up": {
           const text = prompt.slice(command.length).trim();

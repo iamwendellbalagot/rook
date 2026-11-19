@@ -124,6 +124,10 @@ class EventGateway implements AgentGateway {
     return "Proposal: update src/index.ts, then run focused tests.";
   }
 
+  async listRepositoryInstructions(): Promise<string[]> {
+    return ["AGENTS.md", "src/AGENTS.md"];
+  }
+
   getUndoPreview(): string {
     return "Rook can restore its last file edit: src/example.ts. Use /undo confirm.";
   }
@@ -914,6 +918,30 @@ describe("Rook TUI shell", () => {
     expect(gateway.exploreCalls).toEqual(["Find the request entry point"]);
     expect(gateway.sentPrompts).toEqual([]);
     expect(gateway.modeHistory).toEqual([]);
+
+    terminal.input("\u0003");
+    await finished;
+  });
+
+  it("lists applicable project instruction files", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+
+    await app.submit("/instructions");
+    app.tui.renderNow(true);
+
+    const screen = app.tui
+      .getScreenLines()
+      .map(stripTerminalSequences)
+      .join("\n");
+    expect(screen).toContain("AGENTS.md");
+    expect(screen).toContain("src/AGENTS.md");
 
     terminal.input("\u0003");
     await finished;

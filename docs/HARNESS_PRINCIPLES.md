@@ -31,6 +31,7 @@ Rook combines selected harness ideas around Pi; it is not a feature-for-feature 
 
 ## Current implementation anchors
 
+- Repository-scoped `AGENTS.md` discovery and bounded untrusted injection: `src/repo/instructions.ts`; `/instructions` lists applicable files. Root and current-directory ancestry are included, with named nested paths resolved from the prompt; symlinks, outside paths, and oversized files are skipped.
 - Pi adapter and session lifecycle: `src/pi/pi-agent-gateway.ts`.
 - Tool policy, approvals, and recovery ledger: `src/policy/`.
 - Read-only search/Git inspection and change-impact analysis: `src/pi/`.

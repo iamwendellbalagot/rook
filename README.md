@@ -43,6 +43,10 @@ To inspect the TUI without credentials, run `node bin/rook.mjs --mock`. Submit a
 
 Rook's fixture-based coding-task evaluation suite is also offline and credential-free: tasks are completed manually in disposable workspaces, focused checks are run explicitly, and a validated results JSON is scored against a human rubric. It does not automatically call a provider or claim model quality. See [`evals/coding/README.md`](evals/coding/README.md).
 
+### Repository instructions
+
+Rook loads applicable `AGENTS.md` files as bounded project guidance: the repository root, directories from the current working directory to the root, and nested directories containing file paths named in the user prompt. At most four files and 12 KiB total are injected; files over 8 KiB are skipped. Symlinks, paths outside the workspace, unreadable files, and empty files are ignored. `/instructions` lists the files applicable to the current workspace. Instruction contents are untrusted reference context and cannot grant tools or change Rook's permission policy. `CLAUDE.md` and other instruction-file formats are not loaded.
+
 Repository memory is conservative: high-signal user statements linked to successful workspace reads become reviewable candidates, and `remember:` claims require confirmation. `/memory verify <id>` displays the claim and evidence; inspect them before `/memory verify <id> confirm`. File hashes establish evidence freshness, not claim truth. Confirmed, relevant memories can be injected into later prompts and are withheld after their evidence changes until reviewed again.
 
 ### Workspace model providers

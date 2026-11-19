@@ -6,6 +6,10 @@ import { RookStore } from "./db/store.js";
 import { retrieveMemoryContext } from "./memory/context.js";
 import { MemoryCaptureManager } from "./memory/capture.js";
 import { resolveWorkspace } from "./repo/workspace.js";
+import {
+  createRepositoryInstructionsExtension,
+  loadRepositoryInstructions,
+} from "./repo/instructions.js";
 import { createRookTui } from "./tui/rook-tui.js";
 import { initialAppState, reduceAppState, type AppState } from "./app/state.js";
 import {
@@ -92,10 +96,38 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
             );
           }
         : undefined;
+    let loadedInstructionFiles: string[] | undefined;
+    const repositoryInstructionsExtension = workspace
+      ? createRepositoryInstructionsExtension(async (userPrompt) => {
+          const result = await loadRepositoryInstructions(
+            workspace.repository.root,
+            userPrompt,
+            { cwd },
+          );
+          loadedInstructionFiles = result.files;
+          return result;
+        })
+      : undefined;
     const gateway = mock
       ? new MockAgentGateway()
       : await createPiAgentGateway(cwd, {
           ...(memoryContext ? { memoryContext } : {}),
+          ...(repositoryInstructionsExtension
+            ? { repositoryInstructionsExtension }
+            : {}),
+          ...(workspace
+            ? {
+                listRepositoryInstructions: async () =>
+                  loadedInstructionFiles ??
+                  (
+                    await loadRepositoryInstructions(
+                      workspace.repository.root,
+                      "",
+                      { cwd },
+                    )
+                  ).files,
+              }
+            : {}),
           ...(memoryCapture ? { memoryCapture } : {}),
         });
     await runApplication({

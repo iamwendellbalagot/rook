@@ -182,6 +182,7 @@ export interface AgentGateway {
   reviewGitChanges(): Promise<string>;
   exploreReadOnly(task: string): Promise<string>;
   architectReadOnly(task: string): Promise<string>;
+  listRepositoryInstructions?(): Promise<string[]>;
   getUndoPreview(): string;
   undoLastFileChange(): Promise<string>;
   getPermissionDecisions(): PermissionDecision[];

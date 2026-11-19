@@ -53,6 +53,11 @@ import {
   createMemoryContextExtension,
   type RetrievedMemoryContext,
 } from "../memory/context.js";
+import {
+  createRepositoryInstructionsExtension,
+  type RepositoryInstructions,
+} from "../repo/instructions.js";
+import type { InlineExtension } from "@earendil-works/pi-coding-agent";
 import type { MemoryCaptureManager } from "../memory/capture.js";
 import {
   createTaskChecklistTool,
@@ -114,6 +119,11 @@ export async function createPiAgentGateway(
     memoryContext?: (
       prompt: string,
     ) => RetrievedMemoryContext | Promise<RetrievedMemoryContext>;
+    repositoryInstructions?: (
+      prompt: string,
+    ) => RepositoryInstructions | Promise<RepositoryInstructions>;
+    repositoryInstructionsExtension?: InlineExtension;
+    listRepositoryInstructions?: () => string[] | Promise<string[]>;
     memoryCapture?: MemoryCaptureManager;
   } = {},
 ): Promise<AgentGateway> {
@@ -174,6 +184,15 @@ export async function createPiAgentGateway(
             ...(options.memoryContext
               ? [createMemoryContextExtension(options.memoryContext)]
               : []),
+            ...(options.repositoryInstructionsExtension
+              ? [options.repositoryInstructionsExtension]
+              : options.repositoryInstructions
+                ? [
+                    createRepositoryInstructionsExtension(
+                      options.repositoryInstructions,
+                    ),
+                  ]
+                : []),
             ...(options.memoryCapture
               ? [options.memoryCapture.createExtension()]
               : []),
@@ -487,6 +506,9 @@ export async function createPiAgentGateway(
           "\n</user_task>",
         ].join("\n"),
       );
+    },
+    async listRepositoryInstructions() {
+      return (await options.listRepositoryInstructions?.()) ?? [];
     },
     getUndoPreview() {
       return policy.getUndoPreview();

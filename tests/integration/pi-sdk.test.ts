@@ -169,6 +169,11 @@ describe("Pi SDK compatibility", () => {
     store.saveWorkspace(repository, null);
     const memoryCapture = new MemoryCaptureManager(store, repository, null);
     const gateway = await createPiAgentGateway(process.cwd(), {
+      repositoryInstructions: () => ({
+        content: "",
+        files: [],
+      }),
+      listRepositoryInstructions: () => ["AGENTS.md"],
       memoryContext: () => ({
         content: "",
         memoryIds: [],
@@ -188,6 +193,9 @@ describe("Pi SDK compatibility", () => {
         ]),
       );
       expect(gateway.getActiveTools()).not.toContain("bash");
+      await expect(gateway.listRepositoryInstructions?.()).resolves.toEqual([
+        "AGENTS.md",
+      ]);
     } finally {
       await gateway.dispose();
       store.close();

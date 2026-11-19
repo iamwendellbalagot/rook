@@ -30,6 +30,7 @@
 | Change-impact verification                 | Implemented           | `rook_impact` maps the diff to direct dependents, existing tests, and checks       |
 | Isolated read-only review/research         | Implemented           | `/review` and `/explore` use temporary plan-mode Pi sessions on explicit request   |
 | Architect/editor separation                | Implemented           | `/architect` returns an explicit read-only proposal; it never auto-applies it      |
+| Repository instruction files               | Implemented           | Scoped, bounded `AGENTS.md` only; `/instructions` lists applicable files           |
 
 ## SDK-vs-CLI setup gaps
 
