@@ -2,6 +2,7 @@
 
 ## Current state
 
+- Harness parity roadmap Phase 5 is implemented: documented the existing extension boundary and added integration coverage proving a project-configured executable extension is not initialized, plus policy coverage proving unclassified tool names are denied. No additional hooks, tools, or capabilities were enabled; these remain deferred for discussion. Validation: 27 targeted integration/policy tests, typecheck, lint, and `git diff --check`.
 - Harness parity roadmap Phase 4 is implemented: `rook_code` provides read-only TypeScript/JavaScript definition/reference navigation and selected-file syntactic/semantic diagnostics, using safe project `tsconfig.json` compiler options and bounded, sensitive-path-filtered source sets. TypeScript 7 remains the project compiler; a pinned TypeScript 5.9 language service is used because TS7 has a different supported API. Full validation: 257 tests, 7 integration tests, 36 PTY tests, typecheck, build, lint, and `git diff --check`. `.rook/agents.json` is gitignored to keep profile prompts local.
 - Harness parity roadmap Phase 2 is implemented in this work: Build-mode shell uses Bubblewrap on Linux with a read-only system root, private temp/runtime directories, workspace-only writable bind, and network/user/PID namespace isolation; missing runtime disables shell before approval and execution fails closed. An explicit `execution.sandbox_shell: false` opts into host execution. `rook worktree create|list|remove` creates detached, independent local clones under `.rook-worktrees/`, refuses to remove dirty/ignored work, and does not merge/commit changes. Cross-platform sandbox support remains pending. Full validation: 251 tests, 6 integration tests, 35 PTY tests, typecheck, build, lint, and `git diff --check`.
 - Harness parity roadmap Phase 3 is implemented: projects can configure bounded read-only subagent profiles in `.rook/agents.json`; `/agents` lists and invokes them in fresh sessions, with tools filtered through Rook's fixed read-only allowlist. Configuration cannot grant shell, file mutation, MCP, or executable extensions. Validation passes: 2 focused subagent tests, all 255 unit tests, PTY suite (36 tests), SDK integration suite (7 tests), typecheck, build, lint, and `git diff --check`.
@@ -93,7 +94,5 @@
 
 ## Pending
 
-- Commit Phase 4 navigation/diagnostics changes.
-- Phase 3 is validated and ready to commit.
 - Repeat live-provider measurements to establish variance before making any latency or token-efficiency claims; visually exercise follow-up/cancel during provider retries and phase/stat labels in a real terminal.
 - Pending: visually review the framed home body, solid wordmark, thin left-aligned prompt, shared screen gutters, and inference stats in live Terminal.app and WezTerm (home preview reviewed with Menlo; earlier prompt text previews reviewed), and run the hosted Ubuntu/macOS/Windows CI matrix. Hosted CI requires these local commits to be pushed; no push was performed.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -263,6 +263,7 @@ describe("Pi SDK compatibility", () => {
         recursive: true,
       });
       await mkdir(join(cwd, ".pi", "prompts"), { recursive: true });
+      await mkdir(join(cwd, ".pi", "extensions"), { recursive: true });
       await writeFile(
         join(cwd, ".rook", "skills", "safe-review", "SKILL.md"),
         "---\nname: safe-review\ndescription: Review code without executing commands.\n---\nRead and review code only.\n",
@@ -278,6 +279,15 @@ describe("Pi SDK compatibility", () => {
       await writeFile(
         join(cwd, ".pi", "prompts", "review.md"),
         "---\nname: review\ndescription: Review the current change.\n---\nReview this change: $ARGUMENTS\n",
+      );
+      const extensionMarker = join(root, "unexpected-extension-loaded");
+      await writeFile(
+        join(cwd, ".pi", "settings.json"),
+        JSON.stringify({ extensions: ["./extensions/*.ts"] }),
+      );
+      await writeFile(
+        join(cwd, ".pi", "extensions", "unexpected.ts"),
+        `import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(extensionMarker)}, "loaded");\nexport default function () {}`,
       );
       gateway = await createPiAgentGateway(cwd, { sessionDir });
       expect(gateway.listSkills()).toContainEqual({
@@ -298,7 +308,9 @@ describe("Pi SDK compatibility", () => {
       expect(gateway.isResourceCommand("/review this diff")).toBe(true);
       expect(gateway.getActiveTools()).not.toContain("bash");
       expect(gateway.getActiveTools()).not.toContain("codemode");
+      expect(gateway.getActiveTools()).not.toContain("unexpected");
       expect(gateway.isResourceCommand("/mcp")).toBe(true);
+      await expect(access(extensionMarker)).rejects.toThrow();
     } finally {
       await gateway?.dispose();
       if (previousRookHome === undefined) delete process.env.ROOK_HOME;

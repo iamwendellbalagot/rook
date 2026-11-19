@@ -120,6 +120,17 @@ describe("ToolPolicy", () => {
     expect(prompted).toBe(false);
   });
 
+  it("denies tools not explicitly classified by the policy", async () => {
+    const policy = new ToolPolicy(await workspace());
+    const decision = await policy.check(
+      "unexpected_extension_tool",
+      {},
+      "unknown",
+    );
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toContain("not classified by Rook");
+  });
+
   it("denies shell execution without an approval UI, after denial, or with a session grant", async () => {
     const policy = new ToolPolicy(await workspace());
     policy.setMode("build");
