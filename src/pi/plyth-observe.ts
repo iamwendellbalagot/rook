@@ -151,6 +151,8 @@ export function classifyCommand(command: string): CommandClass {
     )
   )
     return "test";
+  if (/^[ \t]*node[ \t]+--test(?:[ \t]+[A-Za-z0-9_./-]+)*[ \t]*$/.test(command))
+    return "test";
   if (
     /^[ \t]*(?:npm|pnpm|yarn|bun)[ \t]+(?:run[ \t]+)?build[ \t]*$/.test(command)
   )

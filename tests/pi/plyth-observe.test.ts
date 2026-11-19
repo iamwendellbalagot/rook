@@ -27,9 +27,14 @@ describe("PLYTH Rook observe-only adapter", () => {
   it("classifies only simple supported test, build, and diagnostic commands", () => {
     expect(classifyCommand("npm test")).toBe("test");
     expect(classifyCommand("pnpm run test:unit")).toBe("test");
+    expect(classifyCommand("node --test")).toBe("test");
+    expect(classifyCommand("node --test tests/retry.test.mjs")).toBe("test");
     expect(classifyCommand("npm run build")).toBe("build");
     expect(classifyCommand("npx tsc --noEmit")).toBe("diagnostic");
     expect(classifyCommand("npm test && rm -rf build")).toBe("other");
+    expect(
+      classifyCommand("node --test tests/retry.test.mjs && rm -rf build"),
+    ).toBe("other");
     expect(classifyCommand("npm\ntest")).toBe("other");
     expect(classifyCommand("git status")).toBe("other");
   });
