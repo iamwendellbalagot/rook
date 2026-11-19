@@ -13,6 +13,8 @@ npm run eval:coding -- verify-fixtures
 
 `prepare` copies four small fixtures to a new temporary directory and prints its path. Alternatively, provide an explicit output directory. It writes `TASKS.md` with prompts and rubrics. Perform each task manually in its own workspace. Exploration and review tasks are read-only and have no automated checks. The two coding tasks have fixed Node.js test files.
 
+`verify-fixtures` is the automated CI gate: it confirms the starter implementations for both coding tasks fail their trusted task tests, so the fixtures still exercise the requested change. It does not solve or score the tasks.
+
 The exploratory task's miniature fixture is for evaluating the agent's navigation and citation behavior, not its knowledge of the Rook source. The review task's seeded issue is that a negative `requestedDelayMs` makes `retryDelay` return a negative delay; its only source file is `src/retry.mjs`.
 
 The check command executes only Node's built-in test runner against the task's fixture tests. Before execution it verifies the submitted workspace's test files exactly match the checked-in fixture tests; it rejects symlinked or unexpected entries. The implementation under test is task workspace code, so use disposable workspaces and do not run checks on untrusted content. Check commands have a 30-second timeout.

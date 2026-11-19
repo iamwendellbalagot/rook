@@ -11,4 +11,11 @@ Synthetic records are inserted directly through SQLite so the test measures FTS 
 |    1,000 |         0.08 |         0.08 |              22.83 |           1,000 |
 |   10,000 |         0.55 |         0.57 |             257.00 |          10,000 |
 
+Repeat measurement: Node v22.23.2, linux/arm64; measured 2026-11-19T06:53:33.326Z. Results are machine-specific and should not be compared as a regression signal.
+
+| Memories | FTS p50 (ms) | FTS p95 (ms) | Reconcile all (ms) | Evidence checks |
+| -------: | -----------: | -----------: | -----------------: | --------------: |
+|    1,000 |         0.05 |         0.07 |              18.51 |           1,000 |
+|   10,000 |         0.38 |         0.50 |             272.59 |          10,000 |
+
 This is a focused local microbenchmark, not a cross-machine performance guarantee. It does not measure startup, provider latency, or unique-file hashing at 10k paths. No repository-wide file scan is performed; reconciliation visits only stored evidence paths.

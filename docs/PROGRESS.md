@@ -26,14 +26,15 @@ M0 is implemented, but live-provider streaming remains credential-gated and unve
 
 ### Next
 
-- Run the credential-gated live-provider smoke when Pi credentials are available.
-- Continue M1 in roadmap order; live-provider smoke remains credential-gated.
+- Earlier M0 note: run the credential-gated live-provider smoke when Pi credentials are available; see current validation and remaining gates below.
+- M1 implementation and local roadmap validation are complete; hosted CI remains a release gate.
 
 ## M1 — Custom TUI and coding workflow
 
 ### Completed
 
 - Harness parity roadmap Phase 5: clarified and regression-tested the extension/hook boundary. Sessions load Rook inline extensions and selected Pi built-ins only; project/global executable extension files are not loaded, and tools without an explicit Rook policy classification are denied. This phase documents existing behavior and adds no new hooks, tools, or capabilities; those choices are deferred for separate discussion.
+- Harness parity roadmap final evaluation and documentation: refreshed the offline evaluation instructions and ran the fixture-integrity gate. Final local checks passed: lint, typecheck, 258 unit tests, 36 PTY tests, 7 integration tests, build, mock smoke, memory benchmark (100% precision/recall on 37 labeled retrieval prompts), FTS/reconciliation microbenchmark, coding-evaluation fixture verification, and package dry-run. These checks do not provide provider/model task-quality scores. Hosted Ubuntu/macOS/Windows CI remains unrun and requires a push; the configured live-provider smoke is not repeated here.
 - Harness parity roadmap Phase 4: added `rook_code`, a read-only coding-intelligence tool for TypeScript/JavaScript definition and reference navigation plus syntactic/semantic diagnostics for the selected file. It uses safe compiler settings from repository `tsconfig.json`, caps project files/results/output, filters sensitive/out-of-workspace files, and never writes. TypeScript 7 remains the project compiler; a pinned TypeScript 5.9 language service powers this integration because v7 exposes a different API surface.
 - Harness parity roadmap Phase 3: `.rook/agents.json` defines bounded named subagent profiles and optional subsets of a fixed read-only tool allowlist. `/agents` lists and invokes profiles in fresh sessions; instructions are treated as untrusted guidance and cannot enable mutation, shell, MCP, or third-party extensions. Existing `/explore`, `/architect`, and `/review` workflows remain separately explicit. See README for the configuration shape.
 - Harness parity roadmap Phase 2: Build-mode shell defaults to Bubblewrap isolation on Linux: system read-only, writable selected workspace only, private temporary/runtime paths, no network, and restricted user/PID namespaces. Sandbox availability is probed at startup; absent/unusable runtime blocks shell before approval and never falls back to host. `.rook/policy.json` can explicitly opt out with `execution.sandbox_shell: false`, which is labeled in approvals. Added `rook worktree create|list|diff|remove` for managed detached independent clones under `.rook-worktrees/`; diff reviews against the recorded base commit, and removal refuses uncommitted or ignored content. Worktree isolation is for edits only, not a process sandbox. Bubblewrap and same-host use were verified via plan/build checks and local tests; cross-platform sandbox support remains pending. See README.
@@ -80,6 +81,7 @@ M0 is implemented, but live-provider streaming remains credential-gated and unve
 - `npm pack --dry-run` — passed; package contains the executable and compiled `dist/`, excludes tests and visual references, and runs the build via `prepack`.
 - `npm run lint` — passed.
 
-### Next
+### Remaining validation
 
-- Remaining release gate: run the hosted Ubuntu/macOS/Windows CI matrix. Real-provider smoke is blocked because no Pi providers or provider API-key environment variables are configured; do not report it as passed.
+- Run the hosted Ubuntu/macOS/Windows CI matrix; it is configured in `.github/workflows/ci.yml` and requires a push or pull request. This local validation does not substitute for hosted platform coverage.
+- The final evaluation was offline and did not score model-generated task responses. Provider/model quality comparisons require explicitly collected runs and human grading using the documented procedure in `evals/coding/README.md`.
