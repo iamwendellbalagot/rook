@@ -129,7 +129,7 @@ const BUILTIN_SLASH_COMMANDS: SlashCommandSuggestion[] = [
   {
     command: "/review",
     description:
-      "Run a read-only code review; add simplicity to challenge complexity",
+      "Run a read-only review; simplicity questions complexity; --file scopes it",
   },
   { command: "/explore", description: "Research a question in fresh context" },
   {
@@ -1203,7 +1203,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/help":
           removeHome();
           appendText(
-            "Available: /help, /login, /logout, /model, /settings, /plyth, /mcp, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /ask <question>, /explore <question>, /architect <task>, /agents [name <task>], /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /diff, /review [simplicity], /undo [confirm], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
+            "Available: /help, /login, /logout, /model, /settings, /plyth, /mcp, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /ask <question>, /explore <question>, /architect <task>, /agents [name <task>], /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /diff, /review [simplicity] [--file path ...], /undo [confirm], /memory status|show|detail|verify|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
             "muted",
           );
           return;
@@ -1229,9 +1229,29 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           return;
         case "/review":
           removeHome();
-          const reviewFocus = prompt.slice("/review".length).trim();
-          if (reviewFocus && reviewFocus !== "simplicity") {
-            appendText("Usage: /review [simplicity]", "error");
+          const reviewArgs = prompt
+            .slice("/review".length)
+            .trim()
+            .split(/\s+/)
+            .filter(Boolean);
+          const reviewFocus = reviewArgs[0] === "simplicity" ? reviewArgs.shift() : undefined;
+          const reviewPaths: string[] = [];
+          let invalidReviewArgs = Boolean(reviewArgs[0] && reviewArgs[0] !== "--file");
+          while (!invalidReviewArgs && reviewArgs.length > 0) {
+            const option = reviewArgs.shift();
+            const path = reviewArgs.shift();
+            if (option !== "--file" || !path || path.startsWith("--")) {
+              invalidReviewArgs = true;
+              break;
+            }
+            reviewPaths.push(path);
+          }
+          if (reviewPaths.length > 20) invalidReviewArgs = true;
+          if (invalidReviewArgs) {
+            appendText(
+              "Usage: /review [simplicity] [--file repo/path ...] (repeat --file; paths cannot contain spaces)",
+              "error",
+            );
             return;
           }
           appendText(
@@ -1245,8 +1265,13 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
               safeTerminalText(
                 await options.gateway.reviewGitChanges(
                   reviewFocus === "simplicity"
-                    ? { focus: "simplicity" }
-                    : undefined,
+                    ? {
+                        focus: "simplicity",
+                        ...(reviewPaths.length ? { paths: reviewPaths } : {}),
+                      }
+                    : reviewPaths.length
+                      ? { paths: reviewPaths }
+                      : undefined,
                 ),
               ),
               "muted",

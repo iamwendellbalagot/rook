@@ -19,6 +19,7 @@ import type {
   ModelInfo,
   PermissionDecision,
   PermissionMode,
+  ReadOnlyReviewUsage,
   ProviderAuthInteraction,
   ProviderAuthType,
   ProviderInfo,
@@ -41,6 +42,8 @@ import {
 } from "./execution-policy.js";
 import {
   createPlanInspectionTool,
+  changedRepoFiles,
+  isSafeRepoPath,
   inspectGitWorkspace,
 } from "./plan-inspection-tool.js";
 import { createWorkspaceSearchTool } from "./workspace-search-tool.js";
@@ -56,6 +59,7 @@ import {
   buildReadOnlyReviewPrompt,
   buildPlythReviewPrompt,
   recentReviewTaskContext,
+  renderPlythReviewReport,
   runReadOnlyReview,
 } from "./read-only-review.js";
 import {
@@ -323,6 +327,9 @@ export async function createPiAgentGateway(
   }
 
   let activePrompts = 0;
+  let activeReview:
+    | { controller: AbortController; reviewer?: AgentGateway }
+    | undefined;
   const getSessionHistory = (): SessionMessage[] =>
     runtime.session.messages.flatMap((message) => {
       if (message.role !== "user" && message.role !== "assistant") return [];
@@ -337,7 +344,11 @@ export async function createPiAgentGateway(
     });
   return {
     isRunning() {
-      return activePrompts > 0 || !runtime.session.isIdle;
+      return (
+        activePrompts > 0 ||
+        !runtime.session.isIdle ||
+        activeReview !== undefined
+      );
     },
     async send(prompt, disposition = "normal") {
       policy.setMcpUserAuthorization(prompt);
@@ -376,7 +387,12 @@ export async function createPiAgentGateway(
       }
     },
     async cancel() {
-      await runtime.session.abort();
+      const review = activeReview;
+      review?.controller.abort();
+      await Promise.all([
+        runtime.session.abort(),
+        review?.reviewer?.cancel(),
+      ]);
     },
     async listModels(): Promise<ModelInfo[]> {
       await refreshWorkspaceModels();
@@ -496,6 +512,15 @@ export async function createPiAgentGateway(
         baseline: plythBaseline.snapshot(),
       };
     },
+    getUsageStats() {
+      const tokens = runtime.session.getSessionStats().tokens;
+      return {
+        inputTokens: tokens.input,
+        outputTokens: tokens.output,
+        cacheReadTokens: tokens.cacheRead,
+        cacheWriteTokens: tokens.cacheWrite,
+      };
+    },
     getPlythMode() {
       return plythMode;
     },
@@ -512,38 +537,71 @@ export async function createPiAgentGateway(
       return inspectGitWorkspace(cwd);
     },
     async reviewGitChanges(options = {}) {
-      const selectedModel = runtime.session.model;
-      if (!selectedModel) {
-        throw new Error("Select a model before requesting a code review.");
-      }
-      let changes: string;
+      if (activeReview) throw new Error("A read-only review is already running.");
+      const reviewState: {
+        controller: AbortController;
+        reviewer?: AgentGateway;
+      } = {
+        controller: new AbortController(),
+      };
+      activeReview = reviewState;
       try {
-        changes = inspectGitWorkspace(cwd);
-      } catch {
-        return "Read-only Git review is unavailable outside a Git repository.";
-      }
-      const taskContext =
-        options.taskContext ?? recentReviewTaskContext(getSessionHistory());
-      const report = await runTemporaryReadOnlyTask(
-        cwd,
-        {
-          provider: selectedModel.provider,
-          id: selectedModel.id,
-          name: selectedModel.name,
-        },
-        options.focus === "simplicity"
-          ? buildPlythReviewPrompt(changes, taskContext)
-          : buildReadOnlyReviewPrompt(changes, taskContext),
-      );
-      if (options.focus !== "simplicity") return report;
-      try {
-        if (inspectGitWorkspace(cwd) !== changes) {
-          return `The workspace changed during this review, so these findings may be stale. Re-run /review simplicity before acting on them.\n\n${report}`;
+        const reviewSignal = AbortSignal.any([
+          reviewState.controller.signal,
+          AbortSignal.timeout(120_000),
+        ]);
+        const selectedModel = runtime.session.model;
+        if (!selectedModel) {
+          throw new Error("Select a model before requesting a code review.");
         }
-      } catch {
-        return `The workspace could not be rechecked after review, so these findings may be stale.\n\n${report}`;
+        let changes: string;
+        try {
+          changes = inspectGitWorkspace(cwd, options.paths);
+        } catch (error) {
+          if (options.paths) throw error;
+          return "Read-only Git review is unavailable outside a Git repository.";
+        }
+        const taskContext =
+          options.taskContext ?? recentReviewTaskContext(getSessionHistory());
+        const reviewedPaths =
+          options.paths ?? changedRepoFiles(cwd).filter(isSafeRepoPath);
+        let usage: ReadOnlyReviewUsage | undefined;
+        const report = await runTemporaryReadOnlyTask(
+          cwd,
+          {
+            provider: selectedModel.provider,
+            id: selectedModel.id,
+            name: selectedModel.name,
+          },
+          options.focus === "simplicity"
+            ? buildPlythReviewPrompt(changes, taskContext, options.paths)
+            : buildReadOnlyReviewPrompt(changes, taskContext, options.paths),
+          {
+            signal: reviewSignal,
+            onGateway: (gateway) => {
+              reviewState.reviewer = gateway;
+            },
+            onUsage: (value) => {
+              usage = value;
+            },
+          },
+        );
+        if (reviewState.controller.signal.aborted)
+          return "Simplicity review cancelled.";
+        if (reviewSignal.aborted)
+          return "Read-only review timed out after two minutes; no findings were returned.";
+        if (options.focus !== "simplicity") return report;
+        let formattedReport = renderPlythReviewReport(report, reviewedPaths);
+        try {
+          if (inspectGitWorkspace(cwd, options.paths) !== changes)
+            formattedReport = `The workspace changed during this review, so these findings may be stale. Re-run /review simplicity before acting on them.\n\n${formattedReport}`;
+        } catch {
+          formattedReport = `The workspace could not be rechecked after review, so these findings may be stale.\n\n${formattedReport}`;
+        }
+        return `${formattedReport}\n\n${formatReviewUsage(usage)}`;
+      } finally {
+        if (activeReview === reviewState) activeReview = undefined;
       }
-      return report;
     },
     async exploreReadOnly(task) {
       const selectedModel = runtime.session.model;
@@ -747,15 +805,27 @@ async function runTemporaryReadOnlyTask(
   cwd: string,
   selectedModel: ModelInfo,
   prompt: string,
-  options: { tools?: string[] } = {},
+  options: {
+    tools?: string[];
+    signal?: AbortSignal;
+    onGateway?: (gateway: AgentGateway) => void;
+    onUsage?: (usage: ReadOnlyReviewUsage | undefined) => void;
+  } = {},
 ): Promise<string> {
   const sessionDir = await mkdtemp(join(tmpdir(), "rook-readonly-session-"));
   let reviewer: AgentGateway | undefined;
+  let cancelReviewer: (() => void) | undefined;
   try {
     reviewer = await createPiAgentGateway(cwd, {
       sessionDir,
       ...(options.tools ? { readOnlyTools: options.tools } : {}),
     });
+    cancelReviewer = () => {
+      void reviewer?.cancel().catch(() => undefined);
+    };
+    options.signal?.addEventListener("abort", cancelReviewer, { once: true });
+    options.onGateway?.(reviewer);
+    if (options.signal?.aborted) return "Review cancelled.";
     reviewer.setMode("plan");
     const reviewModel = (await reviewer.listModels()).find(
       (model) =>
@@ -774,12 +844,22 @@ async function runTemporaryReadOnlyTask(
     ) {
       await reviewer.selectModel(reviewModel);
     }
-    return await runReadOnlyReview(reviewer, prompt);
+    if (options.signal?.aborted) return "Review cancelled.";
+    const report = await runReadOnlyReview(reviewer, prompt, options.signal);
+    options.onUsage?.(reviewer.getUsageStats?.());
+    return report;
   } finally {
+    if (cancelReviewer)
+      options.signal?.removeEventListener("abort", cancelReviewer);
     try {
       await reviewer?.dispose();
     } finally {
       await rm(sessionDir, { recursive: true, force: true });
     }
   }
+}
+
+function formatReviewUsage(usage: ReadOnlyReviewUsage | undefined): string {
+  if (!usage) return "Review token usage unavailable; provider billing is not reported.";
+  return `Review usage: ${usage.inputTokens} input, ${usage.outputTokens} output, ${usage.cacheReadTokens} cache-read, ${usage.cacheWriteTokens} cache-write tokens. Provider-billed cost is not available here.`;
 }

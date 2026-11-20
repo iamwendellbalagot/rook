@@ -111,17 +111,40 @@ export function createPlanInspectionTool(cwd: string) {
   });
 }
 
-export function inspectGitWorkspace(cwd: string): string {
+export function inspectGitWorkspace(
+  cwd: string,
+  selectedPaths?: readonly string[],
+): string {
   const status = runGit(cwd, [
     "status",
     "--porcelain=v1",
     "-z",
     "--untracked-files=all",
   ]);
-  const entries = status
+  let entries = status
     .split("\0")
     .filter(Boolean)
     .filter((entry) => isSafeRepoPath(entry.slice(3)));
+  let files = changedRepoFiles(cwd).filter(isSafeRepoPath);
+  if (selectedPaths) {
+    const selected = [...new Set(selectedPaths)];
+    if (
+      selected.length === 0 ||
+      selected.some(
+        (path) => !isSafeRepoPath(path) || path.trim() !== path,
+      )
+    )
+      throw new Error("Review scope must contain safe repository-relative paths.");
+    const changed = new Set(files);
+    const notChanged = selected.filter((path) => !changed.has(path));
+    if (notChanged.length)
+      throw new Error(
+        `Review paths must be changed files: ${notChanged.join(", ")}`,
+      );
+    const selectedSet = new Set(selected);
+    entries = entries.filter((entry) => selectedSet.has(entry.slice(3)));
+    files = selected;
+  }
   const summary = entries.length
     ? entries
         .map(
@@ -129,7 +152,6 @@ export function inspectGitWorkspace(cwd: string): string {
         )
         .join("\n")
     : "Working tree clean (or only sensitive paths are changed).";
-  const files = changedRepoFiles(cwd).filter(isSafeRepoPath);
   const diff = files.length
     ? runGit(cwd, [
         "--literal-pathspecs",

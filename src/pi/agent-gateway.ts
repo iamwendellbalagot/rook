@@ -160,6 +160,13 @@ export interface SessionMessage {
   text: string;
 }
 
+export interface ReadOnlyReviewUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+
 export type PromptDisposition = "normal" | "steer" | "follow_up";
 
 export interface AgentResource {
@@ -209,7 +216,9 @@ export interface AgentGateway {
   reviewGitChanges(options?: {
     focus?: "simplicity";
     taskContext?: string;
+    paths?: string[];
   }): Promise<string>;
+  getUsageStats?(): ReadOnlyReviewUsage;
   exploreReadOnly(task: string): Promise<string>;
   architectReadOnly(task: string): Promise<string>;
   listSubagents(): SubagentProfile[];
