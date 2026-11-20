@@ -53,6 +53,7 @@ class EventGateway implements AgentGateway {
   queuedMessages: { text: string; disposition: string }[] = [];
   sentPrompts: string[] = [];
   reviewCalls = 0;
+  reviewOptions: Parameters<AgentGateway["reviewGitChanges"]>[0][] = [];
   exploreCalls: string[] = [];
   architectCalls: string[] = [];
   subagentCalls: { name: string; task: string }[] = [];
@@ -121,8 +122,11 @@ class EventGateway implements AgentGateway {
     return "Git status\n M src/example.ts\n\nDiff vs HEAD\n+change";
   }
 
-  async reviewGitChanges(): Promise<string> {
+  async reviewGitChanges(
+    options?: Parameters<AgentGateway["reviewGitChanges"]>[0],
+  ): Promise<string> {
     this.reviewCalls += 1;
+    this.reviewOptions.push(options);
     return "No actionable findings.";
   }
 
@@ -1093,6 +1097,26 @@ describe("Rook TUI shell", () => {
     expect(gateway.sentPrompts).toEqual([]);
     expect(gateway.modeHistory.at(-1)).toBe("build");
     expect(screen).toContain("No actionable findings.");
+
+    terminal.input("\u0003");
+    await finished;
+  });
+
+  it("offers the opt-in PLYTH simplicity review without changing modes", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+
+    await app.submit("/build");
+    await app.submit("/review simplicity");
+
+    expect(gateway.reviewOptions).toEqual([{ focus: "simplicity" }]);
+    expect(gateway.modeHistory.at(-1)).toBe("build");
 
     terminal.input("\u0003");
     await finished;

@@ -126,7 +126,11 @@ const BUILTIN_SLASH_COMMANDS: SlashCommandSuggestion[] = [
   { command: "/follow-up", description: "Queue a follow-up" },
   { command: "/permissions", description: "Review access grants" },
   { command: "/diff", description: "Review current Git changes" },
-  { command: "/review", description: "Run a separate read-only code review" },
+  {
+    command: "/review",
+    description:
+      "Run a read-only code review; add simplicity to challenge complexity",
+  },
   { command: "/explore", description: "Research a question in fresh context" },
   {
     command: "/architect",
@@ -1199,7 +1203,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/help":
           removeHome();
           appendText(
-            "Available: /help, /login, /logout, /model, /settings, /plyth, /mcp, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /ask <question>, /explore <question>, /architect <task>, /agents [name <task>], /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /diff, /review, /undo [confirm], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
+            "Available: /help, /login, /logout, /model, /settings, /plyth, /mcp, /new, /sessions, /resume, /fork, /compact, /skills, /prompts, /ask <question>, /explore <question>, /architect <task>, /agents [name <task>], /steer <text>, /follow-up <text>, /plan, /build, /permissions [revoke <grant-id>], /diff, /review [simplicity], /undo [confirm], /memory status|show|detail|verify|refresh|pause|resume|opt-out|opt-in|pending|confirm|cancel|forget, /cancel, /exit",
             "muted",
           );
           return;
@@ -1225,13 +1229,26 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           return;
         case "/review":
           removeHome();
+          const reviewFocus = prompt.slice("/review".length).trim();
+          if (reviewFocus && reviewFocus !== "simplicity") {
+            appendText("Usage: /review [simplicity]", "error");
+            return;
+          }
           appendText(
-            "Running a separate read-only review of current changes…",
+            reviewFocus === "simplicity"
+              ? "Reviewing current changes for unjustified complexity (read-only)…"
+              : "Running a separate read-only review of current changes…",
             "muted",
           );
           try {
             appendText(
-              safeTerminalText(await options.gateway.reviewGitChanges()),
+              safeTerminalText(
+                await options.gateway.reviewGitChanges(
+                  reviewFocus === "simplicity"
+                    ? { focus: "simplicity" }
+                    : undefined,
+                ),
+              ),
               "muted",
             );
           } catch (error) {

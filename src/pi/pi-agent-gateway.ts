@@ -54,6 +54,8 @@ import { WorkspaceModelConfiguration } from "./workspace-models.js";
 import { detectSandboxRuntime } from "../policy/sandbox.js";
 import {
   buildReadOnlyReviewPrompt,
+  buildPlythReviewPrompt,
+  recentReviewTaskContext,
   runReadOnlyReview,
 } from "./read-only-review.js";
 import {
@@ -321,6 +323,18 @@ export async function createPiAgentGateway(
   }
 
   let activePrompts = 0;
+  const getSessionHistory = (): SessionMessage[] =>
+    runtime.session.messages.flatMap((message) => {
+      if (message.role !== "user" && message.role !== "assistant") return [];
+      const text =
+        typeof message.content === "string"
+          ? message.content
+          : message.content
+              .filter((part) => part.type === "text")
+              .map((part) => part.text)
+              .join("");
+      return text ? [{ role: message.role, text }] : [];
+    });
   return {
     isRunning() {
       return activePrompts > 0 || !runtime.session.isIdle;
@@ -497,7 +511,7 @@ export async function createPiAgentGateway(
     async inspectGitChanges() {
       return inspectGitWorkspace(cwd);
     },
-    async reviewGitChanges() {
+    async reviewGitChanges(options = {}) {
       const selectedModel = runtime.session.model;
       if (!selectedModel) {
         throw new Error("Select a model before requesting a code review.");
@@ -508,6 +522,8 @@ export async function createPiAgentGateway(
       } catch {
         return "Read-only Git review is unavailable outside a Git repository.";
       }
+      const taskContext =
+        options.taskContext ?? recentReviewTaskContext(getSessionHistory());
       return runTemporaryReadOnlyTask(
         cwd,
         {
@@ -515,7 +531,9 @@ export async function createPiAgentGateway(
           id: selectedModel.id,
           name: selectedModel.name,
         },
-        buildReadOnlyReviewPrompt(changes),
+        options.focus === "simplicity"
+          ? buildPlythReviewPrompt(changes, taskContext)
+          : buildReadOnlyReviewPrompt(changes, taskContext),
       );
     },
     async exploreReadOnly(task) {
@@ -649,17 +667,7 @@ export async function createPiAgentGateway(
       };
     },
     sessionHistory(): SessionMessage[] {
-      return runtime.session.messages.flatMap((message) => {
-        if (message.role !== "user" && message.role !== "assistant") return [];
-        const text =
-          typeof message.content === "string"
-            ? message.content
-            : message.content
-                .filter((part) => part.type === "text")
-                .map((part) => part.text)
-                .join("");
-        return text ? [{ role: message.role, text }] : [];
-      });
+      return getSessionHistory();
     },
     listSkills(): AgentResource[] {
       return runtime.session.resourceLoader

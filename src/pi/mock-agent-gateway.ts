@@ -144,7 +144,10 @@ export class MockAgentGateway implements AgentGateway {
     return "Git inspection is unavailable in mock mode.";
   }
 
-  async reviewGitChanges(): Promise<string> {
+  async reviewGitChanges(_options?: {
+    focus?: "simplicity";
+    taskContext?: string;
+  }): Promise<string> {
     return "Code review is unavailable in mock mode.";
   }
 

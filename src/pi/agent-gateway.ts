@@ -206,7 +206,10 @@ export interface AgentGateway {
     action: "status" | "on" | "off" | "export" | "clear",
   ): string;
   inspectGitChanges(): Promise<string>;
-  reviewGitChanges(): Promise<string>;
+  reviewGitChanges(options?: {
+    focus?: "simplicity";
+    taskContext?: string;
+  }): Promise<string>;
   exploreReadOnly(task: string): Promise<string>;
   architectReadOnly(task: string): Promise<string>;
   listSubagents(): SubagentProfile[];
