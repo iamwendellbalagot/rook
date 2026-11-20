@@ -221,6 +221,92 @@ describe("PLYTH Rook observe-only adapter", () => {
     expect(counter.predictionStats().verdicts.miss).toBe(1);
   });
 
+  it("matches Node test evidence only against tests with matching status", () => {
+    const counter = new SessionCounter();
+    const { handlers, ctx } = eventHandlers(counter, { feedback: true });
+    const output = [
+      "✔ accepts the lowest valid port (0.3ms)",
+      "✖ rejects port zero (0.4ms)",
+      "✔ rejects fractional ports (0.05ms)",
+      "ℹ tests 3",
+      "ℹ pass 2",
+      "ℹ fail 1",
+    ].join("\n");
+    const passingOutput = [
+      "✔ rejects port zero (0.3ms)",
+      "✔ rejects fractional ports (0.05ms)",
+      "ℹ tests 2",
+      "ℹ pass 2",
+      "ℹ fail 0",
+    ].join("\n");
+
+    const run = (
+      toolCallId: string,
+      outcome: "pass" | "fail",
+      evidence: string,
+      exitCode: number,
+      resultOutput = output,
+    ) => {
+      handlers.get("tool_call")?.(
+        {
+          toolName: "bash",
+          toolCallId,
+          input: {
+            command: "node --test tests/port.test.mjs",
+            expect: { outcome, evidence },
+          },
+        },
+        ctx,
+      );
+      return handlers.get("tool_result")?.(
+        {
+          toolName: "bash",
+          toolCallId,
+          input: {
+            command: "node --test tests/port.test.mjs",
+            expect: { outcome, evidence },
+          },
+          content: [{ type: "text", text: resultOutput }],
+          structuredContent: {
+            exit_code: exitCode,
+            output: resultOutput,
+            truncated: false,
+          },
+          isError: exitCode !== 0,
+        },
+        ctx,
+      ) as { content: { text?: string }[] } | undefined;
+    };
+
+    const wrongStatusEvidence = run(
+      "passing-test-evidence",
+      "fail",
+      "rejects fractional ports",
+      1,
+    );
+    expect(wrongStatusEvidence?.content.at(-1)?.text).toContain("PLYTH:");
+
+    expect(
+      run("failing-test-evidence", "fail", "rejects port zero", 1),
+    ).toBeUndefined();
+    expect(
+      run(
+        "successful-test-evidence",
+        "pass",
+        "rejects fractional ports",
+        0,
+        passingOutput,
+      ),
+    ).toBeUndefined();
+    expect(counter.predictionStats().verdicts).toEqual({
+      hit: 2,
+      miss: 1,
+      vague: 0,
+      none: 0,
+      unscorable: 0,
+    });
+  });
+
   it("keeps truncated evidence vague and counts omitted predictions", () => {
     const counter = new SessionCounter();
     const { handlers, ctx } = eventHandlers(counter);

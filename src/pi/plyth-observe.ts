@@ -81,9 +81,10 @@ export function createPlythObserveExtension(
         if (!isBashToolResult(event)) return;
         const sessionId = ctx.sessionManager.getSessionId();
         const structured = record(event.structuredContent);
-        const prediction = record(
-          record(pending.get(`${sessionId}\0${event.toolCallId}`))?.prediction,
+        const startEvent = record(
+          pending.get(`${sessionId}\0${event.toolCallId}`),
         );
+        const prediction = record(startEvent?.prediction);
         const normalized =
           typeof structured?.exit_code === "number" &&
           Number.isInteger(structured.exit_code)
@@ -95,16 +96,11 @@ export function createPlythObserveExtension(
         const truncated = structured?.truncated === true;
         const evidenceLabels =
           !truncated && typeof output === "string"
-            ? output
-                .split(/\r?\n/)
-                .map((line: string) =>
-                  line
-                    .trim()
-                    .replace(/[\u0000-\u001f\u007f]/g, " ")
-                    .slice(0, 160),
-                )
-                .filter(Boolean)
-                .slice(0, 16)
+            ? evidenceLabelsFromOutput(
+                output,
+                startEvent?.commandClass,
+                normalized,
+              )
             : undefined;
         const finishEvent: Record<string, unknown> = {
           protocol: "plyth/event/1",
@@ -112,7 +108,7 @@ export function createPlythObserveExtension(
           callId: event.toolCallId,
           ...(normalized ? { outcome: normalized } : {}),
           ...(evidenceLabels ? { evidenceLabels } : {}),
-          ...(truncated || (prediction?.evidence && !evidenceLabels)
+          ...(truncated || (prediction?.evidence && !evidenceLabels?.length)
             ? { evidenceUnavailable: true }
             : {}),
           ...(!normalized
@@ -188,6 +184,52 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+function evidenceLabelsFromOutput(
+  output: string,
+  commandClass: unknown,
+  outcome: string | undefined,
+): string[] | undefined {
+  const lines = output.split(/\r?\n/).map((line) =>
+    line
+      .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+      .trim()
+      .replace(/[\u0000-\u001f\u007f]/g, " ")
+      .slice(0, 160),
+  );
+
+  if (commandClass === "test" && (outcome === "pass" || outcome === "fail")) {
+    const nodeTestLabels = lines.flatMap((line) => {
+      const match = /^([✔✖])\s+(.+)$/u.exec(line);
+      const status = match?.[1];
+      const testLabel = match?.[2];
+      if (!status || !testLabel) return [];
+      const label = testLabel
+        .replace(/\s+\(\d+(?:\.\d+)?(?:ns|us|μs|µs|ms|s)\)$/u, "")
+        .trim();
+      return label ? [{ status, label }] : [];
+    });
+
+    if (nodeTestLabels.length > 0) {
+      const expectedStatus = outcome === "pass" ? "✔" : "✖";
+      const matchingLabels = [
+        ...new Set(
+          nodeTestLabels
+            .filter(
+              ({ status, label }) =>
+                status === expectedStatus &&
+                label.toLowerCase() !== "failing tests:",
+            )
+            .map(({ label }) => label),
+        ),
+      ].slice(0, 16);
+      return matchingLabels.length > 0 ? matchingLabels : undefined;
+    }
+  }
+
+  const labels = lines.filter(Boolean).slice(0, 16);
+  return labels.length > 0 ? labels : undefined;
 }
 
 function predictionFromInput(value: unknown) {
