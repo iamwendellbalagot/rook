@@ -524,7 +524,7 @@ export async function createPiAgentGateway(
       }
       const taskContext =
         options.taskContext ?? recentReviewTaskContext(getSessionHistory());
-      return runTemporaryReadOnlyTask(
+      const report = await runTemporaryReadOnlyTask(
         cwd,
         {
           provider: selectedModel.provider,
@@ -535,6 +535,15 @@ export async function createPiAgentGateway(
           ? buildPlythReviewPrompt(changes, taskContext)
           : buildReadOnlyReviewPrompt(changes, taskContext),
       );
+      if (options.focus !== "simplicity") return report;
+      try {
+        if (inspectGitWorkspace(cwd) !== changes) {
+          return `The workspace changed during this review, so these findings may be stale. Re-run /review simplicity before acting on them.\n\n${report}`;
+        }
+      } catch {
+        return `The workspace could not be rechecked after review, so these findings may be stale.\n\n${report}`;
+      }
+      return report;
     },
     async exploreReadOnly(task) {
       const selectedModel = runtime.session.model;
