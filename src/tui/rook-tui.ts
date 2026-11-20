@@ -109,7 +109,7 @@ const BUILTIN_SLASH_COMMANDS: SlashCommandSuggestion[] = [
   { command: "/settings", description: "Adjust thinking level" },
   {
     command: "/plyth",
-    description: "Show prediction coverage and verdict counts",
+    description: "Show predictions/history or control local traces",
   },
   { command: "/new", description: "Start a new session" },
   { command: "/sessions", description: "Browse saved sessions" },
@@ -1348,9 +1348,38 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           return;
         case "/plyth": {
           removeHome();
+          const args = prompt.trim().split(/\s+/).slice(1);
+          if (args.length) {
+            const action = args[1] ?? "status";
+            if (
+              args[0] !== "trace" ||
+              args.length > 2 ||
+              !["status", "on", "off", "export", "clear"].includes(action)
+            ) {
+              appendText(
+                "Usage: /plyth [trace [status|on|off|export|clear]]",
+                "error",
+              );
+              return;
+            }
+            appendText(
+              options.gateway.controlPlythTrace?.(
+                action as "status" | "on" | "off" | "export" | "clear",
+              ) ?? "PLYTH traces unavailable in this gateway.",
+              "muted",
+            );
+            return;
+          }
           const stats = options.gateway.getPlythStats();
+          const mode = options.gateway.getPlythMode?.() ?? "observe";
+          const label =
+            mode === "observe"
+              ? "observe-only"
+              : mode === "feedback"
+                ? "advisory"
+                : "off";
           appendText(
-            `PLYTH observe-only · eligible ${stats.eligibleCommands} · predicted ${stats.predictedCommands} · invalid ${stats.invalidPredictions} · specific ${stats.specificPredictions}\nhit ${stats.verdicts.hit} · miss ${stats.verdicts.miss} · vague ${stats.verdicts.vague} · none ${stats.verdicts.none} · unscorable ${stats.verdicts.unscorable}\ncommand time ${stats.durationMs}ms across ${stats.durationSamples} commands`,
+            `PLYTH ${label} · eligible ${stats.eligibleCommands} · predicted ${stats.predictedCommands} · invalid ${stats.invalidPredictions} · specific ${stats.specificPredictions}\nhit ${stats.verdicts.hit} · miss ${stats.verdicts.miss} · vague ${stats.verdicts.vague} · none ${stats.verdicts.none} · unscorable ${stats.verdicts.unscorable}\ncommand time ${stats.durationMs}ms across ${stats.durationSamples} commands${stats.baseline ? `\nOutcome-only comparison · agent ${stats.baseline.agentCorrect}/${stats.baseline.comparisons} · history ${stats.baseline.baselineCorrect}/${stats.baseline.comparisons} · unavailable ${stats.baseline.unavailable} · invalidations ${stats.baseline.invalidations}` : ""}`,
             "muted",
           );
           return;

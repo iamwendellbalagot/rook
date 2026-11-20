@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { SessionCounter } from "plyth";
+import { CommandHistoryBaseline, SessionCounter } from "plyth";
 import { describe, expect, it } from "vitest";
 import {
   classifyCommand,
@@ -8,7 +8,7 @@ import {
 
 function eventHandlers(
   counter: SessionCounter,
-  options?: { feedback?: boolean },
+  options?: Parameters<typeof createPlythObserveExtension>[1],
 ) {
   const handlers = new Map<string, (...args: any[]) => unknown>();
   const extension = createPlythObserveExtension(counter, options);
@@ -48,9 +48,7 @@ describe("PLYTH Rook observe-only adapter", () => {
     const before = handlers.get("before_agent_start")?.({
       systemPrompt: "base prompt",
     }) as { systemPrompt: string };
-    expect(before.systemPrompt).toContain(
-      "PLYTH observe-only prediction guidance",
-    );
+    expect(before.systemPrompt).toContain("PLYTH prediction guidance");
     expect(before.systemPrompt).toContain(
       "known test name or stable error label",
     );
@@ -178,7 +176,11 @@ describe("PLYTH Rook observe-only adapter", () => {
 
   it("adds bounded advisory feedback only when explicitly enabled", () => {
     const counter = new SessionCounter();
-    const { handlers, ctx } = eventHandlers(counter, { feedback: true });
+    const traces: unknown[] = [];
+    const { handlers, ctx } = eventHandlers(counter, {
+      feedback: true,
+      trace: { append: (record) => traces.push(record) },
+    });
     handlers.get("tool_call")?.(
       {
         toolName: "bash",
@@ -219,6 +221,15 @@ describe("PLYTH Rook observe-only adapter", () => {
     expect(feedbackItem?.text).toContain("Expected `fail`");
     expect(result.structuredContent).toBe(structuredContent);
     expect(counter.predictionStats().verdicts.miss).toBe(1);
+    handlers.get("tool_execution_end")?.(
+      { toolName: "bash", toolCallId: "feedback-miss", durationMs: 10 },
+      ctx,
+    );
+    expect(traces[0]).toMatchObject({
+      mode: "feedback",
+      verdict: "miss",
+      feedbackAppended: true,
+    });
   });
 
   it("matches Node test evidence only against tests with matching status", () => {
@@ -392,6 +403,36 @@ describe("PLYTH Rook observe-only adapter", () => {
     });
   });
 
+  it("does not turn an evidence-label budget limit into a false miss or feedback", () => {
+    const counter = new SessionCounter();
+    const { handlers, ctx } = eventHandlers(counter, { feedback: true });
+    const input = {
+      command: "npm test",
+      expect: { outcome: "fail", evidence: "case 17" },
+    };
+    handlers.get("tool_call")?.(
+      { toolName: "bash", toolCallId: "limited", input },
+      ctx,
+    );
+    const output = Array.from(
+      { length: 18 },
+      (_, i) => `✖ case ${i} (0.2ms)`,
+    ).join("\n");
+    expect(
+      handlers.get("tool_result")?.(
+        {
+          toolName: "bash",
+          toolCallId: "limited",
+          input,
+          content: [{ type: "text", text: output }],
+          structuredContent: { exit_code: 1, output, truncated: false },
+        },
+        ctx,
+      ),
+    ).toBeUndefined();
+    expect(counter.snapshot()).toMatchObject({ vague: 1, miss: 0 });
+  });
+
   it("counts malformed predictions without scoring or rejecting the tool call", () => {
     const counter = new SessionCounter();
     const { handlers, ctx } = eventHandlers(counter);
@@ -454,5 +495,115 @@ describe("PLYTH Rook observe-only adapter", () => {
       durationSamples: 0,
       verdicts: { hit: 0, miss: 0, vague: 0, none: 0, unscorable: 0 },
     });
+  });
+
+  it("compares unchanged command history, invalidates edits and exports only minimal trace fields", () => {
+    const counter = new SessionCounter();
+    const baseline = new CommandHistoryBaseline();
+    const records: unknown[] = [];
+    let revision = "a";
+    const { handlers, ctx } = eventHandlers(counter, {
+      baseline,
+      workspaceRevision: () => revision,
+      trace: { append: (record) => records.push(record) },
+    });
+    const run = (id: string) => {
+      const input = {
+        command: "node --test tests/private-name.test.mjs",
+        expect: { outcome: "pass", evidence: "private test label" },
+      };
+      handlers.get("tool_call")?.(
+        { toolName: "bash", toolCallId: id, input },
+        ctx,
+      );
+      handlers.get("tool_result")?.(
+        {
+          toolName: "bash",
+          toolCallId: id,
+          input,
+          content: [{ type: "text", text: "private test label" }],
+          structuredContent: {
+            exit_code: 0,
+            output: "✔ private test label (0.2ms)",
+            truncated: false,
+          },
+        },
+        ctx,
+      );
+      handlers.get("tool_execution_end")?.(
+        { toolName: "bash", toolCallId: id, durationMs: 123 },
+        ctx,
+      );
+    };
+    run("first");
+    run("second");
+    expect(baseline.snapshot()).toMatchObject({
+      comparisons: 1,
+      baselineCorrect: 1,
+      agentCorrect: 1,
+    });
+    handlers.get("tool_call")?.(
+      { toolName: "edit", toolCallId: "edit", input: { path: "src/a.ts" } },
+      ctx,
+    );
+    run("after-edit");
+    expect(baseline.snapshot().comparisons).toBe(1);
+    revision = "external-change";
+    run("after-external-change");
+    expect(baseline.snapshot().comparisons).toBe(1);
+    expect(records).toHaveLength(4);
+    expect(records[1]).toMatchObject({
+      protocol: "plyth/trace/1",
+      verdict: "hit",
+      baselineComparable: true,
+      durationBucket: "lt1s",
+    });
+    expect(JSON.stringify(records)).not.toMatch(
+      /private|test-session|node --test|src\/a/,
+    );
+    handlers.get("session_start")?.({}, ctx);
+    run("new-session");
+    expect(baseline.snapshot().comparisons).toBe(0);
+    expect((records[4] as { sessionKey: string }).sessionKey).not.toBe(
+      (records[0] as { sessionKey: string }).sessionKey,
+    );
+  });
+
+  it("fails open when snapshots or trace storage fail, and ignores duplicate results", () => {
+    const counter = new SessionCounter();
+    const { handlers, ctx } = eventHandlers(counter, {
+      workspaceRevision: () => {
+        throw new Error("snapshot failed");
+      },
+      trace: {
+        append: () => {
+          throw new Error("disk failed");
+        },
+      },
+    });
+    const input = {
+      command: "npm test",
+      expect: { outcome: "pass", evidence: "done" },
+    };
+    handlers.get("tool_call")?.(
+      { toolName: "bash", toolCallId: "one", input },
+      ctx,
+    );
+    const result = {
+      toolName: "bash",
+      toolCallId: "one",
+      input,
+      content: [{ type: "text", text: "done" }],
+      structuredContent: { exit_code: 0, output: "done", truncated: false },
+    };
+    expect(() => handlers.get("tool_result")?.(result, ctx)).not.toThrow();
+    handlers.get("tool_result")?.(result, ctx);
+    expect(() =>
+      handlers.get("tool_execution_end")?.(
+        { toolName: "bash", toolCallId: "one", durationMs: 1 },
+        ctx,
+      ),
+    ).not.toThrow();
+    expect(counter.snapshot().hit).toBe(1);
   });
 });

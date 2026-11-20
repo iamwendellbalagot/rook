@@ -67,6 +67,7 @@ vi.mock("@earendil-works/pi-coding-agent", async (original) => ({
 import { createPiAgentGateway } from "../../src/pi/pi-agent-gateway.js";
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.clearAllMocks();
   session.isIdle = true;
   session.isStreaming = false;
@@ -78,6 +79,17 @@ afterEach(() => {
 });
 
 describe("gateway run lifecycle", () => {
+  it("honors explicit PLYTH off mode and refuses enabling its trace recorder", async () => {
+    vi.stubEnv("ROOK_PLYTH_MODE", "off");
+    vi.stubEnv("ROOK_PLYTH_FEEDBACK", "1");
+    const gateway = await createPiAgentGateway();
+    expect(gateway.getPlythMode?.()).toBe("off");
+    expect(gateway.controlPlythTrace?.("on")).toContain("PLYTH is off");
+    expect(gateway.getPlythStats().baseline).toMatchObject({
+      comparisons: 0,
+      unavailable: 0,
+    });
+  });
   it("owns preflight busy state, keeps follow-ups explicit, and releases failed runs", async () => {
     const gateway = await createPiAgentGateway();
     let rejectRun!: (error: Error) => void;

@@ -23,6 +23,13 @@ export class MockAgentGateway implements AgentGateway {
   }
   private readonly handlers = new Set<(event: AgentEvent) => void>();
 
+  getPlythMode(): "observe" {
+    return "observe";
+  }
+  controlPlythTrace(): string {
+    return "PLYTH traces unavailable in the mock gateway.";
+  }
+
   async send(prompt: string): Promise<void> {
     this.running = true;
     try {

@@ -30,7 +30,10 @@ import { adaptPiEvent } from "./event-adapter.js";
 import { formatAgentError } from "./errors.js";
 import { createRookBashTool } from "./bash-tool.js";
 import { createPlythObserveExtension } from "./plyth-observe.js";
-import { SessionCounter } from "plyth";
+import { CommandHistoryBaseline, SessionCounter } from "plyth";
+import { PlythTraceStore } from "./plyth-trace.js";
+import { plythWorkspaceRevision } from "./plyth-workspace.js";
+import { resolvePlythMode } from "./plyth-mode.js";
 import { createChangeImpactTool } from "./change-impact.js";
 import {
   createExecutionPolicyExtension,
@@ -144,6 +147,11 @@ export async function createPiAgentGateway(
 ): Promise<AgentGateway> {
   const handlers = new Set<(event: AgentEvent) => void>();
   const plythCounter = new SessionCounter();
+  const plythBaseline = new CommandHistoryBaseline();
+  const plythMode = resolvePlythMode(process.env);
+  const plythTrace = new PlythTraceStore(
+    plythMode !== "off" && process.env.ROOK_PLYTH_TRACE === "1",
+  );
   const policy = new ToolPolicy(cwd);
   const executionConfig = await loadExecutionPolicyConfig(cwd);
   const subagentProfiles = await loadSubagentProfiles(cwd);
@@ -201,9 +209,16 @@ export async function createPiAgentGateway(
             createToolSearchExtension(),
             createMcpExtension(),
             createToolPolicyExtension(policy),
-            createPlythObserveExtension(plythCounter, {
-              feedback: process.env.ROOK_PLYTH_FEEDBACK === "1",
-            }),
+            ...(plythMode === "off"
+              ? []
+              : [
+                  createPlythObserveExtension(plythCounter, {
+                    feedback: plythMode === "feedback",
+                    baseline: plythBaseline,
+                    workspaceRevision: () => plythWorkspaceRevision(sessionCwd),
+                    trace: plythTrace,
+                  }),
+                ]),
             createExecutionPolicyExtension(
               () => policy.getMode(),
               executionConfig,
@@ -250,6 +265,7 @@ export async function createPiAgentGateway(
           customTools: [
             taskChecklistTool,
             createRookBashTool(sessionCwd, {
+              predictions: plythMode !== "off",
               sandbox: executionConfig.sandboxShell,
               ...(sandboxRuntime ? { sandboxRuntime } : {}),
             }),
@@ -461,7 +477,22 @@ export async function createPiAgentGateway(
       );
     },
     getPlythStats() {
-      return plythCounter.predictionStats();
+      return {
+        ...plythCounter.predictionStats(),
+        baseline: plythBaseline.snapshot(),
+      };
+    },
+    getPlythMode() {
+      return plythMode;
+    },
+    controlPlythTrace(action) {
+      if (action === "clear") return plythTrace.clear();
+      if (action === "export") return plythTrace.export();
+      if (action === "on" && plythMode === "off")
+        return "PLYTH is off; restart with ROOK_PLYTH_MODE=observe to enable tracing.";
+      if (action === "on" || action === "off")
+        plythTrace.setEnabled(action === "on");
+      return plythTrace.status();
     },
     async inspectGitChanges() {
       return inspectGitWorkspace(cwd);

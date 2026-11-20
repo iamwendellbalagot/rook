@@ -201,6 +201,10 @@ export interface AgentGateway {
   resumeSession(path: string): Promise<void>;
   setMode(mode: PermissionMode): void;
   getPlythStats(): SessionPredictionStats;
+  getPlythMode?(): "off" | "observe" | "feedback";
+  controlPlythTrace?(
+    action: "status" | "on" | "off" | "export" | "clear",
+  ): string;
   inspectGitChanges(): Promise<string>;
   reviewGitChanges(): Promise<string>;
   exploreReadOnly(task: string): Promise<string>;

@@ -14,6 +14,18 @@ const nodeCommand = (script: string) =>
   `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`;
 
 describe("Rook's Pi bash tool", () => {
+  it("removes prediction schema and guidance when PLYTH is disabled", () => {
+    const tool = createRookBashTool(process.cwd(), {
+      sandbox: false,
+      predictions: false,
+    });
+    expect(tool.parameters.properties).not.toHaveProperty("expect");
+    expect(tool.description).not.toContain("expect.outcome");
+    expect(
+      createRookBashTool(process.cwd(), { sandbox: false }).parameters
+        .properties,
+    ).toHaveProperty("expect");
+  });
   it("accepts a separate bounded expectation without changing the command", async () => {
     const tool = createRookBashTool(process.cwd(), { sandbox: false });
     const command = nodeCommand("console.log('unchanged command')");

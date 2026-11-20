@@ -268,7 +268,13 @@ class EventGateway implements AgentGateway {
     this.modeHistory.push(mode);
   }
 
-  getPlythStats() {
+  controlPlythTrace(
+    _action: "status" | "on" | "off" | "export" | "clear",
+  ): string {
+    return "PLYTH traces off";
+  }
+
+  getPlythStats(): ReturnType<AgentGateway["getPlythStats"]> {
     return {
       eligibleCommands: 0,
       predictedCommands: 0,
@@ -979,6 +985,46 @@ describe("Rook TUI shell", () => {
     );
     expect(screen).toContain("command time 1500ms across 2 commands");
     expect(gateway.sentPrompts).toHaveLength(sentBefore);
+    app.stop();
+    await finished;
+  });
+
+  it("shows outcome-only baseline comparisons and routes explicit trace controls without inference", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const stats = gateway.getPlythStats();
+    vi.spyOn(gateway, "getPlythStats").mockReturnValue({
+      ...stats,
+      baseline: {
+        comparisons: 2,
+        agentCorrect: 1,
+        baselineCorrect: 2,
+        unavailable: 3,
+        invalidations: 1,
+      },
+    });
+    const trace = vi
+      .spyOn(gateway, "controlPlythTrace")
+      .mockReturnValue("PLYTH traces on");
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    const before = gateway.sentPrompts.length;
+    await app.submit("/plyth");
+    let screen = app.tui.render(100).map(stripTerminalSequences).join("\n");
+    expect(screen).toContain("agent 1/2 · history 2/2");
+    for (const action of ["status", "on", "off", "export", "clear"]) {
+      await app.submit(`/plyth trace ${action}`);
+      expect(trace).toHaveBeenLastCalledWith(action);
+    }
+    await app.submit("/plyth trace typo");
+    screen = app.tui.render(100).map(stripTerminalSequences).join("\n");
+    expect(screen).toContain("Usage: /plyth");
+    expect(trace).toHaveBeenCalledTimes(5);
+    expect(gateway.sentPrompts).toHaveLength(before);
     app.stop();
     await finished;
   });
