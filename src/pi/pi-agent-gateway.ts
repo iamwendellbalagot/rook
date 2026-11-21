@@ -256,8 +256,6 @@ export async function createPiAgentGateway(
                   createMcpExtension(),
                 ]
               : []),
-            createToolPolicyExtension(policy),
-            ...(options.reviewBudget ? [options.reviewBudget.extension()] : []),
             ...(options.pilotRunGuard
               ? [
                   (pi: ExtensionAPI) => {
@@ -277,6 +275,10 @@ export async function createPiAgentGateway(
                   },
                 ]
               : []),
+            // Run accounting must see every attempt before ToolPolicy can block
+            // one; Pi short-circuits later tool_call handlers on the first block.
+            createToolPolicyExtension(policy),
+            ...(options.reviewBudget ? [options.reviewBudget.extension()] : []),
             ...(!options.reviewBudget
               ? [
                   (pi: ExtensionAPI) => {

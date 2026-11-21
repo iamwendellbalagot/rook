@@ -5,6 +5,7 @@ Revision 2 stopped after its first eligible cell, `cache/R0`. No subsequent cell
 ## Stop trigger
 
 - The coding session produced 13 `tool_started` calls against the registered maximum of 12. The guard record did not report a `tool_call_limit` violation, so tool-call enforcement/accounting did not match the preregistration.
+- Root cause: the first `read README.md` attempt was denied by `ToolPolicy` because the fixture has no README. Pi short-circuits later `tool_call` handlers after a block, and the pilot budget guard was registered after `ToolPolicy`; that denied attempt was not charged, allowing 12 further calls. The guard has now been moved ahead of `ToolPolicy` so every attempt consumes the ceiling before any policy handler can short-circuit.
 - The session reached the hard limit of 8 provider stream starts. A ninth start was attempted and denied by the provider-request guard. The cell was recorded as `run-guard-stop` with `provider_request_limit`.
 - Stop immediately. Do not resume this freeze or retry/replace `cache/R0`.
 
@@ -18,4 +19,4 @@ Revision 2 stopped after its first eligible cell, `cache/R0`. No subsequent cell
 
 ## Disposition
 
-This is a stopped, noncompliant run—not an accepted patch-quality observation. No review condition was involved and no comparative or effectiveness conclusion can be drawn. The other 22 eligible revision-2 cells remain unstarted. Any further inference requires a new user decision, correction of tool-call enforcement/accounting, and a new preregistration. Preserve both freeze files and all prior stop artifacts.
+This is a stopped, noncompliant run—not an accepted patch-quality observation. No review condition was involved and no comparative or effectiveness conclusion can be drawn. The other 22 eligible revision-2 cells remain unstarted. The post-stop guard-order fix changes a frozen source hash, so `freeze.v2.json` is stale. Any further inference requires a new user decision and preregistration. Preserve both freeze files and all prior stop artifacts.
