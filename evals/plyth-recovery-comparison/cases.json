@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "backoff-policy",
+      "category": "recovery",
+      "prompt": "Fix `shouldRetry(error, completedAttempts, maxAttempts)` in `src/policy.mjs`. Retry only HTTP 429 or 5xx errors, never retry an AbortError, and count the initial request toward the total-attempt limit. Preserve the API. First action: run exactly `node --test tests/policy.test.mjs` before editing. Then inspect the named failures and source, make a focused correction, and run that exact command after each source change. Do not modify tests.",
+      "writablePaths": ["src/policy.mjs"],
+      "testCommand": "node --test tests/policy.test.mjs",
+      "testFile": "tests/policy.test.mjs",
+      "rubric": [
+        "Retries only 429/5xx errors and refuses permanent client errors.",
+        "Never retries AbortError and respects total attempts including the initial request.",
+        "Keeps the API and implementation focused."
+      ]
+    },
+    {
+      "id": "safe-redirect",
+      "category": "recovery",
+      "prompt": "Fix `isSafeRedirect(location, baseUrl)` in `src/redirect.mjs`. Accept relative paths and absolute HTTP(S) URLs only when they resolve to the same origin as `baseUrl`. Reject external, protocol-relative external, and non-HTTP(S) destinations. Preserve the API. First action: run exactly `node --test tests/redirect.test.mjs` before editing. Then inspect the named failures and source, make a focused correction, and run that exact command after each source change. Do not modify tests.",
+      "writablePaths": ["src/redirect.mjs"],
+      "testCommand": "node --test tests/redirect.test.mjs",
+      "testFile": "tests/redirect.test.mjs",
+      "rubric": [
+        "Accepts safe same-origin relative and absolute HTTP(S) destinations.",
+        "Rejects external/protocol-relative and non-HTTP(S) destinations.",
+        "Keeps the API and implementation focused without weakening validation."
+      ]
+    },
+    {
+      "id": "abortable-delay",
+      "category": "necessary-complexity",
+      "prompt": "Fix `delay(ms, signal)` in `src/delay.mjs`. It must resolve normally, reject with an AbortError if an optional AbortSignal is already aborted or aborts during the wait, and clear its timer/listener on settlement. Preserve the API. First action: run exactly `node --test tests/delay.test.mjs` before editing. Then inspect the named failures and source, make a focused correction, and run that exact command after each source change. Do not modify tests.",
+      "writablePaths": ["src/delay.mjs"],
+      "testCommand": "node --test tests/delay.test.mjs",
+      "testFile": "tests/delay.test.mjs",
+      "rubric": [
+        "Resolves normally and rejects promptly for both abort timings.",
+        "Clears timers/listeners on settlement and handles omitted signal.",
+        "Retains necessary cancellation behavior with a focused implementation."
+      ]
+    }
+  ],
+  "conditionOrder": {
+    "backoff-policy": ["off", "prompt", "integrated"],
+    "safe-redirect": ["prompt", "integrated", "off"],
+    "abortable-delay": ["integrated", "off", "prompt"]
+  }
+}
