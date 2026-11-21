@@ -84,6 +84,7 @@ function toolResult(
   handlers: Map<string, (...args: any[]) => unknown>,
   ctx: unknown,
   id: string,
+  output = "✖ rejects unsafe path",
 ) {
   return handlers.get("tool_result")?.(
     {
@@ -91,7 +92,7 @@ function toolResult(
       toolCallId: id,
       input: { command: "npm test" },
       content: [{ type: "text", text: "failure" }],
-      structuredContent: { exit_code: 1, output: "✖ rejects unsafe path" },
+      structuredContent: { exit_code: 1, output },
       isError: false,
     },
     ctx,
@@ -165,12 +166,56 @@ describe("PLYTH integrated inference extension", () => {
     const result = toolResult(handlers, ctx, "call-2") as {
       content: Array<{ text: string }>;
     };
-    expect(result.content.at(-1)?.text).toContain("same test failure");
+    expect(result.content.at(-1)?.text).toContain(
+      "test failure evidence persisted",
+    );
     expect(result.content.at(-1)?.text).toContain("rejects unsafe path");
+    expect(result.content.at(-1)?.text).toContain(
+      "Do not rerun this command unchanged",
+    );
+    expect(result.content.at(-1)?.text).toContain(
+      "Do not change tests merely to hide the failure",
+    );
     expect(statuses).toContainEqual([
       "plyth-integrated",
       "PLYTH recovery signal",
     ]);
+  });
+
+  it("signals a failing test that persists when other failures are resolved", async () => {
+    const root = await repo();
+    const { handlers, ctx } = mount(root);
+    startTask(handlers, ctx);
+    toolCall(handlers, ctx, "initial-failure");
+    expect(
+      toolResult(
+        handlers,
+        ctx,
+        "initial-failure",
+        "✖ rejects invalid path\n✖ preserves existing value",
+      ),
+    ).toBeUndefined();
+
+    await mkdir(join(root, "src"));
+    await writeFile(
+      join(root, "src", "change.mjs"),
+      "export const value = 1;\n",
+    );
+    toolCall(handlers, ctx, "partial-fix-failure");
+    const result = toolResult(
+      handlers,
+      ctx,
+      "partial-fix-failure",
+      "✔ rejects invalid path\n✖ preserves existing value",
+    ) as { content: Array<{ text: string }> };
+    expect(result.content.at(-1)?.text).toContain(
+      "persistent_failure_evidence",
+    );
+    expect(result.content.at(-1)?.text).toContain("preserves existing value");
+    expect(result.content.at(-1)?.text).not.toContain("rejects invalid path");
+    expect(result.content.at(-1)?.text).toContain(
+      "latest source change did not clear",
+    );
   });
 
   it("prompt-only adds static guidance but never captures or injects task feedback", async () => {
