@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 2,
+  "provider": "openai",
+  "model": "gpt-6.1-sol",
+  "thinking": "high",
+  "preregistrationCommit": "8d6715d04c179ed7afc642a5ac32c0fe1f4718e4",
+  "frozenAssetSha256": {
+    "cases.json": "667b72fb06816bcd864a3e0dab9e7254edd87da83b935c86a575d416fa491f70",
+    "fixture/cache/src/cache.mjs": "331019f55057a7c203f1cb051461c888e29280617c05e4a7deba2cce1875efbd",
+    "fixture/cache/src/entry.mjs": "3c1b16f94a2fe436440a27b7bbe6b995d358df187a0d0b4a048891936533efb5",
+    "fixture/cache/tests/integration.test.mjs": "29074b9094dbeb2704ee76861dd68fd60576022fc10810407ea7798b4b134a72",
+    "fixture/cache/tests/unit.test.mjs": "9e4055eb90671de5a7a3d20f7874894de31246713536530122ec9cbf51bd2640",
+    "fixture/merge-metrics/package.json": "f69ed17eea98f49ee075f676bae79df9cb779e54d5887b94d94313d34511170c",
+    "fixture/merge-metrics/README.md": "12e4b19c59809ac75a0680d0704527e7937793f18c1177e0d5e2310268ad15a5",
+    "fixture/merge-metrics/src/summarize.mjs": "c7430f99d493f83f5eaf5762c99ecced9583cd68d7656d5d3a28e059dbec4c8d",
+    "fixture/merge-metrics/tests/summary.test.mjs": "e5b61e32208950d53741f27e25027338b7a86050c3e2aaab4c5d399348d42ad1",
+    "fixture/normalize-labels/package.json": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+    "fixture/normalize-labels/src/labels.mjs": "a8e9937b93c6555fc2bb51aab2811918ff652bb2d280deed91b009cbfbecd4cc",
+    "fixture/normalize-labels/tests/labels.test.mjs": "c5678e76cc44958a04d5480202a37be8eba8944ca1aaee8332662cee26848d44",
+    "fixture/pagination/src/collect.mjs": "6ba91b3ca894c6fc45006cca51ae3e9174b65816479d3483b901e9779c25576a",
+    "fixture/pagination/src/merge.mjs": "959a8a10f1e63924155c7745e62809794110791ccbce19587c11dc3b51398035",
+    "fixture/pagination/src/page.mjs": "7c0fb89e0bb5e42a695354cfe3720aac2b4b4492584f7f34049a59d7732ab749",
+    "fixture/pagination/tests/integration.test.mjs": "953e4d83341a30ba78fd1c001abeb96516f4ac632e7d8cf34d5bf35439c3f7d2",
+    "fixture/pagination/tests/unit.test.mjs": "1137bafd7e9763a07841512458dff2c07ef0fccf500e26efafdef71ef5559443",
+    "fixture/pricing/src/discount.mjs": "75988b7c9e0b7c587a9bfe194b552fc1038837063121e0f0e91d117bad69bb2f",
+    "fixture/pricing/src/lines.mjs": "eb1d675f08eac07e9e9d59d7e61e01106bec757d3971ded2f9d4b0b9c6f7776c",
+    "fixture/pricing/src/quote.mjs": "325e808f5abc420e7399da6e163a466e8733ec35506160c4c8c1bb419b0fbb55",
+    "fixture/pricing/tests/integration.test.mjs": "59bad4a18ca4472f16bf938a9f0fa3d8179a96cf2365d4bdf2de3288fa04ccfe",
+    "fixture/pricing/tests/unit.test.mjs": "e7590429f76f86e97cd6c07940b00654b411a9a9e8647b493a8e0c17bd3604a8",
+    "fixture/retry-boundary/package.json": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+    "fixture/retry-boundary/src/retry.mjs": "a6a6ddeed6c81a24a1a8270deeb216e513bf996e526948f250eb6a7692a62260",
+    "fixture/retry-boundary/tests/retry.test.mjs": "6596be29b81d17d9f80afce43cc38e2360435f2b5bbc4f7cec119448af76e3c2",
+    "fixture/retry-delay/package.json": "f69ed17eea98f49ee075f676bae79df9cb779e54d5887b94d94313d34511170c",
+    "fixture/retry-delay/README.md": "0cfba0c1ae3c52eaae6f7e977d49c895555035d245cea7bf9ca34b8e3466e338",
+    "fixture/retry-delay/src/delay.mjs": "ded7eaf55ecda45c32d3540254e0af0821cd6d54fb76d6a7a41f69050695b6a1",
+    "fixture/retry-delay/tests/delay.test.mjs": "0775734cd6dc35b7dba4494dc2be932e743849324b463c3e33c69d40c94408fa",
+    "fixture/safe-path/package.json": "f69ed17eea98f49ee075f676bae79df9cb779e54d5887b94d94313d34511170c",
+    "fixture/safe-path/README.md": "8dc7619c8a3f29ea4bfad4ea0f15981c47dd2868ecaba9a96cc4fec74ae62a44",
+    "fixture/safe-path/src/path.mjs": "8fb4f4a07a89165f3e7c80fe65e5295cfe7a1c87124811ff46167c2b0889eb34",
+    "fixture/safe-path/tests/path.test.mjs": "19261e3c47c93bab89e3992f1dd04d7c3147e78952ac11cde534b95dba310a08",
+    "live-pilot.ts": "f7202d2eaea70adfa771209daa7176d6de8e32bef2596637acb152eece9073bb",
+    "package-lock.json": "e04ff88b890710df4b983817ceed16506b19be4a963e1c4b01d7176da076fc3b",
+    "pi-agent-gateway.ts": "29514b81cb5a7fe8ca4a7b554882676f49d3610e60e8073095edd9f504461941",
+    "PROTOCOL.md": "113e89c61174a65241911134b6b2c5db7d03841f1775c7c25afa14b17f733416",
+    "review-budget.ts": "5f0cf94558061ebe90f58d16ece6771d1f5d59418faaff412cace5a9af8e0b6c",
+    "src/eval/pilot-run-guard.ts": "03621ca46de9dc7599c7a7e99b2d9a496de27998ef7fc74d2a800bbac4395860",
+    "src/eval/pilot-workspace.ts": "da549715582beedd08b0b25ba8cedb0f4adc71bec3eaa5366c279c1fb76099d0",
+    "src/pi/agent-gateway.ts": "4c5371f710a70c9454869f7e12eddf929abe01f39ccced21b522e84d67649df3",
+    "STOP_REPORT.md": "4ba96cfab2f53d13da9c4ca4ee3e5c8b5cfe7ac0c8b2029e81a890f6fb72187f"
+  },
+  "starterCheckResults": {
+    "pagination": {
+      "status": "failed",
+      "exitCode": 1
+    },
+    "cache": {
+      "status": "failed",
+      "exitCode": 1
+    },
+    "pricing": {
+      "status": "failed",
+      "exitCode": 1
+    },
+    "retry-boundary": {
+      "status": "failed",
+      "exitCode": 1
+    },
+    "normalize-labels": {
+      "status": "failed",
+      "exitCode": 1
+    },
+    "safe-path": {
+      "status": "failed",
+      "exitCode": 1
+    },
+    "retry-delay": {
+      "status": "failed",
+      "exitCode": 1
+    },
+    "merge-metrics": {
+      "status": "passed",
+      "exitCode": 0
+    }
+  }
+}
