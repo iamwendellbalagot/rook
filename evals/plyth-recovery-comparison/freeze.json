@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "frozenAt": "2026-11-21T16:18:23.186Z",
+  "rookSourceCommit": "428bda8570d596edb78b2c69165cf486a8459a1d",
+  "plythSourceCommit": "c1d8697d9a6ee24a46b2e93b1dea15fbe37b1840",
+  "hashes": {
+    "../plyth/dist/inference-flow.js": "a15c641ff8b5a265bc501b2ded462d1c8d4255a0af0c867ad3f353c311b8d178",
+    "../plyth/package.json": "4c889d7c0cb3791787753137624383d0a71cbc177be910d802a0edf37db498d9",
+    "../plyth/src/inference-flow.ts": "f0e135a2955af7f709b216aead5890b055364ad1f50ae860eb0413366e6f0d0c",
+    "../plyth/tests/core.test.mjs": "eb6b2a86b5be1ec2255ffbbbd03e26002b8529a9550406880cdd61283937537b",
+    "evals/plyth-recovery-comparison/PROTOCOL.md": "236a2c16312d243940eb0694f2ad9482f851cb78d1bfef9292f675f022fd4a2a",
+    "evals/plyth-recovery-comparison/cases.json": "dfe0864eff398c009b5a2135e3d72d15112a523dc3d7f571ac9d86be34ce4802",
+    "evals/plyth-recovery-comparison/fixtures/abortable-delay/src/delay.mjs": "2fb1a9e7726212814859912aac60e5a3082ecda85a2c48b21677b0b5a91c689a",
+    "evals/plyth-recovery-comparison/fixtures/abortable-delay/tests/delay.test.mjs": "63d1681495bb3e1027ab4ebf4bf3a8160387bcc9445e456e8815b28d16d9189c",
+    "evals/plyth-recovery-comparison/fixtures/backoff-policy/src/policy.mjs": "de35ef42c2c5c3803050a15098b9cf88f6b1f62d548ad3cb46d960ae3c7b935d",
+    "evals/plyth-recovery-comparison/fixtures/backoff-policy/tests/policy.test.mjs": "94ec9a149456dc5f10855defb87d0323b88a0fe716e1d721c9155397532845ae",
+    "evals/plyth-recovery-comparison/fixtures/safe-redirect/src/redirect.mjs": "f3946f4bf6b99ea3b515941da31dbd1e3234fa59861cea75ae2275786d695606",
+    "evals/plyth-recovery-comparison/fixtures/safe-redirect/tests/redirect.test.mjs": "f3df87158870d6af290183c9bb94efd022f442dbb6310e8d82a75b557b89d9d0",
+    "package-lock.json": "e04ff88b890710df4b983817ceed16506b19be4a963e1c4b01d7176da076fc3b",
+    "package.json": "5b52daa74e561c50157ad327f41bfb6b4b48beb0f316601edd66c8b9221702f8",
+    "scripts/plyth-recovery-eval.ts": "6a321a5f88b0ef4fab86c167e26be51688d5888e5ee618432cdea90b9399e209",
+    "src/eval/pilot-run-guard.ts": "aa6f2233db4a9dea1739025fe169b2b102bf6f7c6f5c9f6868fdec5c378c8f46",
+    "src/pi/pi-agent-gateway.ts": "3e8fc077308c44abdb08b86c62b7d142c583f8436a11f9430175e26a1ec4684d",
+    "src/pi/plan-inspection-tool.ts": "923ef8fef9562c40b04ba29c2486707860c5e59e75de4c1f5b2ea75f17925b59",
+    "src/pi/plyth-integrated.ts": "77adb36d6386a5bb4426e80832df29fb5c53a1d34ff289b0222781d9bf74fa30",
+    "src/pi/plyth-observe.ts": "784aeb3ba25e37c811cac647c33cb35bdf22d591212edeb60ad666f42c92fb06",
+    "tests/pi/plyth-integrated.test.ts": "b422df94d7b6a66135e8b210ef78b2b2a56b38111bd7ee6129a9f415e9a15ae7"
+  }
+}
