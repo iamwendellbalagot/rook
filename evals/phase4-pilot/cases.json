@@ -103,5 +103,13 @@
       ["normalize-labels", "R2"],
       ["retry-boundary", "R1"]
     ]
-  }
+  },
+  "excludedCells": [
+    {
+      "cell": "safe-path/R1",
+      "runId": "43d5c5d8-95ff-4e7a-80be-5822fb987be4",
+      "resultSha256": "964ce5d4f580abef250976f050c8d20c7beeb98939cc93fff72376b9362fcab8",
+      "reason": "Retained noncompliant first run; never rerun or replace. Excluded from patch-quality comparison."
+    }
+  ]
 }

@@ -36,6 +36,12 @@ const manifest = JSON.parse(
     allowedChangedFiles: string[];
   }[];
   randomization: { seed: number; order: [string, string][] };
+  excludedCells: {
+    cell: string;
+    runId: string;
+    resultSha256: string;
+    reason: string;
+  }[];
 };
 const modelChoice = {
   provider: "openai",
@@ -45,6 +51,7 @@ const modelChoice = {
 const inputCeiling = 24_000;
 const runCeilingMs = 600_000;
 const ledger = join(pilot, "results.jsonl");
+const freezePath = join(pilot, "freeze.v2.json");
 const blindRoot = join(pilot, "blinded-patches");
 const scoringKey = join(pilot, "scoring-key.jsonl");
 let stopAfterCell = false;
@@ -104,6 +111,8 @@ async function verifyFreeze(writeFreeze = true): Promise<void> {
     throw new Error(
       "Run order does not match the registered seed and algorithm.",
     );
+  validateExclusionPlan(cells);
+  await validateExcludedResults();
   const frozenAssets: Record<string, string> = {};
   const baselines: Record<
     string,
@@ -164,6 +173,9 @@ async function verifyFreeze(writeFreeze = true): Promise<void> {
   frozenAssets["PROTOCOL.md"] = hash(
     await readFile(join(pilot, "PROTOCOL.md")),
   );
+  frozenAssets["STOP_REPORT.md"] = hash(
+    await readFile(join(pilot, "STOP_REPORT.md")),
+  );
   frozenAssets["live-pilot.ts"] = hash(
     await readFile(fileURLToPath(import.meta.url)),
   );
@@ -186,7 +198,7 @@ async function verifyFreeze(writeFreeze = true): Promise<void> {
     await readFile(join(root, "package-lock.json")),
   );
   const freeze = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     provider: modelChoice.provider,
     model: modelChoice.id,
     thinking: "high",
@@ -197,13 +209,19 @@ async function verifyFreeze(writeFreeze = true): Promise<void> {
     starterCheckResults: baselines,
   };
   if (writeFreeze) {
-    await writeFile(
-      join(pilot, "freeze.json"),
-      `${JSON.stringify(freeze, null, 2)}\n`,
+    const freezeExists = await readFile(freezePath).then(
+      () => true,
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return false;
+        throw error;
+      },
     );
-    process.stdout.write(
-      `Pilot freeze verified; wrote ${join(pilot, "freeze.json")}\n`,
-    );
+    if (freezeExists)
+      throw new Error(
+        `${freezePath} already exists; never overwrite a registered freeze.`,
+      );
+    await writeFile(freezePath, `${JSON.stringify(freeze, null, 2)}\n`);
+    process.stdout.write(`Pilot freeze verified; wrote ${freezePath}\n`);
   } else {
     process.stdout.write(
       "Inference-free pilot preflight passed; no freeze was written.\n",
@@ -212,12 +230,13 @@ async function verifyFreeze(writeFreeze = true): Promise<void> {
 }
 
 async function runAll(): Promise<void> {
-  const freeze = JSON.parse(
-    await readFile(join(pilot, "freeze.json"), "utf8"),
-  ) as {
+  const freeze = JSON.parse(await readFile(freezePath, "utf8")) as {
+    schemaVersion: number;
     frozenAssetSha256: Record<string, string>;
     preregistrationCommit: string;
   };
+  if (freeze.schemaVersion !== 2)
+    throw new Error("Only the new, exclusion-aware v2 freeze is runnable.");
   const freezeParent = gitOutput(root, ["rev-parse", "HEAD^"]).trim();
   if (freezeParent !== freeze.preregistrationCommit)
     throw new Error(
@@ -232,13 +251,15 @@ async function runAll(): Promise<void> {
       ? join(pilot, "fixtures", asset.slice("fixture/".length))
       : asset === "cases.json" || asset === "PROTOCOL.md"
         ? join(pilot, asset)
-        : asset === "live-pilot.ts"
-          ? fileURLToPath(import.meta.url)
-          : asset === "package-lock.json"
-            ? join(root, asset)
-            : asset.startsWith("src/")
+        : asset === "STOP_REPORT.md"
+          ? join(pilot, asset)
+          : asset === "live-pilot.ts"
+            ? fileURLToPath(import.meta.url)
+            : asset === "package-lock.json"
               ? join(root, asset)
-              : join(root, "src", "pi", asset);
+              : asset.startsWith("src/")
+                ? join(root, asset)
+                : join(root, "src", "pi", asset);
     if (hash(await readFile(path)) !== expected)
       throw new Error(
         `Frozen asset ${asset} changed after preregistration; stop before inference.`,
@@ -258,6 +279,7 @@ async function runAll(): Promise<void> {
   for (const line of prior.split("\n").filter(Boolean)) {
     const record = JSON.parse(line) as {
       cell?: string;
+      runId?: string;
       status?: string;
       scopeViolations?: unknown[];
       testIntegrity?: { intact?: boolean };
@@ -268,6 +290,20 @@ async function runAll(): Promise<void> {
       );
     if (completed.has(record.cell))
       throw new Error(`Duplicate completed ledger cell: ${record.cell}`);
+    const exclusion = manifest.excludedCells.find(
+      (candidate) => candidate.cell === record.cell,
+    );
+    if (exclusion) {
+      if (
+        record.runId !== exclusion.runId ||
+        hash(line) !== exclusion.resultSha256
+      )
+        throw new Error(
+          `Registered excluded result changed for ${record.cell}; stop.`,
+        );
+      completed.add(record.cell);
+      continue;
+    }
     if (
       record.status !== "completed" ||
       (record.scopeViolations?.length ?? 0) > 0 ||
@@ -278,8 +314,16 @@ async function runAll(): Promise<void> {
       );
     completed.add(record.cell);
   }
+  for (const exclusion of manifest.excludedCells) {
+    if (!completed.has(exclusion.cell))
+      throw new Error(
+        `Required retained exclusion ${exclusion.cell} is missing; do not replace it.`,
+      );
+  }
   for (const [taskId, condition] of manifest.randomization.order) {
     const cell = `${taskId}/${condition}`;
+    if (manifest.excludedCells.some((exclusion) => exclusion.cell === cell))
+      continue;
     if (completed.has(cell))
       throw new Error(
         `Cell ${cell} already has a result; no replacement/retry is allowed.`,
@@ -298,6 +342,41 @@ async function runAll(): Promise<void> {
       );
     }
     if (stopAfterCell) break;
+  }
+}
+
+function validateExclusionPlan(cells: string[]): void {
+  const excluded = manifest.excludedCells.map((entry) => entry.cell);
+  if (
+    excluded.length !== 1 ||
+    new Set(excluded).size !== excluded.length ||
+    excluded.some((cell) => !cells.includes(cell)) ||
+    excluded[0] !== "safe-path/R1"
+  )
+    throw new Error(
+      "The revised pilot must exclude exactly the retained safe-path/R1 stop cell.",
+    );
+}
+
+async function validateExcludedResults(): Promise<void> {
+  const lines = (await readFile(ledger, "utf8")).split("\n").filter(Boolean);
+  for (const exclusion of manifest.excludedCells) {
+    const matches = lines.filter((line) => {
+      try {
+        const record = JSON.parse(line) as { cell?: string };
+        return record.cell === exclusion.cell;
+      } catch {
+        return false;
+      }
+    });
+    if (
+      matches.length !== 1 ||
+      hash(matches[0]) !== exclusion.resultSha256 ||
+      (JSON.parse(matches[0]) as { runId?: string }).runId !== exclusion.runId
+    )
+      throw new Error(
+        `Retained exclusion ${exclusion.cell} does not match its preregistered run record.`,
+      );
   }
 }
 
