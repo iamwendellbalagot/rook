@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "attempt-limit",
+      "category": "recovery",
+      "prompt": "Fix `shouldRetry(completedAttempts, maxAttempts)` in `src/retry.mjs`. `maxAttempts` is the total number of attempts, including the initial attempt. Return true only when another attempt is still allowed. Preserve the API. Inspect and run exactly `node --test tests/attempt-limit.test.mjs` for focused verification.",
+      "writablePaths": ["src/retry.mjs"],
+      "testCommand": "node --test tests/attempt-limit.test.mjs",
+      "testFile": "tests/attempt-limit.test.mjs",
+      "rubric": [
+        "Correctly interprets the limit as total attempts.",
+        "Preserves the valid below-limit case and handles the boundary.",
+        "Keeps the change focused and API-compatible."
+      ]
+    },
+    {
+      "id": "retry-policy",
+      "category": "recovery",
+      "prompt": "Fix `shouldRetry(error, completedAttempts, maxAttempts)` in `src/retry.mjs`. Retry only errors with `retryable === true`, never retry an `AbortError`, and never exceed `maxAttempts` total attempts. Preserve the API. Inspect and run exactly `node --test tests/retry-policy.test.mjs` for focused verification.",
+      "writablePaths": ["src/retry.mjs"],
+      "testCommand": "node --test tests/retry-policy.test.mjs",
+      "testFile": "tests/retry-policy.test.mjs",
+      "rubric": [
+        "Honors retryable classification.",
+        "Does not retry cancellation or exceed the total-attempt limit.",
+        "Keeps behavior and implementation focused."
+      ]
+    },
+    {
+      "id": "stable-keys",
+      "category": "maintainability",
+      "prompt": "Implement `uniqueKeys(values)` in `src/keys.mjs`. Return trimmed, lower-case string keys with duplicates removed while preserving first-seen order. Ignore non-string and blank values; do not mutate the input. Keep the change consistent with this small module. Inspect and run exactly `node --test tests/stable-keys.test.mjs` for focused verification.",
+      "writablePaths": ["src/keys.mjs"],
+      "testCommand": "node --test tests/stable-keys.test.mjs",
+      "testFile": "tests/stable-keys.test.mjs",
+      "rubric": [
+        "Implements normalization, filtering, and stable deduplication.",
+        "Preserves the input and required ordering.",
+        "Reuses `normalizeKey` from `src/strings.mjs` where appropriate without unnecessary machinery."
+      ]
+    },
+    {
+      "id": "parse-tags",
+      "category": "maintainability",
+      "prompt": "Implement `parseTags(value)` in `src/tags.mjs`. Parse comma-separated tags, trim surrounding whitespace, remove blank entries, and deduplicate case-insensitively while keeping the first spelling and order. Preserve the API and keep the implementation small. Inspect and run exactly `node --test tests/parse-tags.test.mjs` for focused verification.",
+      "writablePaths": ["src/tags.mjs"],
+      "testCommand": "node --test tests/parse-tags.test.mjs",
+      "testFile": "tests/parse-tags.test.mjs",
+      "rubric": [
+        "Implements the parsing and deduplication contract.",
+        "Preserves first spelling/order and handles empty entries.",
+        "Reuses `normalizeList` from `src/list.mjs` where appropriate without unnecessary machinery."
+      ]
+    },
+    {
+      "id": "single-flight",
+      "category": "necessary-complexity",
+      "prompt": "Implement `createSingleFlight()` in `src/cache.mjs`. It returns a function `(key, load)` that shares the in-flight promise for concurrent calls with the same key, does not combine different keys, and removes a rejected load so a later call can retry. Preserve the API. Inspect and run exactly `node --test tests/single-flight.test.mjs` for focused verification.",
+      "writablePaths": ["src/cache.mjs"],
+      "testCommand": "node --test tests/single-flight.test.mjs",
+      "testFile": "tests/single-flight.test.mjs",
+      "rubric": [
+        "Coalesces same-key in-flight calls and keeps distinct keys independent.",
+        "Cleans up rejected in-flight work so retry succeeds.",
+        "Retains the state and cleanup machinery required for concurrency; no simplification breaks the contract."
+      ]
+    },
+    {
+      "id": "abort-delay",
+      "category": "necessary-complexity",
+      "prompt": "Implement `delay(ms, signal)` in `src/delay.mjs`. It resolves after the delay when not aborted, and if the optional AbortSignal aborts first it rejects with an `AbortError` and clears the pending timer. Preserve the API. Inspect and run exactly `node --test tests/abort-delay.test.mjs` for focused verification.",
+      "writablePaths": ["src/delay.mjs"],
+      "testCommand": "node --test tests/abort-delay.test.mjs",
+      "testFile": "tests/abort-delay.test.mjs",
+      "rubric": [
+        "Resolves normally and rejects promptly on abort.",
+        "Clears timers/listeners and handles an omitted optional signal.",
+        "Retains required cancellation/cleanup behavior rather than removing complexity blindly."
+      ]
+    }
+  ],
+  "conditionOrder": {
+    "attempt-limit": ["off", "prompt", "integrated"],
+    "retry-policy": ["prompt", "integrated", "off"],
+    "stable-keys": ["integrated", "off", "prompt"],
+    "parse-tags": ["off", "prompt", "integrated"],
+    "single-flight": ["prompt", "integrated", "off"],
+    "abort-delay": ["integrated", "off", "prompt"]
+  }
+}

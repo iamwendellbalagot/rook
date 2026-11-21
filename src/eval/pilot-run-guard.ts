@@ -83,6 +83,10 @@ export class PilotRunGuard {
     return this.providerRequests;
   }
 
+  toolCallCount(): number {
+    return this.toolCalls;
+  }
+
   private isWritablePath(path: string): boolean {
     if (!path || isAbsolute(path) || /[\x00-\x1f\\]/.test(path)) return false;
     const relativePath = relative(
