@@ -23,4 +23,18 @@ describe("provider errors", () => {
       "No model selected",
     );
   });
+
+  it("redacts credential-shaped values from provider errors", () => {
+    const key = "sk-proj-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    const jwt =
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhdWRpdCJ9.signature0123456789012345";
+    const formatted = formatAgentError(
+      `api_key=${key}; Authorization: Bearer ${jwt}; upstream token ${jwt}`,
+    );
+
+    expect(formatted).not.toContain(key);
+    expect(formatted).not.toContain(jwt);
+    expect(formatted).toContain("[redacted]");
+    expect(formatted).toContain("[redacted token]");
+  });
 });

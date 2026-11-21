@@ -49,13 +49,19 @@ function authLink(url: string, label = url): string {
     : safeAuthText(label);
 }
 
-class MaskedInput extends Input {
+export class MaskedInput extends Input {
   override render(width: number): string[] {
     const value = this.getValue();
-    const lines = super.render(width);
-    if (!value) return lines;
-    const mask = "•".repeat(Array.from(value).length);
-    return lines.map((line) => line.replace(value, mask));
+    if (!value) return super.render(width);
+
+    // Mask before Input.render performs horizontal scrolling and cursor layout.
+    // Keep UTF-16 length equal so the underlying input cursor remains valid.
+    this.setValue("•".repeat(value.length));
+    try {
+      return super.render(width);
+    } finally {
+      this.setValue(value);
+    }
   }
 }
 
