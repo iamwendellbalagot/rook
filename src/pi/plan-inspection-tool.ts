@@ -130,11 +130,11 @@ export function inspectGitWorkspace(
     const selected = [...new Set(selectedPaths)];
     if (
       selected.length === 0 ||
-      selected.some(
-        (path) => !isSafeRepoPath(path) || path.trim() !== path,
-      )
+      selected.some((path) => !isSafeRepoPath(path) || path.trim() !== path)
     )
-      throw new Error("Review scope must contain safe repository-relative paths.");
+      throw new Error(
+        "Review scope must contain safe repository-relative paths.",
+      );
     const changed = new Set(files);
     const notChanged = selected.filter((path) => !changed.has(path));
     if (notChanged.length)

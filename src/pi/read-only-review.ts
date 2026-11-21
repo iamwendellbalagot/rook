@@ -79,7 +79,11 @@ export function buildPlythReviewPrompt(
   taskContext = "",
   reviewedPaths?: string[],
 ): string {
-  return buildChangeReviewPrompt({ changes, taskContext, reviewedPaths });
+  return buildChangeReviewPrompt({
+    changes,
+    taskContext,
+    ...(reviewedPaths ? { reviewedPaths } : {}),
+  });
 }
 
 export function renderPlythReviewReport(

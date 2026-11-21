@@ -1234,9 +1234,12 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
             .trim()
             .split(/\s+/)
             .filter(Boolean);
-          const reviewFocus = reviewArgs[0] === "simplicity" ? reviewArgs.shift() : undefined;
+          const reviewFocus =
+            reviewArgs[0] === "simplicity" ? reviewArgs.shift() : undefined;
           const reviewPaths: string[] = [];
-          let invalidReviewArgs = Boolean(reviewArgs[0] && reviewArgs[0] !== "--file");
+          let invalidReviewArgs = Boolean(
+            reviewArgs[0] && reviewArgs[0] !== "--file",
+          );
           while (!invalidReviewArgs && reviewArgs.length > 0) {
             const option = reviewArgs.shift();
             const path = reviewArgs.shift();

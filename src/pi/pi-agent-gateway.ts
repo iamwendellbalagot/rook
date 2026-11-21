@@ -389,10 +389,7 @@ export async function createPiAgentGateway(
     async cancel() {
       const review = activeReview;
       review?.controller.abort();
-      await Promise.all([
-        runtime.session.abort(),
-        review?.reviewer?.cancel(),
-      ]);
+      await Promise.all([runtime.session.abort(), review?.reviewer?.cancel()]);
     },
     async listModels(): Promise<ModelInfo[]> {
       await refreshWorkspaceModels();
@@ -537,7 +534,8 @@ export async function createPiAgentGateway(
       return inspectGitWorkspace(cwd);
     },
     async reviewGitChanges(options = {}) {
-      if (activeReview) throw new Error("A read-only review is already running.");
+      if (activeReview)
+        throw new Error("A read-only review is already running.");
       const reviewState: {
         controller: AbortController;
         reviewer?: AgentGateway;
@@ -860,6 +858,7 @@ async function runTemporaryReadOnlyTask(
 }
 
 function formatReviewUsage(usage: ReadOnlyReviewUsage | undefined): string {
-  if (!usage) return "Review token usage unavailable; provider billing is not reported.";
+  if (!usage)
+    return "Review token usage unavailable; provider billing is not reported.";
   return `Review usage: ${usage.inputTokens} input, ${usage.outputTokens} output, ${usage.cacheReadTokens} cache-read, ${usage.cacheWriteTokens} cache-write tokens. Provider-billed cost is not available here.`;
 }

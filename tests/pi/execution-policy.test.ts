@@ -146,6 +146,28 @@ describe("Rook execution policy", () => {
     expect(review).not.toContain("TOKEN");
   });
 
+  it("restricts review inspection to safe changed paths", async () => {
+    const root = await tempRepo();
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "one.ts"), "export const one = 1;\n");
+    await writeFile(join(root, "src", "two.ts"), "export const two = 1;\n");
+    execFileSync("git", ["add", "src"], { cwd: root });
+    execFileSync("git", ["commit", "-qm", "initial"], { cwd: root });
+    await writeFile(join(root, "src", "one.ts"), "export const one = 2;\n");
+    await writeFile(join(root, "src", "two.ts"), "export const two = 2;\n");
+
+    const scoped = inspectGitWorkspace(root, ["src/one.ts"]);
+    expect(scoped).toContain("src/one.ts");
+    expect(scoped).toContain("one = 2");
+    expect(scoped).not.toContain("two = 2");
+    expect(() => inspectGitWorkspace(root, ["../outside.ts"])).toThrow(
+      "safe repository-relative",
+    );
+    expect(() => inspectGitWorkspace(root, ["README.md"])).toThrow(
+      "changed files",
+    );
+  });
+
   it("maps changed source to direct dependents and existing focused tests", async () => {
     const root = await tempRepo();
     await mkdir(join(root, "src", "feature"), { recursive: true });
