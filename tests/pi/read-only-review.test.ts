@@ -18,8 +18,22 @@ describe("isolated read-only review", () => {
       );
       expect(prompt).toContain("<untrusted_git_review>");
       expect(prompt).toContain("diff payload");
-      handler?.({ type: "message_complete", text: "No actionable findings." });
+      handler?.({
+        type: "tool_started",
+        id: "read-1",
+        name: "read",
+        summary: "src/a.ts",
+      });
+      handler?.({
+        type: "message_complete",
+        text: "No actionable findings.",
+        stopReason: "stop",
+      });
+      handler?.({ type: "run_settled", aborted: false });
     });
+    let diagnostics:
+      | Parameters<NonNullable<Parameters<typeof runReadOnlyReview>[3]>>[0]
+      | undefined;
     const result = await runReadOnlyReview(
       {
         setMode: mode,
@@ -33,11 +47,23 @@ describe("isolated read-only review", () => {
         cancel: vi.fn(async () => undefined),
       },
       buildReadOnlyReviewPrompt("diff payload"),
+      undefined,
+      (value) => {
+        diagnostics = value;
+      },
     );
 
     expect(mode).toHaveBeenCalledWith("plan");
     expect(send).toHaveBeenCalledOnce();
     expect(result).toBe("No actionable findings.");
+    expect(diagnostics).toEqual({
+      response: "No actionable findings.",
+      stopReasons: ["stop"],
+      tools: ["read"],
+      errors: [],
+      settled: true,
+      aborted: false,
+    });
     expect(handler).toBeUndefined();
   });
 

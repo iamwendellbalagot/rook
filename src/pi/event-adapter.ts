@@ -20,7 +20,12 @@ export function adaptPiEvent(event: AgentSessionEvent): AgentEvent[] {
         .map((part) => part.text)
         .join("");
       const mapped: AgentEvent[] = [];
-      if (text) mapped.push({ type: "message_complete", text });
+      if (text)
+        mapped.push({
+          type: "message_complete",
+          text,
+          stopReason: event.message.stopReason,
+        });
       if (event.message.usage) {
         mapped.push({
           type: "usage",

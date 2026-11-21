@@ -6,18 +6,20 @@ import type {
 import { ReviewBudget } from "../../src/pi/review-budget.js";
 
 describe("review-only inspection budget", () => {
-  it("allows at most two read/search calls and blocks all other tools", () => {
+  it("allows at most four read/search calls and blocks all other tools", () => {
     const budget = new ReviewBudget("short prompt");
     expect(budget.admit("bash")).toBe(false);
     expect(budget.admit("mcp__test__read")).toBe(false);
     expect(budget.admit("read")).toBe(true);
     expect(budget.admit("rook_search")).toBe(true);
+    expect(budget.admit("read")).toBe(true);
+    expect(budget.admit("read")).toBe(true);
     expect(budget.admit("read")).toBe(false);
     expect(budget.limitations.size).toBeGreaterThan(0);
   });
 
   it("omits oversized results and guards blocked-call transcript results", () => {
-    const budget = new ReviewBudget("p".repeat(5_800));
+    const budget = new ReviewBudget("p".repeat(31_800));
     expect(budget.bound("界".repeat(200))).toContain("budget exhausted");
     const handlers = new Map<string, (event: any) => any>();
     const extension = budget.extension() as ExtensionFactory;
@@ -36,6 +38,6 @@ describe("review-only inspection budget", () => {
     });
     expect(context.messages[0].content).toEqual([]);
     expect(budget.limitations.size).toBeGreaterThan(0);
-    expect(() => new ReviewBudget("x".repeat(6_001))).toThrow("budget");
+    expect(() => new ReviewBudget("x".repeat(32_001))).toThrow("budget");
   });
 });

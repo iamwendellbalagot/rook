@@ -5,7 +5,7 @@ import type { SessionPredictionStats } from "plyth";
 export type AgentEvent =
   | { type: "model_request_started" }
   | { type: "text_delta"; text: string }
-  | { type: "message_complete"; text: string }
+  | { type: "message_complete"; text: string; stopReason?: string }
   | { type: "tool_started"; id: string; name: string; summary: string }
   | {
       type: "tool_finished";
@@ -221,6 +221,14 @@ export interface AgentGateway {
     onMetrics?: (metrics: {
       providerRequests: number;
       usage: ReadOnlyReviewUsage | undefined;
+      diagnostics?: {
+        response: string;
+        stopReasons: string[];
+        tools: string[];
+        errors: string[];
+        settled: boolean;
+        aborted: boolean;
+      };
     }) => void;
   }): Promise<string>;
   getUsageStats?(): ReadOnlyReviewUsage;

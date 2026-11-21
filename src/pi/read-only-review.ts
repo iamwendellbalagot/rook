@@ -16,16 +16,44 @@ type ReviewGateway = Pick<
   "setMode" | "subscribe" | "send" | "cancel"
 >;
 
+export interface ReadOnlyReviewDiagnostics {
+  response: string;
+  stopReasons: string[];
+  tools: string[];
+  errors: string[];
+  settled: boolean;
+  aborted: boolean;
+}
+
 export async function runReadOnlyReview(
   gateway: ReviewGateway,
   prompt: string,
   signal?: AbortSignal,
+  onDiagnostics?: (diagnostics: ReadOnlyReviewDiagnostics) => void,
 ): Promise<string> {
   if (signal?.aborted) return "Review cancelled.";
   gateway.setMode("plan");
   let finalText = "";
+  const diagnostics: ReadOnlyReviewDiagnostics = {
+    response: "",
+    stopReasons: [],
+    tools: [],
+    errors: [],
+    settled: false,
+    aborted: false,
+  };
   const unsubscribe = gateway.subscribe((event: AgentEvent) => {
-    if (event.type === "message_complete") finalText = event.text;
+    if (event.type === "message_complete") {
+      finalText = event.text;
+      diagnostics.stopReasons.push(event.stopReason ?? "unknown");
+    } else if (event.type === "tool_started") {
+      diagnostics.tools.push(event.name);
+    } else if (event.type === "error") {
+      diagnostics.errors.push(event.message.slice(0, 300));
+    } else if (event.type === "run_settled") {
+      diagnostics.settled = true;
+      diagnostics.aborted = event.aborted;
+    }
   });
   const abort = () => {
     void gateway.cancel().catch(() => undefined);
@@ -33,6 +61,7 @@ export async function runReadOnlyReview(
   signal?.addEventListener("abort", abort, { once: true });
   try {
     await gateway.send(prompt);
+    diagnostics.response = finalText;
     if (signal?.aborted) return "Review cancelled.";
     return finalText || "The reviewer completed without a report.";
   } catch (error) {
@@ -41,6 +70,7 @@ export async function runReadOnlyReview(
   } finally {
     signal?.removeEventListener("abort", abort);
     unsubscribe();
+    onDiagnostics?.(diagnostics);
   }
 }
 

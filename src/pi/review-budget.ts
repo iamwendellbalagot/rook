@@ -18,11 +18,11 @@ export class ReviewBudget {
   admit(name: string): boolean {
     if (
       !["read", "rook_search"].includes(name) ||
-      this.calls >= 2 ||
+      this.calls >= 4 ||
       this.remaining < 128
     ) {
       this.limitations.add(
-        "Supplementary inspection was blocked by the two-call or context budget.",
+        "Supplementary inspection was blocked by the four-call or context budget.",
       );
       return false;
     }
