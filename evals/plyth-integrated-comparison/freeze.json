@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "frozenAt": "2026-11-21T15:31:14.860Z",
+  "rookSourceCommit": "518542d0a798a20f4635b0e792f53c7c6910f572",
+  "plythSourceCommit": "6ba019f58cd8600aaa2034c9ce4cd4d5827fe3c7",
+  "hashes": {
+    "../plyth/package.json": "4c889d7c0cb3791787753137624383d0a71cbc177be910d802a0edf37db498d9",
+    "../plyth/src/inference-flow.ts": "2e3fcb3e007d2331f4ab823750c7502c9fca4896034720c68b3bf81068ffc3ee",
+    "evals/plyth-integrated-comparison/PROTOCOL.md": "78539e623052d6a20d9fcb26e50858a65f234cd5a56681ff539adf08177efdc8",
+    "evals/plyth-integrated-comparison/cases.json": "523225cfd4a7437cdfcf51662abdacc06dfbcdd7b98f54ad1bb6f6639de4ecae",
+    "evals/plyth-integrated-comparison/fixtures/abort-delay/src/delay.mjs": "2fb1a9e7726212814859912aac60e5a3082ecda85a2c48b21677b0b5a91c689a",
+    "evals/plyth-integrated-comparison/fixtures/abort-delay/tests/abort-delay.test.mjs": "7d7e64ab524dc60269bb1930d571d485d3db3a38dc6a7306cf7efd7b677d1dc5",
+    "evals/plyth-integrated-comparison/fixtures/attempt-limit/src/retry.mjs": "a6a6ddeed6c81a24a1a8270deeb216e513bf996e526948f250eb6a7692a62260",
+    "evals/plyth-integrated-comparison/fixtures/attempt-limit/tests/attempt-limit.test.mjs": "e87a8267b62e500d7a08e50b0015d6f0412e8e81eed0953f9ec0d1491cbfed86",
+    "evals/plyth-integrated-comparison/fixtures/parse-tags/src/list.mjs": "2e79c41287f18da185e01be89b685f86d3727730ee5839174da2c23a3939a97f",
+    "evals/plyth-integrated-comparison/fixtures/parse-tags/src/tags.mjs": "dae5facdf7ac94fe3ea782b70452a0c9db582782b9860c54969960a160c344b7",
+    "evals/plyth-integrated-comparison/fixtures/parse-tags/tests/parse-tags.test.mjs": "964a5835d8f5c18a6881d0015617e3ff6161ec9fc1cd538ec0bef356e39345a8",
+    "evals/plyth-integrated-comparison/fixtures/retry-policy/src/retry.mjs": "de35ef42c2c5c3803050a15098b9cf88f6b1f62d548ad3cb46d960ae3c7b935d",
+    "evals/plyth-integrated-comparison/fixtures/retry-policy/tests/retry-policy.test.mjs": "933686545d2b9a2af02c3f4ac036a8a4269e783ac826e2f01cbd1388a856005d",
+    "evals/plyth-integrated-comparison/fixtures/single-flight/src/cache.mjs": "fdbc6733af19c49d2772b7b8cf55032f38eb2f5ca4744e527f5cc45daea99769",
+    "evals/plyth-integrated-comparison/fixtures/single-flight/tests/single-flight.test.mjs": "53e4d4a321767523383d70c3d569817b309ad269320dcdd0261a612af57882dc",
+    "evals/plyth-integrated-comparison/fixtures/stable-keys/src/keys.mjs": "beb7f24193cedb15663f56f51dda7aad22794bff45660203fc7bca752cc6ef83",
+    "evals/plyth-integrated-comparison/fixtures/stable-keys/src/strings.mjs": "40cb022e39a791a63e3a4d5daaa3e28805d12ebea497e3ea0afa9c9b33de1fdd",
+    "evals/plyth-integrated-comparison/fixtures/stable-keys/tests/stable-keys.test.mjs": "f864bb78425d6e2f4ee6d0bea77e77a6126fd6ed04961a08908e59f25fc7c73b",
+    "package-lock.json": "e04ff88b890710df4b983817ceed16506b19be4a963e1c4b01d7176da076fc3b",
+    "package.json": "5b52daa74e561c50157ad327f41bfb6b4b48beb0f316601edd66c8b9221702f8",
+    "scripts/plyth-integrated-eval.ts": "875d54fc14a4d7c1b02f5895824c10d950d368ab8dbf502745d5fcd8648342aa",
+    "src/eval/pilot-run-guard.ts": "aa6f2233db4a9dea1739025fe169b2b102bf6f7c6f5c9f6868fdec5c378c8f46",
+    "src/pi/pi-agent-gateway.ts": "3e8fc077308c44abdb08b86c62b7d142c583f8436a11f9430175e26a1ec4684d",
+    "src/pi/plan-inspection-tool.ts": "923ef8fef9562c40b04ba29c2486707860c5e59e75de4c1f5b2ea75f17925b59",
+    "src/pi/plyth-integrated.ts": "77adb36d6386a5bb4426e80832df29fb5c53a1d34ff289b0222781d9bf74fa30"
+  }
+}
