@@ -42,10 +42,18 @@ export async function runReadOnlyReview(
     settled: false,
     aborted: false,
   };
+  let lastCompletedStopReason: string | undefined;
   const unsubscribe = gateway.subscribe((event: AgentEvent) => {
     if (event.type === "message_complete") {
       finalText = event.text;
-      diagnostics.stopReasons.push(event.stopReason ?? "unknown");
+      if (event.stopReason) {
+        diagnostics.stopReasons.push(event.stopReason);
+        lastCompletedStopReason = event.stopReason;
+      }
+    } else if (event.type === "usage" && event.stopReason) {
+      if (event.stopReason !== lastCompletedStopReason)
+        diagnostics.stopReasons.push(event.stopReason);
+      lastCompletedStopReason = undefined;
     } else if (event.type === "tool_started") {
       diagnostics.tools.push(event.name);
     } else if (event.type === "error") {

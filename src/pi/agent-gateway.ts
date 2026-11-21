@@ -13,7 +13,12 @@ export type AgentEvent =
       status: "ok" | "error";
       error?: string;
     }
-  | { type: "usage"; inputTokens?: number; outputTokens?: number }
+  | {
+      type: "usage";
+      inputTokens?: number;
+      outputTokens?: number;
+      stopReason?: string;
+    }
   | { type: "todo_updated"; tasks: TaskChecklistItem[] }
   | { type: "run_settled"; aborted: boolean }
   | { type: "error"; message: string };

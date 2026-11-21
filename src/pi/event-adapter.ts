@@ -31,6 +31,7 @@ export function adaptPiEvent(event: AgentSessionEvent): AgentEvent[] {
           type: "usage",
           inputTokens: event.message.usage.input,
           outputTokens: event.message.usage.output,
+          stopReason: event.message.stopReason,
         });
       }
       if (event.message.stopReason === "error") {

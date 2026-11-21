@@ -29,6 +29,7 @@ describe("isolated read-only review", () => {
         text: "No actionable findings.",
         stopReason: "stop",
       });
+      handler?.({ type: "usage", stopReason: "stop" });
       handler?.({ type: "run_settled", aborted: false });
     });
     let diagnostics:
