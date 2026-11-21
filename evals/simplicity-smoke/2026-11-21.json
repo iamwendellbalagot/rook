@@ -1,0 +1,83 @@
+{
+  "date": "2026-11-21",
+  "model": {
+    "provider": "openai",
+    "id": "gpt-6.1-sol",
+    "name": "GPT-6.1 Sol"
+  },
+  "method": "Rook reviewGitChanges({ focus: simplicity, isolatedEvaluation: true }) on two disposable Git fixtures; generic runGenericSimplicityReview diagnostic on the same necessary-complexity control.",
+  "fixtures": [
+    {
+      "id": "removable-pipeline",
+      "task": "Implement normalizeLabel(value): trim leading/trailing whitespace, collapse internal whitespace to hyphens, and lowercase. Keep the implementation dependency-free and preserve punctuation.",
+      "files": {
+        "src/label.js": "const steps = [\n  (value) => value.trim(),\n  (value) => value.replace(/\\s+/g, \"-\"),\n  (value) => value.toLowerCase(),\n];\n\nfunction applySteps(value, operations) {\n  return operations.reduce((result, operation) => operation(result), value);\n}\n\nexport function normalizeLabel(value) {\n  return applySteps(value, steps);\n}\n",
+        "tests/label.test.js": "import test from \"node:test\";\nimport assert from \"node:assert/strict\";\nimport { normalizeLabel } from \"../src/label.js\";\n\ntest(\"normalizes label whitespace and case without altering punctuation\", () => {\n  assert.equal(normalizeLabel(\"  Hello,  World! \"), \"hello,-world!\");\n});\n"
+      },
+      "result": {
+        "id": "removable-pipeline",
+        "model": {
+          "provider": "openai",
+          "id": "gpt-6.1-sol",
+          "name": "GPT-6.1 Sol"
+        },
+        "metrics": {
+          "providerRequests": 2,
+          "usage": {
+            "inputTokens": 3690,
+            "outputTokens": 621,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        },
+        "report": "Simplicity review incomplete; treat these findings as partial.\n\n1. [abstraction] src/label.js:steps, applySteps, normalizeLabel (lines 1–13)\nConcern: A configurable operation pipeline adds indirection to a fixed, three-operation normalization task without demonstrated reuse.\nEvidence: The steps array contains only trim, whitespace replacement, and lowercase callbacks. applySteps is called only by normalizeLabel with that fixed array; neither helper is exported or otherwise used in the inspected implementation.\nPossible alternative: Implement normalizeLabel directly with return value.trim().replace(/\\s+/g, \"-\").toLowerCase(); and remove the private steps array and applySteps helper.\nPreserve: Keep the exported function, operation order, dependency-free implementation, punctuation preservation, whitespace matching, and existing input-error behavior. Retain the test covering whitespace, case, and punctuation.\n\nLimitations: Task attribution is unknown: selected files may include pre-existing or mixed user changes.; Supporting-context freshness could not be verified within the workspace snapshot budget.; Task attribution is unknown: the selected untracked files may include pre-existing user changes, so authorship of the reviewed complexity cannot be established.\n\nScope v1: src/label.js, tests/label.test.js\nRevision: e3987e08a60393c90cade23fe3c144d199464513f5a9799ba499395bb3613c6c\nAttribution: unknown\n\nReview usage: 3690 input, 621 output, 0 cache-read, 0 cache-write tokens. Provider-billed cost is not available here."
+      }
+    },
+    {
+      "id": "necessary-concurrency",
+      "task": "Implement an in-memory TTL cache around an async loader. Concurrent misses for one key must share one load; successful values expire after ttlMs; failed loads must not be cached and a later call must retry. Preserve independent keys and do not add dependencies.",
+      "files": {
+        "src/cache.js": "export function createCache(load, { ttlMs, now }) {\n  const entries = new Map();\n  return {\n    async get(key) {\n      const entry = entries.get(key);\n      if (entry?.pending) return entry.pending;\n      if (entry && entry.expiresAt > now()) return entry.value;\n      const pending = Promise.resolve().then(() => load(key));\n      entries.set(key, { pending });\n      try {\n        const value = await pending;\n        if (entries.get(key)?.pending === pending) {\n          entries.set(key, { value, expiresAt: now() + ttlMs });\n        }\n        return value;\n      } catch (error) {\n        if (entries.get(key)?.pending === pending) entries.delete(key);\n        throw error;\n      }\n    },\n  };\n}\n",
+        "tests/cache.test.js": "import test from \"node:test\";\nimport assert from \"node:assert/strict\";\nimport { createCache } from \"../src/cache.js\";\n\ntest(\"coalesces concurrent misses for the same key\", async () => {\n  let resolveLoad;\n  let calls = 0;\n  const cache = createCache(() => { calls++; return new Promise((resolve) => { resolveLoad = resolve; }); }, { ttlMs: 10, now: () => 0 });\n  const first = cache.get(\"a\");\n  const second = cache.get(\"a\");\n  await new Promise((resolve) => setImmediate(resolve));\n  assert.equal(calls, 1);\n  resolveLoad(\"value\");\n  assert.deepEqual(await Promise.all([first, second]), [\"value\", \"value\"]);\n});\n\ntest(\"expires values and retries after loader rejection\", async () => {\n  let time = 0;\n  let calls = 0;\n  const cache = createCache(async () => { if (++calls === 1) throw Error(\"temporary\"); return calls; }, { ttlMs: 5, now: () => time });\n  await assert.rejects(cache.get(\"a\"), /temporary/);\n  assert.equal(await cache.get(\"a\"), 2);\n  assert.equal(await cache.get(\"a\"), 2);\n  time = 6;\n  assert.equal(await cache.get(\"a\"), 3);\n});\n"
+      },
+      "plythResult": {
+        "id": "necessary-concurrency",
+        "model": {
+          "provider": "openai",
+          "id": "gpt-6.1-sol",
+          "name": "GPT-6.1 Sol"
+        },
+        "metrics": {
+          "providerRequests": 2,
+          "usage": {
+            "inputTokens": 2306,
+            "outputTokens": 55,
+            "cacheReadTokens": 1920,
+            "cacheWriteTokens": 0
+          }
+        },
+        "report": "Review report could not be validated (invalid_json). This is not a clean review; rerun /review simplicity after narrowing or clarifying the scope.\n\nReview usage: 2306 input, 55 output, 1920 cache-read, 0 cache-write tokens. Provider-billed cost is not available here."
+      },
+      "genericDiagnostic": {
+        "model": {
+          "provider": "openai",
+          "id": "gpt-6.1-sol",
+          "name": "GPT-6.1 Sol"
+        },
+        "report": "The reviewer completed without a report.",
+        "usage": {
+          "inputTokens": 1600,
+          "outputTokens": 55,
+          "cacheReadTokens": 1280,
+          "cacheWriteTokens": 0
+        },
+        "providerRequests": 2
+      }
+    }
+  ],
+  "limitations": [
+    "Both fixtures were passed through explicit selected-path scope; Rook reported attribution unknown and partial coverage on the finding case.",
+    "The PLYTH control returned invalid_json after 2 provider requests; generic diagnostic also completed without a report after 2 requests.",
+    "No human-scored comparative evaluation or effectiveness claim."
+  ]
+}
