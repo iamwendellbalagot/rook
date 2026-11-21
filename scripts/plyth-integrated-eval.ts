@@ -44,6 +44,7 @@ const MAX_PROVIDER_REQUESTS = 24;
 const MAX_TOOL_CALLS = 48;
 const MAX_OUTPUT_TOKENS = 8_000;
 const MAX_CELL_MS = 10 * 60 * 1_000;
+const EXPECTED_MODEL = { provider: "openai", id: "gpt-6.1-sol" } as const;
 
 async function main(): Promise<void> {
   const cases = JSON.parse(
@@ -289,11 +290,18 @@ async function runCell(item: EvalCase, mode: Mode, cellId: string) {
       .listProviders()
       .filter((provider) => provider.configured)
       .map((provider) => provider.id);
-    if (!model || !configuredProviders.includes(model.provider))
+    if (
+      !model ||
+      model.provider !== EXPECTED_MODEL.provider ||
+      model.id !== EXPECTED_MODEL.id ||
+      !configuredProviders.includes(model.provider)
+    )
       throw new Error(
-        `Configured model/auth unavailable: ${JSON.stringify(model)}.`,
+        `Frozen model/auth unavailable: ${JSON.stringify(model)}.`,
       );
     gateway.setThinkingLevel("high");
+    if (gateway.getThinkingInfo().current !== "high")
+      throw new Error("The frozen high thinking level was not selected.");
     gateway.setMode("build");
     gateway.setExternalAccessPrompt(async (request) => {
       const allowed =
