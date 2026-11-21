@@ -1,5 +1,5 @@
 {
-  "name": "rook",
+  "name": "@wendell2215/rook",
   "version": "0.1.0",
   "rookCapabilities": {
     "plythIntegration": 1
@@ -10,7 +10,7 @@
     "node": ">=22.19.0"
   },
   "bin": {
-    "rook": "./bin/rook.mjs"
+    "rook": "bin/rook.mjs"
   },
   "files": [
     "bin/",
