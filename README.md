@@ -25,7 +25,7 @@ The project is still in early development and is not yet published as an npm rel
 
 ### Local PLYTH development dependency
 
-Rook's observe-only PLYTH pilot currently resolves the `plyth` package from the sibling checkout at `../plyth`. Clone the `plyth` repository beside `rook`, then run `npm install` in Rook before typechecking or building. This local dependency is for the pilot integration and is not a published/released package yet.
+Rook's PLYTH pilot currently resolves the `plyth` package from the sibling checkout at `../plyth`. Clone the `plyth` repository beside `rook`, then run `npm install` in Rook before typechecking or building. This local dependency is for development: neither Rook nor PLYTH has been published, and the npm installer has not been released. The PLYTH package includes a local-first CLI; once the package is distributed, a compatible Rook project can be configured with `plyth install rook --project .`. Installation defaults to off. Opt into integrated feedback explicitly with `--mode integrated`; use `--mode prompt` for static guidance only. No package has been published.
 
 The default mode is observe-only: optional structured `expect` metadata, deterministic judging, in-memory session counts and an outcome-only command-history baseline. `/plyth` reports agent/history accuracy on the same comparable outcomes; edits or changed/unavailable workspace snapshots invalidate history. Snapshot budgets are 256 files / 2 MiB / best-effort 50 ms; symlinks, unknown hidden/sensitive inputs or larger workspaces make the comparison unavailable. Dependencies, external state, `.git` and `.rook` runtime data are outside this workspace-file heuristic.
 
@@ -36,6 +36,8 @@ Persistence is separately opt-in: `ROOK_PLYTH_TRACE=1` or `/plyth trace on`. `/p
 ### Integrated PLYTH assistance (experimental, default off)
 
 `ROOK_PLYTH_INTEGRATED=integrated` opts into sparse assistance inside the existing Pi inference/tool loop. It adds concise behavioral guidance, one bounded task-local change checkpoint after observed source changes, and at most two recovery signals when the same supported test/build/diagnostic failure and evidence repeat. Checkpoints enter the next normal inference context; recovery advice is appended to the existing Bash result. It does not start a reviewer/provider turn, run tools, remove code, authorize actions, or claim a root cause. Task text and paths are escaped as untrusted context; task state and feedback are in-memory only. Session/fork/compaction boundaries clear task state.
+
+The project installer persists this selection in `.rook/plyth.json` (`{"schemaVersion":1,"mode":"off|prompt|integrated"}`). An explicit `ROOK_PLYTH_INTEGRATED` environment setting overrides the project value. Integrated mode remains experimental and disabled by default.
 
 `ROOK_PLYTH_INTEGRATED=prompt` enables only the same static guidance, for prompt-only comparison. Unset, `off`, or an unrecognized value disables the integrated path. The integrated modes suppress the separate legacy observer for that session; legacy `ROOK_PLYTH_MODE=off|observe|feedback` and `ROOK_PLYTH_FEEDBACK=1` behavior remains unchanged when integrated mode is off. `/plyth` reports `integrated` or `prompt-only`. No live/provider-backed effectiveness evaluation has been run for this feature; it remains experimental and opt-in.
 

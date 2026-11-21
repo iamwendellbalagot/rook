@@ -100,20 +100,38 @@ function toolResult(
 }
 
 describe("PLYTH integrated inference extension", () => {
-  it("resolves off, prompt-only, and integrated as separate opt-in modes", () => {
-    expect(resolvePlythIntegratedMode({})).toBe("off");
-    expect(
+  it("resolves off, prompt-only, and integrated as separate opt-in modes", async () => {
+    await expect(resolvePlythIntegratedMode({})).resolves.toBe("off");
+    await expect(
       resolvePlythIntegratedMode({ ROOK_PLYTH_INTEGRATED: "prompt" }),
-    ).toBe("prompt");
-    expect(resolvePlythIntegratedMode({ ROOK_PLYTH_INTEGRATED: "1" })).toBe(
+    ).resolves.toBe("prompt");
+    await expect(
+      resolvePlythIntegratedMode({ ROOK_PLYTH_INTEGRATED: "1" }),
+    ).resolves.toBe("integrated");
+    await expect(
+      resolvePlythIntegratedMode({ ROOK_PLYTH_INTEGRATED: "integrated" }),
+    ).resolves.toBe("integrated");
+    await expect(
+      resolvePlythIntegratedMode({ ROOK_PLYTH_INTEGRATED: "true" }),
+    ).resolves.toBe("off");
+  });
+
+  it("loads the project mode and lets an explicit environment mode override it", async () => {
+    const root = await repo();
+    await mkdir(join(root, ".rook"));
+    await writeFile(
+      join(root, ".rook", "plyth.json"),
+      JSON.stringify({ schemaVersion: 1, mode: "integrated" }),
+    );
+    await expect(resolvePlythIntegratedMode({}, root)).resolves.toBe(
       "integrated",
     );
-    expect(
-      resolvePlythIntegratedMode({ ROOK_PLYTH_INTEGRATED: "integrated" }),
-    ).toBe("integrated");
-    expect(resolvePlythIntegratedMode({ ROOK_PLYTH_INTEGRATED: "true" })).toBe(
-      "off",
-    );
+    await expect(
+      resolvePlythIntegratedMode({ ROOK_PLYTH_INTEGRATED: "prompt" }, root),
+    ).resolves.toBe("prompt");
+    await expect(
+      resolvePlythIntegratedMode({ ROOK_PLYTH_INTEGRATED: "off" }, root),
+    ).resolves.toBe("off");
   });
 
   it("delivers a source checkpoint to the next inference and only once per task", async () => {

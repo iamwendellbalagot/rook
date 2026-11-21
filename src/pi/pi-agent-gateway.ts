@@ -178,7 +178,10 @@ export async function createPiAgentGateway(
   const plythCounter = new SessionCounter();
   const plythBaseline = new CommandHistoryBaseline();
   const plythMode = resolvePlythMode(process.env);
-  const plythIntegratedMode = resolvePlythIntegratedMode(process.env);
+  const plythIntegratedMode = await resolvePlythIntegratedMode(
+    process.env,
+    cwd,
+  );
   const plythTrace = new PlythTraceStore(
     plythMode !== "off" && process.env.ROOK_PLYTH_TRACE === "1",
   );
