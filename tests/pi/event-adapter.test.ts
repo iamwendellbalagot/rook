@@ -86,8 +86,13 @@ describe("Pi event adapter", () => {
         }),
       ),
     ).toEqual([
-      { type: "message_complete", text: "final answer" },
-      { type: "usage", inputTokens: 12, outputTokens: 4 },
+      { type: "message_complete", text: "final answer", stopReason: "stop" },
+      {
+        type: "usage",
+        inputTokens: 12,
+        outputTokens: 4,
+        stopReason: "stop",
+      },
     ]);
   });
 

@@ -171,23 +171,26 @@ describe("Rook's Pi bash tool", () => {
     ).rejects.toThrow(/will not run the command without isolation/);
   });
 
-  it("builds a network-disabled Bubblewrap command rooted at the workspace", async () => {
-    const root = await mkdtemp(join(tmpdir(), "rook-bwrap-"));
-    try {
-      const sandbox = await createSandboxCommand("npm test", root, "bwrap", {
-        PATH: "/usr/bin",
-      });
-      expect(sandbox.executable).toContain("bwrap");
-      expect(sandbox.args).toContain("--unshare-net");
-      expect(sandbox.args).toContain("--bind");
-      expect(sandbox.args).toContain(await realpath(root));
-      expect(sandbox.args).toContain("/tmp");
-      expect(sandbox.args).not.toContain("--share-net");
-      expect(sandbox.args.at(-1)).toBe("npm test");
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
+  it.skipIf(process.platform !== "linux")(
+    "builds a network-disabled Bubblewrap command rooted at the workspace",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "rook-bwrap-"));
+      try {
+        const sandbox = await createSandboxCommand("npm test", root, "bwrap", {
+          PATH: "/usr/bin",
+        });
+        expect(sandbox.executable).toContain("bwrap");
+        expect(sandbox.args).toContain("--unshare-net");
+        expect(sandbox.args).toContain("--bind");
+        expect(sandbox.args).toContain(await realpath(root));
+        expect(sandbox.args).toContain("/tmp");
+        expect(sandbox.args).not.toContain("--share-net");
+        expect(sandbox.args.at(-1)).toBe("npm test");
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("runs a sandbox runner process with bounded time and cancellation", async () => {
     const success = await runSandboxCommand(
