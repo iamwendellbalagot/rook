@@ -71,6 +71,9 @@ export function createPlythIntegratedExtension(
       pi.on("session_before_switch", clear);
       pi.on("session_before_fork", clear);
       pi.on("session_before_compact", clear);
+      pi.on("agent_settled", (event) => {
+        if (event.aborted) clear();
+      });
 
       pi.on("before_agent_start", (event, ctx) => {
         if (event.messageType !== "user") return;
@@ -161,7 +164,9 @@ export function createPlythIntegratedExtension(
         const scope = currentScope();
         if (!scope) return;
         flow.observeWorkspace(taskId, scope.scope.revision, scope.scope.paths);
-        const block = flow.takeChangeCheckpoint(taskId);
+        const block =
+          flow.takeChangeCheckpoint(taskId) ??
+          flow.takeVerificationFreshness(taskId);
         if (!block) return;
         setInterventionStatus(ctx, block);
         return {
@@ -204,7 +209,9 @@ function setInterventionStatus(
     "plyth-integrated",
     block.kind === "recovery"
       ? "PLYTH recovery signal"
-      : "PLYTH task checkpoint",
+      : block.kind === "verification-stale"
+        ? "PLYTH verification stale"
+        : "PLYTH task checkpoint",
   );
 }
 

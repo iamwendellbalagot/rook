@@ -140,6 +140,21 @@ describe("PLYTH integrated inference extension", () => {
     ]);
   });
 
+  it("excludes files already dirty before this task from its checkpoint", async () => {
+    const root = await repo();
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "preexisting.ts"), "export {}\n");
+    const { handlers, ctx } = mount(root);
+    startTask(handlers, ctx);
+    await writeFile(join(root, "src", "task-change.ts"), "export {}\n");
+    const result = handlers.get("context")?.({ messages: [] }, ctx) as {
+      messages: Array<{ content?: string }>;
+    };
+    const checkpoint = result.messages.at(-1)?.content ?? "";
+    expect(checkpoint).toContain("src/task-change.ts");
+    expect(checkpoint).not.toContain("src/preexisting.ts");
+  });
+
   it("feeds an identical repeated failure into the tool result before the next decision", async () => {
     const root = await repo();
     const { handlers, ctx, statuses } = mount(root);
@@ -176,6 +191,20 @@ describe("PLYTH integrated inference extension", () => {
     toolCall(handlers, ctx, "call-1");
     handlers.get("session_before_fork")?.({});
     expect(toolResult(handlers, ctx, "call-1")).toBeUndefined();
+    expect(handlers.get("context")?.({ messages: [] }, ctx)).toBeUndefined();
+  });
+
+  it("rejects stale tool results after steering and after an aborted run", async () => {
+    const root = await repo();
+    const { handlers, ctx } = mount(root);
+    startTask(handlers, ctx, "First request");
+    toolCall(handlers, ctx, "old-task-call");
+    startTask(handlers, ctx, "Steered follow-up");
+    expect(toolResult(handlers, ctx, "old-task-call")).toBeUndefined();
+
+    toolCall(handlers, ctx, "aborted-call");
+    handlers.get("agent_settled")?.({ aborted: true }, ctx);
+    expect(toolResult(handlers, ctx, "aborted-call")).toBeUndefined();
     expect(handlers.get("context")?.({ messages: [] }, ctx)).toBeUndefined();
   });
 });
