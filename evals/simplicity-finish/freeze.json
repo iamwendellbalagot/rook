@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-11-21",
+  "model": {
+    "provider": "openai",
+    "id": "gpt-6.1-sol",
+    "thinking": "high"
+  },
+  "budgets": {
+    "reviewContextUtf8Bytes": 32000,
+    "toolCalls": 4,
+    "providerRequests": 4,
+    "outputTokensPerResponse": 8000,
+    "timeoutMs": 120000
+  },
+  "plannedReviews": 16,
+  "fixtureChecksBeforeInference": 20,
+  "commits": {
+    "plyth": "73e8921",
+    "rookSource": "f377097",
+    "rookProtocol": "3380bb8"
+  },
+  "sha256": {
+    "evals/simplicity-finish/PROTOCOL.md": "4a8d8d91494b1dde4f6e20b2695c2ec5e8821a7041a1794c51f5922189b4df74",
+    "evals/simplicity-finish/cases.mjs": "de9baeb172616bcb299ad1b6971fcd45f2ab5304d4574d8b5de5f5c69bf71b1b",
+    "scripts/simplicity-finish.ts": "7a94362e35f58a5ccc863f47426dffd946144a234570e23e8d862b271084eaae"
+  },
+  "stopPolicy": "one attempt per case/condition; preserve failures; no automatic retries; no phase4-pilot resume"
+}
