@@ -20,6 +20,7 @@ import {
 } from "../src/pi/pi-agent-gateway.js";
 import type { AgentEvent, ModelInfo } from "../src/pi/agent-gateway.js";
 import { PilotRunGuard } from "../src/eval/pilot-run-guard.js";
+import { assertNoInheritedInstructions } from "../src/eval/pilot-workspace.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pilot = join(root, "evals", "phase4-pilot");
@@ -60,15 +61,17 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 const commandArgs = process.argv.slice(2);
 if (commandArgs.includes("--verify-freeze")) {
   await verifyFreeze();
+} else if (commandArgs.includes("--preflight")) {
+  await verifyFreeze(false);
 } else if (commandArgs.includes("--run-all")) {
   await runAll();
 } else {
   throw new Error(
-    "Usage: node --import tsx scripts/live-pilot.ts --verify-freeze | --run-all",
+    "Usage: node --import tsx scripts/live-pilot.ts --preflight | --verify-freeze | --run-all",
   );
 }
 
-async function verifyFreeze(): Promise<void> {
+async function verifyFreeze(writeFreeze = true): Promise<void> {
   if (
     manifest.schemaVersion !== 1 ||
     manifest.tasks.length !== 8 ||
@@ -176,6 +179,9 @@ async function verifyFreeze(): Promise<void> {
   frozenAssets["src/eval/pilot-run-guard.ts"] = hash(
     await readFile(join(root, "src", "eval", "pilot-run-guard.ts")),
   );
+  frozenAssets["src/eval/pilot-workspace.ts"] = hash(
+    await readFile(join(root, "src", "eval", "pilot-workspace.ts")),
+  );
   frozenAssets["package-lock.json"] = hash(
     await readFile(join(root, "package-lock.json")),
   );
@@ -190,13 +196,19 @@ async function verifyFreeze(): Promise<void> {
     ),
     starterCheckResults: baselines,
   };
-  await writeFile(
-    join(pilot, "freeze.json"),
-    `${JSON.stringify(freeze, null, 2)}\n`,
-  );
-  process.stdout.write(
-    `Pilot freeze verified; wrote ${join(pilot, "freeze.json")}\n`,
-  );
+  if (writeFreeze) {
+    await writeFile(
+      join(pilot, "freeze.json"),
+      `${JSON.stringify(freeze, null, 2)}\n`,
+    );
+    process.stdout.write(
+      `Pilot freeze verified; wrote ${join(pilot, "freeze.json")}\n`,
+    );
+  } else {
+    process.stdout.write(
+      "Inference-free pilot preflight passed; no freeze was written.\n",
+    );
+  }
 }
 
 async function runAll(): Promise<void> {
@@ -718,35 +730,6 @@ async function allFiles(directory: string): Promise<string[]> {
       );
   }
   return files.sort();
-}
-
-async function assertNoInheritedInstructions(workspace: string): Promise<void> {
-  for (const file of await allFiles(workspace)) {
-    if (basename(file).toLowerCase() === "agents.md")
-      throw new Error(
-        `Synthetic fixture contains inherited instructions: ${file}`,
-      );
-  }
-  let directory = dirname(workspace);
-  while (true) {
-    const candidate = join(directory, "AGENTS.md");
-    try {
-      await readFile(candidate);
-      throw new Error(
-        `Synthetic workspace inherits host instructions: ${candidate}`,
-      );
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message.startsWith("Synthetic workspace inherits")
-      )
-        throw error;
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-    const parent = dirname(directory);
-    if (parent === directory) break;
-    directory = parent;
-  }
 }
 
 function hash(value: Buffer | string): string {

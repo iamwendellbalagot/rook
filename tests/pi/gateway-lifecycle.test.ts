@@ -29,7 +29,7 @@ const fixture = vi.hoisted(() => {
         { provider: "fixture", id: "review-model", name: "Review Model" },
       ],
     },
-    agent: { streamFunction: vi.fn() },
+    agent: { streamFunction: vi.fn(), abort: vi.fn() },
     getSessionStats: () => ({
       tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     }),
@@ -83,12 +83,15 @@ vi.mock("@earendil-works/pi-coding-agent", async (original) => ({
 
 import { createPiAgentGateway } from "../../src/pi/pi-agent-gateway.js";
 import { ReviewBudget } from "../../src/pi/review-budget.js";
+import { PilotRunGuard } from "../../src/eval/pilot-run-guard.js";
 
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.clearAllMocks();
   session.isIdle = true;
   session.isStreaming = false;
+  session.agent.streamFunction = vi.fn();
+  session.agent.abort.mockReset();
   session.prompt.mockReset();
   fixture.entries.length = 0;
   fixture.savedSessions.clear();
@@ -117,6 +120,82 @@ describe("gateway run lifecycle", () => {
     session.agent.streamFunction = stream;
     await createPiAgentGateway();
     expect(session.agent.streamFunction).toBe(stream);
+  });
+  it("blocks the ninth provider request and accounts for exactly eight starts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rook-request-limit-"));
+    try {
+      const stream = vi.fn(() => "stream-result");
+      session.agent.streamFunction = stream;
+      const onProviderRequest = vi.fn();
+      const violations: unknown[] = [];
+      const guard = new PilotRunGuard(
+        root,
+        ["read", "edit", "write"],
+        ["src/allowed.mjs"],
+        12,
+        8,
+        (violation) => violations.push(violation),
+      );
+      await createPiAgentGateway(root, {
+        pilotRunGuard: guard,
+        isolatedEvaluation: true,
+        maxOutputTokensPerResponse: 1000,
+        onProviderRequest,
+      });
+
+      for (let request = 0; request < 8; request++)
+        session.agent.streamFunction(session.model, {}, { maxTokens: 2000 });
+      expect(() =>
+        session.agent.streamFunction(session.model, {}, { maxTokens: 2000 }),
+      ).toThrow("provider-request ceiling");
+
+      expect(stream).toHaveBeenCalledTimes(8);
+      expect(onProviderRequest).toHaveBeenCalledTimes(8);
+      expect(onProviderRequest).toHaveBeenLastCalledWith(8);
+      expect(guard.requestCount()).toBe(8);
+      expect(violations).toEqual([
+        { kind: "provider_request_limit", limit: 8 },
+      ]);
+      expect(session.agent.abort).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+  it("activates only the pilot allowlist and denies out-of-scope mutations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rook-tool-allowlist-"));
+    try {
+      const violations: unknown[] = [];
+      const guard = new PilotRunGuard(
+        root,
+        ["read", "edit", "write"],
+        ["src/allowed.mjs"],
+        12,
+        8,
+        (violation) => violations.push(violation),
+      );
+      await createPiAgentGateway(root, {
+        pilotRunGuard: guard,
+        isolatedEvaluation: true,
+      });
+
+      expect(session.setActiveToolsByName).toHaveBeenLastCalledWith([
+        "read",
+        "edit",
+        "write",
+      ]);
+      expect(guard.admitToolCall("write", { path: "status.md" })).toBe(false);
+      expect(guard.admitToolCall("bash", { command: "anything" })).toBe(false);
+      expect(violations).toEqual([
+        {
+          kind: "write_path_not_allowed",
+          toolName: "write",
+          path: "status.md",
+        },
+        { kind: "tool_not_allowed", toolName: "bash" },
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
   it.each(["newSession", "fork", "resumeSession", "compact", "send"] as const)(
     "discards late review delivery after %s changes the task/session",
