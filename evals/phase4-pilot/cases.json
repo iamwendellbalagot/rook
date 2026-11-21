@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "tasks": [
+    {
+      "id": "pagination",
+      "category": "feature-bugfix",
+      "fixture": "fixtures/pagination",
+      "prompt": "Repair collectItems across the page reader and item merger: follow every non-null/undefined cursor (including 0), continue through empty intermediate pages, deduplicate IDs keeping the first-seen object and ordering, and propagate fetch errors without retrying. Do not mutate fetched items. Inspect README.md, src/ and the focused tests before editing. Run exactly `node --test tests/unit.test.mjs tests/integration.test.mjs` on the unchanged starter before any edits. Then diagnose and repair all issues. You may run these exact commands as needed (six test commands total maximum): `node --test tests/unit.test.mjs tests/integration.test.mjs`; `node --test tests/unit.test.mjs`; `node --test tests/integration.test.mjs`. End with the combined suite. Edit only src/; do not edit tests, configuration or unrelated files. Preserve the public APIs. Report verified results honestly.",
+      "check": "node --test tests/unit.test.mjs tests/integration.test.mjs",
+      "allowedChangedFiles": [
+        "src/collect.mjs",
+        "src/merge.mjs",
+        "src/page.mjs"
+      ]
+    },
+    {
+      "id": "cache",
+      "category": "feature-bugfix",
+      "fixture": "fixtures/cache",
+      "prompt": "Repair createCache and its freshness helper: values expire exactly at their deadline; coalesce all concurrent requests for a key even if loading lasts longer than the TTL; begin the value TTL when loading resolves; evict rejected loads so later calls can retry. Preserve falsy values and per-key isolation. Use the injected clock, not wall-clock sleeps. Inspect README.md, src/ and the focused tests before editing. Run exactly `node --test tests/unit.test.mjs tests/integration.test.mjs` on the unchanged starter before any edits. Then diagnose and repair all issues. You may run these exact commands as needed (six test commands total maximum): `node --test tests/unit.test.mjs tests/integration.test.mjs`; `node --test tests/unit.test.mjs`; `node --test tests/integration.test.mjs`. End with the combined suite. Edit only src/; do not edit tests, configuration or unrelated files. Preserve the public APIs. Report verified results honestly.",
+      "check": "node --test tests/unit.test.mjs tests/integration.test.mjs",
+      "allowedChangedFiles": ["src/cache.mjs", "src/entry.mjs"]
+    },
+    {
+      "id": "pricing",
+      "category": "feature-bugfix",
+      "fixture": "fixtures/pricing",
+      "prompt": "Repair the quote pipeline: multiply unit prices in integer cents by quantity, round the aggregate basis-point discount to nearest cent once, and use discounted merchandise amount for the inclusive free-shipping threshold. Preserve the output shape, input arrays/objects, and zero/full discount behavior. Inputs are valid nonnegative integers and known SKUs. Inspect README.md, src/ and the focused tests before editing. Run exactly `node --test tests/unit.test.mjs tests/integration.test.mjs` on the unchanged starter before any edits. Then diagnose and repair all issues. You may run these exact commands as needed (six test commands total maximum): `node --test tests/unit.test.mjs tests/integration.test.mjs`; `node --test tests/unit.test.mjs`; `node --test tests/integration.test.mjs`. End with the combined suite. Edit only src/; do not edit tests, configuration or unrelated files. Preserve the public APIs. Report verified results honestly.",
+      "check": "node --test tests/unit.test.mjs tests/integration.test.mjs",
+      "allowedChangedFiles": [
+        "src/discount.mjs",
+        "src/lines.mjs",
+        "src/quote.mjs"
+      ]
+    },
+    {
+      "id": "retry-boundary",
+      "category": "bugfix",
+      "fixture": "fixtures/retry-boundary",
+      "prompt": "Fix the retry-limit bug: the configured maximum is the total number of attempts, so the helper must not allow an additional retry at the limit. Preserve the existing API and make the focused test pass. Inspect README.md, src/ and tests first. Run exactly `node --test tests/retry.test.mjs` on the unchanged starter before edits, and again after. Edit only src/retry.mjs; do not change tests/configuration or run other commands. Report verified results honestly.",
+      "check": "node --test tests/retry.test.mjs",
+      "allowedChangedFiles": ["src/retry.mjs"]
+    },
+    {
+      "id": "normalize-labels",
+      "category": "feature",
+      "fixture": "fixtures/normalize-labels",
+      "prompt": "Implement normalizeLabels(labels). Return labels with duplicates removed case-insensitively, preserving the first spelling and original order. Ignore non-string and blank entries, trim surrounding whitespace, and do not mutate the input. Make the focused tests pass. Inspect README.md, src/ and tests first. Run exactly `node --test tests/labels.test.mjs` on the unchanged starter before edits, and again after. Edit only src/labels.mjs; do not change tests/configuration or run other commands. Report verified results honestly.",
+      "check": "node --test tests/labels.test.mjs",
+      "allowedChangedFiles": ["src/labels.mjs"]
+    },
+    {
+      "id": "safe-path",
+      "category": "security-bugfix",
+      "fixture": "fixtures/safe-path",
+      "prompt": "Fix resolveChild(root, child) so it joins a child path only when the resolved result remains inside root. Reject absolute paths, parent traversal (including nested traversal), and paths that resolve to root itself; accept ordinary nested children. Preserve the exported API and platform-native path behavior. Inspect source/tests first. Run exactly `node --test tests/path.test.mjs` on the unchanged starter before edits and after. Edit only src/path.mjs; do not change tests/configuration or run other commands.",
+      "check": "node --test tests/path.test.mjs",
+      "allowedChangedFiles": ["src/path.mjs"]
+    },
+    {
+      "id": "retry-delay",
+      "category": "necessary-complexity-control",
+      "fixture": "fixtures/retry-delay",
+      "prompt": "Implement retryDelay(attempt, baseMs, maxMs, random). Preserve the existing API. It must clamp the attempt to a nonnegative integer, calculate exponential backoff without exceeding maxMs, add bounded symmetric jitter using the injected random value in [0,1], and return an integer between 0 and maxMs. Do not use global randomness or wall-clock APIs. Make focused tests pass. Inspect source/tests first. Run exactly `node --test tests/delay.test.mjs` before edits and after. Edit only src/delay.mjs; do not change tests/configuration or run other commands.",
+      "check": "node --test tests/delay.test.mjs",
+      "allowedChangedFiles": ["src/delay.mjs"]
+    },
+    {
+      "id": "merge-metrics",
+      "category": "refactor-feature",
+      "fixture": "fixtures/merge-metrics",
+      "prompt": "Refactor duplicate aggregation in summarize.mjs into one reusable helper while preserving both exported functions and exact behavior: sum finite numeric values by key, ignore malformed rows, preserve first-seen key order, and return a fresh array without mutating inputs. Keep the simplest clear design. Make focused tests pass. Inspect source/tests first. Run exactly `node --test tests/summary.test.mjs` before edits and after. Edit only src/summarize.mjs; do not change tests/configuration or run other commands.",
+      "check": "node --test tests/summary.test.mjs",
+      "allowedChangedFiles": ["src/summarize.mjs"]
+    }
+  ],
+  "randomization": {
+    "algorithm": "Fisher-Yates on task IDs lexical ascending crossed with R0,R1,R2; 32-bit Mulberry32",
+    "seed": 20261121,
+    "order": [
+      ["safe-path", "R1"],
+      ["cache", "R0"],
+      ["safe-path", "R2"],
+      ["pricing", "R1"],
+      ["pagination", "R0"],
+      ["cache", "R1"],
+      ["merge-metrics", "R0"],
+      ["merge-metrics", "R2"],
+      ["pagination", "R1"],
+      ["pricing", "R0"],
+      ["retry-boundary", "R0"],
+      ["retry-delay", "R1"],
+      ["cache", "R2"],
+      ["retry-delay", "R0"],
+      ["normalize-labels", "R1"],
+      ["retry-boundary", "R2"],
+      ["normalize-labels", "R0"],
+      ["pricing", "R2"],
+      ["merge-metrics", "R1"],
+      ["safe-path", "R0"],
+      ["retry-delay", "R2"],
+      ["pagination", "R2"],
+      ["normalize-labels", "R2"],
+      ["retry-boundary", "R1"]
+    ]
+  }
+}
