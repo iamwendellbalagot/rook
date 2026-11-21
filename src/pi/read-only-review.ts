@@ -1,10 +1,4 @@
-import {
-  buildChangeReviewPrompt,
-  formatChangeReviewReport,
-  parseChangeReviewReport,
-  bindChangeReviewResult,
-  type ChangeReviewRequest,
-} from "plyth";
+import type { ChangeReviewRequest, PlythRuntime } from "./plyth-contracts.js";
 import type {
   AgentEvent,
   AgentGateway,
@@ -114,33 +108,22 @@ export function buildReadOnlyReviewPrompt(
   ].join("\n");
 }
 
-export function buildPlythReviewPrompt(
-  changes: string,
-  taskContext = "",
-  reviewedPaths?: string[],
-): string {
-  return buildChangeReviewPrompt({
-    changes,
-    taskContext,
-    ...(reviewedPaths ? { reviewedPaths } : {}),
-  });
-}
-
 export function renderPlythReviewReport(
+  plyth: PlythRuntime,
   response: string,
   reviewedPaths?: readonly string[],
   request?: ChangeReviewRequest,
   limitations: string[] = [],
 ): string {
   if (request) {
-    const result = bindChangeReviewResult(request, response, limitations);
+    const result = plyth.bindChangeReviewResult(request, response, limitations);
     return result.ok
-      ? `${formatChangeReviewReport(result.value.report)}\n\nScope v${result.value.version}: ${result.value.scope.paths.join(", ")}\nRevision: ${result.value.scope.revision}\nAttribution: ${result.value.scope.attribution}`
+      ? `${plyth.formatChangeReviewReport(result.value.report)}\n\nScope v${result.value.version}: ${result.value.scope.paths.join(", ")}\nRevision: ${result.value.scope.revision}\nAttribution: ${result.value.scope.attribution}`
       : `Review report could not be validated (${result.reason}). This is not a clean review; rerun /review simplicity after narrowing or clarifying the scope.`;
   }
-  const parsed = parseChangeReviewReport(response, reviewedPaths);
+  const parsed = plyth.parseChangeReviewReport(response, reviewedPaths);
   return parsed.ok
-    ? formatChangeReviewReport(parsed.value)
+    ? plyth.formatChangeReviewReport(parsed.value)
     : `Review report could not be validated (${parsed.reason}). This is not a clean review; rerun /review simplicity after narrowing or clarifying the scope.`;
 }
 

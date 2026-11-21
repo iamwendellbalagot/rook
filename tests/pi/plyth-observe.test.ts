@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import * as plyth from "plyth";
 import { CommandHistoryBaseline, SessionCounter } from "plyth";
 import { describe, expect, it } from "vitest";
 import {
@@ -8,10 +9,10 @@ import {
 
 function eventHandlers(
   counter: SessionCounter,
-  options?: Parameters<typeof createPlythObserveExtension>[1],
+  options?: Parameters<typeof createPlythObserveExtension>[2],
 ) {
   const handlers = new Map<string, (...args: any[]) => unknown>();
-  const extension = createPlythObserveExtension(counter, options);
+  const extension = createPlythObserveExtension(plyth, counter, options);
   if (typeof extension === "function")
     throw new Error("Expected a named extension.");
   extension.factory({

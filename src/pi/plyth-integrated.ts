@@ -1,10 +1,5 @@
 import { createHash } from "node:crypto";
 import {
-  IntegratedPlythFlow,
-  type IntegratedCommandClass,
-  type IntegratedContextBlock,
-} from "plyth";
-import {
   isBashToolResult,
   isToolCallEventType,
   type ExtensionContext,
@@ -18,6 +13,14 @@ import {
   type ReviewBoundary,
 } from "./plan-inspection-tool.js";
 import { classifyCommand, evidenceLabelsFromOutput } from "./plyth-observe.js";
+import type { PlythRuntime } from "./plyth-contracts.js";
+
+type IntegratedCommandClass = "test" | "build" | "diagnostic";
+interface IntegratedContextBlock {
+  kind: "change-checkpoint" | "recovery" | "verification-stale";
+  key: string;
+  text: string;
+}
 
 export const PLYTH_INTEGRATED_GUIDANCE =
   "Make the smallest change that satisfies the request. Reuse existing project facilities when they fit; do not add speculative abstractions, dependencies, or tests. Preserve correctness, security, compatibility, concurrency, cancellation, cleanup, observability, and meaningful coverage. Do not remove behavior or tests merely to reduce code.";
@@ -37,7 +40,8 @@ type ToolResultExtensionAPI = Pick<ExtensionAPI, "on"> & {
 
 export function createPlythIntegratedExtension(
   cwd: string,
-  flow = new IntegratedPlythFlow(),
+  plyth: PlythRuntime,
+  flow = new plyth.IntegratedPlythFlow(),
   integrated = true,
 ): InlineExtension {
   return {

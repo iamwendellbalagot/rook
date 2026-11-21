@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentEvent } from "../../src/pi/agent-gateway.js";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, rm, mkdir, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -202,6 +202,12 @@ describe("gateway run lifecycle", () => {
     async (action) => {
       const root = await mkdtemp(join(tmpdir(), "rook-review-lifecycle-"));
       try {
+        await mkdir(join(root, "node_modules"), { recursive: true });
+        await symlink(
+          join(process.cwd(), "node_modules", "plyth"),
+          join(root, "node_modules", "plyth"),
+          "dir",
+        );
         execFileSync("git", ["init", "-q"], { cwd: root });
         await writeFile(join(root, "source.ts"), "export const value = 1;\n");
         execFileSync("git", ["add", "source.ts"], { cwd: root });

@@ -14,7 +14,7 @@ import type {
   ThinkingInfo,
 } from "./agent-gateway.js";
 import type { SubagentProfile } from "./subagents.js";
-import type { SessionPredictionStats } from "plyth";
+import type { SessionPredictionStats } from "./plyth-contracts.js";
 
 export class MockAgentGateway implements AgentGateway {
   private running = false;

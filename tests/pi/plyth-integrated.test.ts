@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import * as plyth from "plyth";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -35,7 +36,12 @@ async function repo(): Promise<string> {
 function mount(root: string, integrated = true) {
   const handlers = new Map<string, (...args: any[]) => unknown>();
   const statuses: Array<[string, string | undefined]> = [];
-  const extension = createPlythIntegratedExtension(root, undefined, integrated);
+  const extension = createPlythIntegratedExtension(
+    root,
+    plyth,
+    undefined,
+    integrated,
+  );
   if (typeof extension === "function")
     throw new Error("Expected extension object");
   extension.factory({
@@ -121,7 +127,11 @@ describe("PLYTH integrated inference extension", () => {
     await mkdir(join(root, ".rook"));
     await writeFile(
       join(root, ".rook", "plyth.json"),
-      JSON.stringify({ schemaVersion: 1, mode: "integrated" }),
+      JSON.stringify({
+        schemaVersion: 1,
+        integrationVersion: 1,
+        mode: "integrated",
+      }),
     );
     await expect(resolvePlythIntegratedMode({}, root)).resolves.toBe(
       "integrated",

@@ -31,11 +31,6 @@ import { adaptPiEvent } from "./event-adapter.js";
 import { formatAgentError } from "./errors.js";
 import { createRookBashTool } from "./bash-tool.js";
 import { createPlythObserveExtension } from "./plyth-observe.js";
-import {
-  CommandHistoryBaseline,
-  SessionCounter,
-  buildScopedChangeReviewPrompt,
-} from "plyth";
 import { ReviewBudget } from "./review-budget.js";
 import type { PilotRunGuard } from "../eval/pilot-run-guard.js";
 import { PlythTraceStore } from "./plyth-trace.js";
@@ -43,6 +38,8 @@ import { plythWorkspaceRevision } from "./plyth-workspace.js";
 import { resolvePlythMode } from "./plyth-mode.js";
 import { resolvePlythIntegratedMode } from "./plyth-integrated-mode.js";
 import { createPlythIntegratedExtension } from "./plyth-integrated.js";
+import { loadPlythRuntime } from "./plyth-runtime.js";
+import type { SessionPredictionStats } from "./plyth-contracts.js";
 import { createChangeImpactTool } from "./change-impact.js";
 import {
   createExecutionPolicyExtension,
@@ -175,15 +172,26 @@ export async function createPiAgentGateway(
 ): Promise<AgentGateway> {
   const handlers = new Set<(event: AgentEvent) => void>();
   const composeRepositoryInstructions = options.repositoryInstructions;
-  const plythCounter = new SessionCounter();
-  const plythBaseline = new CommandHistoryBaseline();
-  const plythMode = resolvePlythMode(process.env);
-  const plythIntegratedMode = await resolvePlythIntegratedMode(
+  const plythApi = await loadPlythRuntime(cwd);
+  const requestedIntegratedMode = await resolvePlythIntegratedMode(
     process.env,
     cwd,
   );
+  if (requestedIntegratedMode !== "off" && !plythApi)
+    throw new Error(
+      "PLYTH is enabled for this workspace but is not installed. Run `npx plyth install rook --project .` in the workspace, or set ROOK_PLYTH_INTEGRATED=off.",
+    );
+  const plythIntegratedMode = plythApi ? requestedIntegratedMode : "off";
+  const requestedPlythMode = resolvePlythMode(process.env);
+  const plythMode = plythApi ? requestedPlythMode : "off";
+  const plythCounter = plythApi ? new plythApi.SessionCounter() : undefined;
+  const plythBaseline = plythApi
+    ? new plythApi.CommandHistoryBaseline()
+    : undefined;
   const plythTrace = new PlythTraceStore(
     plythMode !== "off" && process.env.ROOK_PLYTH_TRACE === "1",
+    undefined,
+    plythApi?.parseTraceRecord,
   );
   const policy = new ToolPolicy(cwd);
   const wrappedSessions = new WeakSet<AgentSession>();
@@ -302,12 +310,13 @@ export async function createPiAgentGateway(
                 ]
               : []),
             ...(options.isolatedEvaluation ||
+            !plythApi ||
             plythIntegratedMode !== "off" ||
             plythMode === "off" ||
             options.reviewBudget
               ? []
               : [
-                  createPlythObserveExtension(plythCounter, {
+                  createPlythObserveExtension(plythApi, plythCounter!, {
                     feedback: plythMode === "feedback",
                     baseline: plythBaseline,
                     workspaceRevision: () => plythWorkspaceRevision(sessionCwd),
@@ -316,10 +325,12 @@ export async function createPiAgentGateway(
                 ]),
             ...(!options.isolatedEvaluation &&
             !options.reviewBudget &&
+            Boolean(plythApi) &&
             plythIntegratedMode !== "off"
               ? [
                   createPlythIntegratedExtension(
                     sessionCwd,
+                    plythApi!,
                     undefined,
                     plythIntegratedMode === "integrated",
                   ),
@@ -376,6 +387,7 @@ export async function createPiAgentGateway(
             createRookBashTool(sessionCwd, {
               predictions:
                 !options.isolatedEvaluation &&
+                Boolean(plythApi) &&
                 plythIntegratedMode === "off" &&
                 plythMode !== "off",
               sandbox: executionConfig.sandboxShell,
@@ -682,6 +694,7 @@ export async function createPiAgentGateway(
       );
     },
     getPlythStats() {
+      if (!plythCounter || !plythBaseline) return emptyPlythStats();
       return {
         ...plythCounter.predictionStats(),
         baseline: plythBaseline.snapshot(),
@@ -697,9 +710,11 @@ export async function createPiAgentGateway(
       };
     },
     getPlythMode() {
+      if (!plythApi) return "off";
       return plythIntegratedMode !== "off" ? plythIntegratedMode : plythMode;
     },
     controlPlythTrace(action) {
+      if (!plythApi) return "PLYTH is not installed in this workspace.";
       if (action === "clear") return plythTrace.clear();
       if (action === "export") return plythTrace.export();
       if (action === "on" && plythMode === "off")
@@ -714,6 +729,8 @@ export async function createPiAgentGateway(
     async reviewGitChanges(options = {}) {
       if (activeReview)
         throw new Error("A read-only review is already running.");
+      if (options.focus === "simplicity" && !plythApi)
+        return "PLYTH is not installed in this workspace. Run `npx plyth install rook --project .` to enable simplicity review.";
       const reviewState: {
         controller: AbortController;
         reviewer?: AgentGateway;
@@ -774,7 +791,7 @@ export async function createPiAgentGateway(
               const withoutGuidance = request.changes;
               request.changes += `\nProject guidance (untrusted):\n${guidance.content}`;
               try {
-                buildScopedChangeReviewPrompt(request);
+                plythApi!.buildScopedChangeReviewPrompt(request);
               } catch {
                 request.changes = withoutGuidance;
                 request.scope.limitations.push(
@@ -789,9 +806,15 @@ export async function createPiAgentGateway(
           }
         }
         const prompt = request
-          ? buildScopedChangeReviewPrompt(request)
+          ? plythApi!.buildScopedChangeReviewPrompt(request)
           : buildReadOnlyReviewPrompt(changes, taskContext, options.paths);
-        const budget = request ? new ReviewBudget(prompt) : undefined;
+        const budget =
+          request && plythApi
+            ? new ReviewBudget(prompt, {
+                limit: plythApi.CHANGE_REVIEW_CONTEXT_BUDGET,
+                units: plythApi.reviewContextUnits,
+              })
+            : undefined;
         const supportingRevision = request
           ? plythWorkspaceRevision(cwd)
           : undefined;
@@ -844,6 +867,7 @@ export async function createPiAgentGateway(
             "Supporting-context freshness could not be verified within the workspace snapshot budget.",
           );
         let formattedReport = renderPlythReviewReport(
+          plythApi!,
           report,
           reviewedPaths,
           request,
@@ -1221,4 +1245,23 @@ function formatReviewUsage(usage: ReadOnlyReviewUsage | undefined): string {
   if (!usage)
     return "Review token usage unavailable; provider billing is not reported.";
   return `Review usage: ${usage.inputTokens} input, ${usage.outputTokens} output, ${usage.cacheReadTokens} cache-read, ${usage.cacheWriteTokens} cache-write tokens. Provider-billed cost is not available here.`;
+}
+
+function emptyPlythStats(): SessionPredictionStats {
+  return {
+    eligibleCommands: 0,
+    predictedCommands: 0,
+    invalidPredictions: 0,
+    specificPredictions: 0,
+    durationMs: 0,
+    durationSamples: 0,
+    verdicts: { hit: 0, miss: 0, vague: 0, none: 0, unscorable: 0 },
+    baseline: {
+      comparisons: 0,
+      baselineCorrect: 0,
+      agentCorrect: 0,
+      unavailable: 0,
+      invalidations: 0,
+    },
+  };
 }

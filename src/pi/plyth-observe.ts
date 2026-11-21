@@ -1,32 +1,24 @@
 import {
-  judgeEvents,
-  parseCommandStarted,
-  parseCommandFinished,
-  SessionFeedbackGate,
-  SessionCounter,
-  CommandHistoryBaseline,
-  createTraceRecord,
-  type HistoryForecast,
-  type TraceRecord,
-  type CommandClass,
-  type CommandStarted,
-} from "plyth";
-import {
   isBashToolResult,
   isToolCallEventType,
   type ExtensionAPI,
   type InlineExtension,
 } from "@earendil-works/pi-coding-agent";
 import { randomBytes } from "node:crypto";
+import type { PlythRuntime, TraceRecord } from "./plyth-contracts.js";
+
+type CommandClass = "test" | "build" | "diagnostic" | "other";
+type HistoryForecast = any;
 
 const GUIDANCE =
   "For eligible test, build, and diagnostic bash commands, include expect.outcome (pass, fail, or error) when reasonably predictable. Use expect.evidence as a short exact substring from a known test name or stable error label, not a prose summary or guessed aggregate count. Omit expect only when the result is genuinely uncertain; it never changes the command.";
 
 export function createPlythObserveExtension(
-  counter: SessionCounter,
+  plyth: PlythRuntime,
+  counter: any,
   options: {
     feedback?: boolean;
-    baseline?: CommandHistoryBaseline;
+    baseline?: any;
     workspaceRevision?: () => string | undefined;
     trace?: { append(record: TraceRecord): void };
   } = {},
@@ -34,12 +26,20 @@ export function createPlythObserveExtension(
   return {
     name: "rook-plyth-observe",
     factory(pi: ExtensionAPI) {
+      const {
+        judgeEvents,
+        parseCommandStarted,
+        parseCommandFinished,
+        SessionFeedbackGate,
+        CommandHistoryBaseline,
+        createTraceRecord,
+      } = plyth;
       const pending = new Map<string, unknown>();
       const tracked = new Set<string>();
       const feedbackGate = new SessionFeedbackGate();
       const baseline = options.baseline ?? new CommandHistoryBaseline();
       const forecasts = new Map<string, HistoryForecast>();
-      const traces = new Map<string, Parameters<typeof createTraceRecord>[0]>();
+      const traces = new Map<string, Record<string, any>>();
       let sessionKey = randomBytes(16).toString("hex");
       const revision = () => {
         try {

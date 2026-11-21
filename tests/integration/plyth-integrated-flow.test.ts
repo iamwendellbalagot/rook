@@ -3,6 +3,7 @@ import {
   DefaultResourceLoader,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import * as plyth from "plyth";
 import type {
   AssistantMessage,
   AssistantMessageEventStream,
@@ -75,7 +76,7 @@ describe("PLYTH integration through the pinned Pi inference loop", () => {
       noThemes: true,
       noContextFiles: true,
       extensionFactories: [
-        createPlythIntegratedExtension(root),
+        createPlythIntegratedExtension(root, plyth),
         {
           name: "plyth-inference-context-test-trace",
           factory(pi) {

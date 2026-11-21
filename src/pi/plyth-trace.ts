@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { parseTraceRecord, type TraceRecord } from "plyth";
+import type { TraceRecord } from "./plyth-contracts.js";
 
 const MAX_BYTES = 64 * 1024;
 
@@ -26,6 +26,9 @@ export class PlythTraceStore {
   constructor(
     enabled = false,
     root = process.env.ROOK_HOME || join(homedir(), ".rook"),
+    private readonly parseTraceRecord?: (
+      input: unknown,
+    ) => TraceRecord | undefined,
   ) {
     this.enabled = enabled;
     this.directory = join(resolve(root), "plyth");
@@ -41,7 +44,7 @@ export class PlythTraceStore {
     let fd: number | undefined;
     let lock: number | undefined;
     try {
-      const safeRecord = parseTraceRecord(record);
+      const safeRecord = this.parseTraceRecord?.(record);
       if (!safeRecord) throw new Error("invalid_record");
       this.checkDirectory(true);
       lock = openSync(
@@ -111,7 +114,7 @@ export class PlythTraceStore {
         .split("\n")
         .filter(Boolean)
         .map((line) => {
-          const record = parseTraceRecord(JSON.parse(line));
+          const record = this.parseTraceRecord?.(JSON.parse(line));
           if (!record) throw new Error("invalid_trace");
           return JSON.stringify(record);
         });

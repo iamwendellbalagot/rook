@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { devNull } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import type { ChangeReviewRequest } from "plyth";
+import type { ChangeReviewRequest } from "./plyth-contracts.js";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 

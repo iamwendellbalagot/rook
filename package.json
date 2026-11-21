@@ -1,6 +1,9 @@
 {
   "name": "rook",
   "version": "0.1.0",
+  "rookCapabilities": {
+    "plythIntegration": 1
+  },
   "description": "A coding agent that grows with your codebase.",
   "type": "module",
   "engines": {
@@ -20,7 +23,7 @@
   "scripts": {
     "prepack": "npm run build",
     "dev": "tsx src/cli.ts",
-    "build": "node scripts/patch-pi-oauth-page.mjs && tsc -p tsconfig.build.json",
+    "build": "node scripts/clean-dist.mjs && node scripts/patch-pi-oauth-page.mjs && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "prettier --check .",
     "format": "prettier --write .",
@@ -37,7 +40,6 @@
     "@earendil-works/pi-tui": "1.5.2",
     "better-sqlite3": "^12.11.1",
     "highlight.js": "11.11.1",
-    "plyth": "file:../plyth",
     "typebox": "1.3.27",
     "typescript-legacy": "npm:typescript@5.9.3"
   },
@@ -45,8 +47,17 @@
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.19.0",
     "prettier": "3.6.2",
+    "plyth": "file:../plyth",
     "tsx": "4.20.6",
     "typescript": "7.0.2",
     "vitest": "5.1.0"
+  },
+  "peerDependencies": {
+    "plyth": "^0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "plyth": {
+      "optional": true
+    }
   }
 }

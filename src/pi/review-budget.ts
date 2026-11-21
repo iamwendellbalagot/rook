@@ -1,5 +1,14 @@
 import type { InlineExtension } from "@earendil-works/pi-coding-agent";
-import { CHANGE_REVIEW_CONTEXT_BUDGET, reviewContextUnits } from "plyth";
+
+export interface ReviewContextBudget {
+  limit: number;
+  units(text: string): number;
+}
+
+const DEFAULT_CONTEXT_BUDGET: ReviewContextBudget = {
+  limit: 32_000,
+  units: (text) => new TextEncoder().encode(text).length,
+};
 
 /** Per-invocation guard. It supplements (never replaces) Rook's tool policy. */
 export class ReviewBudget {
@@ -8,8 +17,11 @@ export class ReviewBudget {
   private remaining: number;
   private readonly supplementalBudget: number;
 
-  constructor(prompt: string) {
-    this.remaining = CHANGE_REVIEW_CONTEXT_BUDGET - reviewContextUnits(prompt);
+  constructor(
+    prompt: string,
+    private readonly contextBudget = DEFAULT_CONTEXT_BUDGET,
+  ) {
+    this.remaining = contextBudget.limit - contextBudget.units(prompt);
     this.supplementalBudget = this.remaining;
     if (this.remaining < 0)
       throw new RangeError("Review context budget exceeded.");
@@ -32,7 +44,7 @@ export class ReviewBudget {
 
   bound(text: string): string {
     const cost = (value: string) =>
-      reviewContextUnits(JSON.stringify([{ type: "text", text: value }]));
+      this.contextBudget.units(JSON.stringify([{ type: "text", text: value }]));
     if (cost(text) > this.remaining) {
       this.limitations.add(
         "Supplementary content was omitted because the context budget was exhausted.",
@@ -82,7 +94,7 @@ export class ReviewBudget {
             let content = message.content.filter(
               (part) => part.type === "text",
             );
-            const cost = reviewContextUnits(JSON.stringify(content));
+            const cost = this.contextBudget.units(JSON.stringify(content));
             if (cost > remaining) {
               content = [];
               this.limitations.add(

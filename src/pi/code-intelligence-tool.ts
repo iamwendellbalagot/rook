@@ -1,4 +1,4 @@
-import { lstat, readdir, realpath } from "node:fs/promises";
+import { lstat, realpath } from "node:fs/promises";
 import {
   lstatSync,
   readFileSync,

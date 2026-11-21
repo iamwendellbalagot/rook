@@ -39,7 +39,7 @@ export async function resolvePlythIntegratedMode(
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
     throw new Error(".rook/plyth.json must contain a JSON object.");
   const config = parsed as Record<string, unknown>;
-  if (config.schemaVersion !== 1)
+  if (config.schemaVersion !== 1 || config.integrationVersion !== 1)
     throw new Error(".rook/plyth.json has an unsupported schema version.");
   const mode = config.mode;
   if (mode === "off" || mode === "prompt" || mode === "integrated") return mode;

@@ -1,6 +1,6 @@
 import type { TaskChecklistItem } from "./task-checklist.js";
 import type { SubagentProfile } from "./subagents.js";
-import type { SessionPredictionStats } from "plyth";
+import type { SessionPredictionStats } from "./plyth-contracts.js";
 
 export type AgentEvent =
   | { type: "model_request_started" }

@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createTraceRecord } from "plyth";
+import { createTraceRecord, parseTraceRecord } from "plyth";
 import { PlythTraceStore } from "../../src/pi/plyth-trace.js";
 import { plythWorkspaceRevision } from "../../src/pi/plyth-workspace.js";
 import { resolvePlythMode } from "../../src/pi/plyth-mode.js";
@@ -24,6 +24,8 @@ const temporary = () => {
   roots.push(root);
   return root;
 };
+const traceStore = (enabled: boolean, root: string) =>
+  new PlythTraceStore(enabled, root, parseTraceRecord);
 afterEach(() => {
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true });
@@ -43,7 +45,7 @@ describe.skipIf(typeof process.getuid !== "function" || !constants.O_NOFOLLOW)(
   () => {
     it("writes nothing by default; supports explicit enable, disable, safe export and deletion", () => {
       const root = join(temporary(), "rook-home");
-      const store = new PlythTraceStore(false, root);
+      const store = traceStore(false, root);
       store.append(record());
       expect(existsSync(root)).toBe(false);
       store.setEnabled(true);
@@ -65,7 +67,7 @@ describe.skipIf(typeof process.getuid !== "function" || !constants.O_NOFOLLOW)(
     });
 
     it("caps storage and rejects unknown fields on both append and export", () => {
-      const store = new PlythTraceStore(true, temporary());
+      const store = traceStore(true, temporary());
       for (let i = 0; i < 500; i++) store.append(record());
       expect(statSync(store.file).size).toBeLessThanOrEqual(65536);
       expect(store.status()).not.toContain("dropped 0");
@@ -86,7 +88,7 @@ describe.skipIf(typeof process.getuid !== "function" || !constants.O_NOFOLLOW)(
       const root = temporary();
       const target = join(root, "target");
       writeFileSync(target, "untouched");
-      const store = new PlythTraceStore(true, root);
+      const store = traceStore(true, root);
       mkdirSync(store.directory, { mode: 0o700 });
       symlinkSync(target, store.file);
       expect(() => store.append(record())).not.toThrow();
@@ -95,13 +97,13 @@ describe.skipIf(typeof process.getuid !== "function" || !constants.O_NOFOLLOW)(
       expect(readFileSync(target, "utf8")).toBe("untouched");
       const other = temporary();
       symlinkSync(root, join(other, "plyth"));
-      const linked = new PlythTraceStore(true, other);
+      const linked = traceStore(true, other);
       linked.append(record());
       expect(linked.status()).toContain("storage unavailable");
     });
 
     it("fails open on append contention and refuses a publicly readable ledger", () => {
-      const store = new PlythTraceStore(true, temporary());
+      const store = traceStore(true, temporary());
       store.append(record());
       const before = readFileSync(store.file, "utf8");
       writeFileSync(join(store.directory, "append.lock"), "", { mode: 0o600 });
