@@ -213,7 +213,7 @@ export interface AgentGateway {
   resumeSession(path: string): Promise<void>;
   setMode(mode: PermissionMode): void;
   getPlythStats(): SessionPredictionStats;
-  getPlythMode?(): "off" | "observe" | "feedback";
+  getPlythMode?(): "off" | "observe" | "feedback" | "prompt" | "integrated";
   controlPlythTrace?(
     action: "status" | "on" | "off" | "export" | "clear",
   ): string;

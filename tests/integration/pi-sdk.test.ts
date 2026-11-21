@@ -11,8 +11,38 @@ import { ReviewBudget } from "../../src/pi/review-budget.js";
 import { RookStore } from "../../src/db/store.js";
 import { MemoryCaptureManager } from "../../src/memory/capture.js";
 import type { RepositoryIdentity } from "../../src/repo/workspace.js";
+import { afterEach, vi } from "vitest";
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe("Pi SDK compatibility", () => {
+  it("registers PLYTH integrated modes without provider inference", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rook-plyth-mode-sdk-"));
+    vi.stubEnv("ROOK_PLYTH_MODE", "observe");
+    const modes = [
+      [undefined, "observe"],
+      ["prompt", "prompt"],
+      ["integrated", "integrated"],
+      ["off", "observe"],
+    ] as const;
+    try {
+      for (const [configured, expected] of modes) {
+        vi.stubEnv("ROOK_PLYTH_INTEGRATED", configured);
+        const gateway = await createPiAgentGateway(root, {
+          sessionDir: join(root, `sessions-${expected}`),
+        });
+        try {
+          expect(gateway.getPlythMode?.()).toBe(expected);
+          expect(gateway.getActiveTools()).toEqual(expect.any(Array));
+        } finally {
+          await gateway.dispose();
+        }
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("binds review-only budgets without provider inference", async () => {
     const root = await mkdtemp(join(tmpdir(), "rook-review-sdk-"));
     const gateway = await createPiAgentGateway(root, {

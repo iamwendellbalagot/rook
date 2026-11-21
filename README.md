@@ -33,6 +33,12 @@ Set `ROOK_PLYTH_MODE=off` for a same-host B0 (no extension, prediction schema/gu
 
 Persistence is separately opt-in: `ROOK_PLYTH_TRACE=1` or `/plyth trace on`. `/plyth trace [status|on|off|export|clear]` controls the private local JSONL ledger at `$ROOK_HOME/plyth/trace.jsonl` (default `~/.rook/plyth/trace.jsonl`). It stores only coarse times/durations, enums, a random session pseudonym and baseline correctness flags—not commands, output, evidence, paths, prompts or host IDs. It is capped at 64 KiB, private on POSIX, and storage errors fail open. `off` preserves records; `clear` deletes the ledger and disables tracing in this process. Stop other tracing processes before deletion if you want it to stay empty. No ledger is written by default and no data is uploaded. See sibling Plyth `docs/rook.md` for capabilities, snapshot limits, retention, safe export and stale-lock recovery.
 
+### Integrated PLYTH assistance (experimental, default off)
+
+`ROOK_PLYTH_INTEGRATED=integrated` opts into sparse assistance inside the existing Pi inference/tool loop. It adds concise behavioral guidance, one bounded task-local change checkpoint after observed source changes, and at most two recovery signals when the same supported test/build/diagnostic failure and evidence repeat. Checkpoints enter the next normal inference context; recovery advice is appended to the existing Bash result. It does not start a reviewer/provider turn, run tools, remove code, authorize actions, or claim a root cause. Task text and paths are escaped as untrusted context; task state and feedback are in-memory only. Session/fork/compaction boundaries clear task state.
+
+`ROOK_PLYTH_INTEGRATED=prompt` enables only the same static guidance, for prompt-only comparison. Unset, `off`, or an unrecognized value disables the integrated path. The integrated modes suppress the separate legacy observer for that session; legacy `ROOK_PLYTH_MODE=off|observe|feedback` and `ROOK_PLYTH_FEEDBACK=1` behavior remains unchanged when integrated mode is off. `/plyth` reports `integrated` or `prompt-only`. No live/provider-backed effectiveness evaluation has been run for this feature; it remains experimental and opt-in.
+
 Rook-first feature completion does **not** establish feedback benefit. The earlier bounded Phase 3 evaluation found insufficient benefit evidence and predates the completed baseline/trace features. Other coding-agent adapters are deferred.
 
 ## Development

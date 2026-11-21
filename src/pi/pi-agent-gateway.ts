@@ -41,6 +41,8 @@ import type { PilotRunGuard } from "../eval/pilot-run-guard.js";
 import { PlythTraceStore } from "./plyth-trace.js";
 import { plythWorkspaceRevision } from "./plyth-workspace.js";
 import { resolvePlythMode } from "./plyth-mode.js";
+import { resolvePlythIntegratedMode } from "./plyth-integrated-mode.js";
+import { createPlythIntegratedExtension } from "./plyth-integrated.js";
 import { createChangeImpactTool } from "./change-impact.js";
 import {
   createExecutionPolicyExtension,
@@ -176,6 +178,7 @@ export async function createPiAgentGateway(
   const plythCounter = new SessionCounter();
   const plythBaseline = new CommandHistoryBaseline();
   const plythMode = resolvePlythMode(process.env);
+  const plythIntegratedMode = resolvePlythIntegratedMode(process.env);
   const plythTrace = new PlythTraceStore(
     plythMode !== "off" && process.env.ROOK_PLYTH_TRACE === "1",
   );
@@ -296,6 +299,7 @@ export async function createPiAgentGateway(
                 ]
               : []),
             ...(options.isolatedEvaluation ||
+            plythIntegratedMode !== "off" ||
             plythMode === "off" ||
             options.reviewBudget
               ? []
@@ -307,6 +311,17 @@ export async function createPiAgentGateway(
                     trace: plythTrace,
                   }),
                 ]),
+            ...(!options.isolatedEvaluation &&
+            !options.reviewBudget &&
+            plythIntegratedMode !== "off"
+              ? [
+                  createPlythIntegratedExtension(
+                    sessionCwd,
+                    undefined,
+                    plythIntegratedMode === "integrated",
+                  ),
+                ]
+              : []),
             createExecutionPolicyExtension(
               () => policy.getMode(),
               executionConfig,
@@ -356,7 +371,10 @@ export async function createPiAgentGateway(
           customTools: [
             taskChecklistTool,
             createRookBashTool(sessionCwd, {
-              predictions: !options.isolatedEvaluation && plythMode !== "off",
+              predictions:
+                !options.isolatedEvaluation &&
+                plythIntegratedMode === "off" &&
+                plythMode !== "off",
               sandbox: executionConfig.sandboxShell,
               ...(sandboxRuntime ? { sandboxRuntime } : {}),
             }),
@@ -676,7 +694,7 @@ export async function createPiAgentGateway(
       };
     },
     getPlythMode() {
-      return plythMode;
+      return plythIntegratedMode !== "off" ? plythIntegratedMode : plythMode;
     },
     controlPlythTrace(action) {
       if (action === "clear") return plythTrace.clear();

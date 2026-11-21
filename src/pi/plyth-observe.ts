@@ -289,7 +289,7 @@ function record(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function evidenceLabelsFromOutput(
+export function evidenceLabelsFromOutput(
   output: string,
   commandClass: unknown,
   outcome: string | undefined,

@@ -1422,7 +1422,11 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
               ? "observe-only"
               : mode === "feedback"
                 ? "advisory"
-                : "off";
+                : mode === "prompt"
+                  ? "prompt-only"
+                  : mode === "integrated"
+                    ? "integrated"
+                    : "off";
           appendText(
             `PLYTH ${label} · eligible ${stats.eligibleCommands} · predicted ${stats.predictedCommands} · invalid ${stats.invalidPredictions} · specific ${stats.specificPredictions}\nhit ${stats.verdicts.hit} · miss ${stats.verdicts.miss} · vague ${stats.verdicts.vague} · none ${stats.verdicts.none} · unscorable ${stats.verdicts.unscorable}\ncommand time ${stats.durationMs}ms across ${stats.durationSamples} commands${stats.baseline ? `\nOutcome-only comparison · agent ${stats.baseline.agentCorrect}/${stats.baseline.comparisons} · history ${stats.baseline.baselineCorrect}/${stats.baseline.comparisons} · unavailable ${stats.baseline.unavailable} · invalidations ${stats.baseline.invalidations}` : ""}`,
             "muted",
