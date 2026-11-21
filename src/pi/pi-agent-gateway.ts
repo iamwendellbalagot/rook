@@ -37,6 +37,7 @@ import {
   buildScopedChangeReviewPrompt,
 } from "plyth";
 import { ReviewBudget } from "./review-budget.js";
+import type { PilotRunGuard } from "../eval/pilot-run-guard.js";
 import { PlythTraceStore } from "./plyth-trace.js";
 import { plythWorkspaceRevision } from "./plyth-workspace.js";
 import { resolvePlythMode } from "./plyth-mode.js";
@@ -131,7 +132,9 @@ function activeToolsForSession(
   session: AgentSession,
   mode: PermissionMode,
   readOnlyTools?: string[],
+  pilotRunGuard?: PilotRunGuard,
 ): string[] {
+  if (pilotRunGuard) return [...pilotRunGuard.allowedTools];
   if (readOnlyTools)
     return readOnlyTools.filter((name) => PLAN_TOOLS.includes(name));
   const mcpTools = session
@@ -162,7 +165,9 @@ export async function createPiAgentGateway(
     reviewBudget?: ReviewBudget;
     maxOutputTokensPerResponse?: number;
     maxProviderRequests?: number;
-    toolCallLimit?: number;
+    pilotRunGuard?: PilotRunGuard;
+    isolatedEvaluation?: boolean;
+    onProviderRequest?: (count: number) => void;
   } = {},
 ): Promise<AgentGateway> {
   const handlers = new Set<(event: AgentEvent) => void>();
@@ -174,6 +179,8 @@ export async function createPiAgentGateway(
     plythMode !== "off" && process.env.ROOK_PLYTH_TRACE === "1",
   );
   const policy = new ToolPolicy(cwd);
+  const wrappedSessions = new WeakSet<AgentSession>();
+  let providerRequests = 0;
   const executionConfig = await loadExecutionPolicyConfig(cwd);
   const subagentProfiles = await loadSubagentProfiles(cwd);
   const sandboxRuntime = executionConfig.sandboxShell
@@ -220,8 +227,10 @@ export async function createPiAgentGateway(
         agentDir,
         resourceLoaderOptions: {
           noExtensions: true,
-          noSkills: Boolean(options.reviewBudget),
-          noPromptTemplates: Boolean(options.reviewBudget),
+          noSkills: Boolean(options.reviewBudget || options.isolatedEvaluation),
+          noPromptTemplates: Boolean(
+            options.reviewBudget || options.isolatedEvaluation,
+          ),
           additionalSkillPaths: Object.values(
             getRookSkillDirectories(sessionCwd),
           ),
@@ -240,27 +249,34 @@ export async function createPiAgentGateway(
             };
           },
           extensionFactories: [
-            createCodemodeExtension(),
-            createToolSearchExtension(),
-            createMcpExtension(),
+            ...(!options.isolatedEvaluation
+              ? [
+                  createCodemodeExtension(),
+                  createToolSearchExtension(),
+                  createMcpExtension(),
+                ]
+              : []),
             createToolPolicyExtension(policy),
             ...(options.reviewBudget ? [options.reviewBudget.extension()] : []),
-            ...(options.toolCallLimit === undefined
-              ? []
-              : [
+            ...(options.pilotRunGuard
+              ? [
                   (pi: ExtensionAPI) => {
-                    let calls = 0;
-                    pi.on("tool_call", () => {
-                      if (calls >= options.toolCallLimit!)
+                    pi.on("tool_call", (event) => {
+                      if (
+                        !options.pilotRunGuard!.admitToolCall(
+                          event.toolName,
+                          event.input,
+                        )
+                      )
                         return {
                           block: true,
                           reason:
-                            "This evaluation run reached its tool-call ceiling.",
+                            "This synthetic evaluation call violated its frozen tool or write-path limit. The run must stop.",
                         };
-                      calls++;
                     });
                   },
-                ]),
+                ]
+              : []),
             ...(!options.reviewBudget
               ? [
                   (pi: ExtensionAPI) => {
@@ -276,7 +292,9 @@ export async function createPiAgentGateway(
                   },
                 ]
               : []),
-            ...(plythMode === "off" || options.reviewBudget
+            ...(options.isolatedEvaluation ||
+            plythMode === "off" ||
+            options.reviewBudget
               ? []
               : [
                   createPlythObserveExtension(plythCounter, {
@@ -293,9 +311,10 @@ export async function createPiAgentGateway(
             ...(options.memoryContext
               ? [createMemoryContextExtension(options.memoryContext)]
               : []),
-            ...(options.repositoryInstructionsExtension
+            ...(!options.isolatedEvaluation &&
+            options.repositoryInstructionsExtension
               ? [options.repositoryInstructionsExtension]
-              : options.repositoryInstructions
+              : !options.isolatedEvaluation && options.repositoryInstructions
                 ? [
                     createRepositoryInstructionsExtension(
                       options.repositoryInstructions,
@@ -318,21 +337,23 @@ export async function createPiAgentGateway(
           services,
           sessionManager,
           ...(sessionStartEvent ? { sessionStartEvent } : {}),
-          tools: [
-            ...AVAILABLE_TOOLS,
-            "rook_inspect",
-            "rook_search",
-            "rook_map",
-            "rook_code",
-            "rook_impact",
-            TASK_CHECKLIST_TOOL_NAME,
-            "codemode",
-            "tool_search",
-          ],
+          tools: options.pilotRunGuard
+            ? [...options.pilotRunGuard.allowedTools]
+            : [
+                ...AVAILABLE_TOOLS,
+                "rook_inspect",
+                "rook_search",
+                "rook_map",
+                "rook_code",
+                "rook_impact",
+                TASK_CHECKLIST_TOOL_NAME,
+                "codemode",
+                "tool_search",
+              ],
           customTools: [
             taskChecklistTool,
             createRookBashTool(sessionCwd, {
-              predictions: plythMode !== "off",
+              predictions: !options.isolatedEvaluation && plythMode !== "off",
               sandbox: executionConfig.sandboxShell,
               ...(sandboxRuntime ? { sandboxRuntime } : {}),
             }),
@@ -360,32 +381,52 @@ export async function createPiAgentGateway(
     if (
       options.reviewBudget ||
       options.maxOutputTokensPerResponse !== undefined ||
-      options.maxProviderRequests !== undefined
+      options.maxProviderRequests !== undefined ||
+      options.pilotRunGuard
     ) {
-      const stream = session.agent.streamFunction;
-      let requests = 0;
-      session.agent.streamFunction = (model, context, streamOptions) => {
-        if (
-          options.maxProviderRequests !== undefined &&
-          requests >= options.maxProviderRequests
-        )
-          throw new RangeError(
-            "This evaluation run reached its provider-response ceiling.",
+      if (!wrappedSessions.has(session)) {
+        const stream = session.agent.streamFunction;
+        session.agent.streamFunction = (model, context, streamOptions) => {
+          const admitted = options.pilotRunGuard
+            ? options.pilotRunGuard.admitProviderRequest()
+            : options.maxProviderRequests === undefined ||
+              providerRequests < options.maxProviderRequests;
+          if (!admitted) {
+            session.agent.abort();
+            const error = new Error(
+              "This run reached its provider-request ceiling.",
+            );
+            error.name = "AbortError";
+            throw error;
+          }
+          if (!options.pilotRunGuard) providerRequests++;
+          options.onProviderRequest?.(
+            options.pilotRunGuard?.requestCount() ?? providerRequests,
           );
-        requests++;
-        return stream(model, context, {
-          ...streamOptions,
-          maxTokens: Math.min(
-            streamOptions?.maxTokens ??
-              options.maxOutputTokensPerResponse ??
-              1000,
-            options.maxOutputTokensPerResponse ?? 1000,
-          ),
-        });
-      };
+          return stream(model, context, {
+            ...streamOptions,
+            maxTokens: Math.min(
+              streamOptions?.maxTokens ??
+                options.maxOutputTokensPerResponse ??
+                1000,
+              options.maxOutputTokensPerResponse ?? 1000,
+            ),
+            ...(options.maxProviderRequests !== undefined ||
+            options.pilotRunGuard
+              ? { maxRetries: 0 }
+              : {}),
+          });
+        };
+        wrappedSessions.add(session);
+      }
     }
     session.setActiveToolsByName(
-      activeToolsForSession(session, policy.getMode(), options.readOnlyTools),
+      activeToolsForSession(
+        session,
+        policy.getMode(),
+        options.readOnlyTools,
+        options.pilotRunGuard,
+      ),
     );
     policy.clearSessionPermissionGrants();
     checklist = clearChecklistWhenBinding
@@ -608,7 +649,12 @@ export async function createPiAgentGateway(
         );
       policy.setMode(mode);
       runtime.session.setActiveToolsByName(
-        activeToolsForSession(runtime.session, mode, options.readOnlyTools),
+        activeToolsForSession(
+          runtime.session,
+          mode,
+          options.readOnlyTools,
+          options.pilotRunGuard,
+        ),
       );
     },
     getPlythStats() {
@@ -652,6 +698,8 @@ export async function createPiAgentGateway(
         controller: new AbortController(),
       };
       activeReview = reviewState;
+      let usage: ReadOnlyReviewUsage | undefined;
+      let reviewProviderRequests = 0;
       try {
         const reviewSignal = AbortSignal.any([
           reviewState.controller.signal,
@@ -688,7 +736,7 @@ export async function createPiAgentGateway(
             : undefined;
         if (request && !request.scope.paths.length)
           return "No isolated task-window changes to review. Use --file for explicit mixed/pre-existing scope.";
-        if (request) {
+        if (request && !options.isolatedEvaluation) {
           try {
             const guidance = composeRepositoryInstructions
               ? await composeRepositoryInstructions(taskContext)
@@ -723,7 +771,6 @@ export async function createPiAgentGateway(
           ? plythWorkspaceRevision(cwd)
           : undefined;
         const reviewedPaths = request?.scope.paths ?? options.paths;
-        let usage: ReadOnlyReviewUsage | undefined;
         const report = await runTemporaryReadOnlyTask(
           cwd,
           {
@@ -739,6 +786,7 @@ export async function createPiAgentGateway(
                   maxProviderRequests: 2,
                   maxOutputTokensPerResponse: 1000,
                   thinkingLevel: runtime.session.thinkingLevel,
+                  isolatedEvaluation: options.isolatedEvaluation,
                 }
               : {}),
             signal: reviewSignal,
@@ -747,6 +795,9 @@ export async function createPiAgentGateway(
             },
             onUsage: (value) => {
               usage = value;
+            },
+            onProviderRequest: () => {
+              reviewProviderRequests++;
             },
           },
         );
@@ -789,6 +840,10 @@ export async function createPiAgentGateway(
         }
         return `${formattedReport}\n\n${formatReviewUsage(usage)}`;
       } finally {
+        options.onMetrics?.({
+          providerRequests: reviewProviderRequests,
+          usage,
+        });
         if (activeReview === reviewState) activeReview = undefined;
       }
     },
@@ -1020,6 +1075,8 @@ async function runTemporaryReadOnlyTask(
     maxProviderRequests?: number;
     maxOutputTokensPerResponse?: number;
     thinkingLevel?: string;
+    isolatedEvaluation?: boolean;
+    onProviderRequest?: (count: number) => void;
   } = {},
 ): Promise<string> {
   const sessionDir = await mkdtemp(join(tmpdir(), "rook-readonly-session-"));
@@ -1036,6 +1093,10 @@ async function runTemporaryReadOnlyTask(
       ...(options.maxOutputTokensPerResponse === undefined
         ? {}
         : { maxOutputTokensPerResponse: options.maxOutputTokensPerResponse }),
+      ...(options.isolatedEvaluation ? { isolatedEvaluation: true } : {}),
+      ...(options.onProviderRequest
+        ? { onProviderRequest: options.onProviderRequest }
+        : {}),
     });
     cancelReviewer = () => {
       void reviewer?.cancel().catch(() => undefined);
@@ -1084,7 +1145,11 @@ export async function runGenericSimplicityReview(
   taskContext: string,
   signal?: AbortSignal,
   thinkingLevel = "high",
-): Promise<{ report: string; usage: ReadOnlyReviewUsage | undefined }> {
+): Promise<{
+  report: string;
+  usage: ReadOnlyReviewUsage | undefined;
+  providerRequests: number;
+}> {
   const changes = inspectGitWorkspace(cwd);
   const prompt = [
     "Review the supplied task request and Git patch only for unnecessary complexity relative to the requested outcome.",
@@ -1095,18 +1160,21 @@ export async function runGenericSimplicityReview(
   ].join("\n\n");
   const budget = new ReviewBudget(prompt);
   let usage: ReadOnlyReviewUsage | undefined;
+  let providerRequests = 0;
   const report = await runTemporaryReadOnlyTask(cwd, selectedModel, prompt, {
     tools: ["read", "rook_search"],
     budget,
     maxProviderRequests: 2,
     maxOutputTokensPerResponse: 1000,
     thinkingLevel,
-    ...(signal ? { signal } : {}),
+    isolatedEvaluation: true,
+    onProviderRequest: () => providerRequests++,
     onUsage: (value) => {
       usage = value;
     },
+    ...(signal ? { signal } : {}),
   });
-  return { report, usage };
+  return { report, usage, providerRequests };
 }
 
 function formatReviewUsage(usage: ReadOnlyReviewUsage | undefined): string {

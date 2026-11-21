@@ -217,6 +217,11 @@ export interface AgentGateway {
     focus?: "simplicity";
     taskContext?: string;
     paths?: string[];
+    isolatedEvaluation?: boolean;
+    onMetrics?: (metrics: {
+      providerRequests: number;
+      usage: ReadOnlyReviewUsage | undefined;
+    }) => void;
   }): Promise<string>;
   getUsageStats?(): ReadOnlyReviewUsage;
   exploreReadOnly(task: string): Promise<string>;
