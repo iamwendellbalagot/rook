@@ -55,6 +55,12 @@ async function main(): Promise<void> {
     return;
   }
   await verifyFreeze(cases);
+  if (process.argv.includes("--verify-freeze")) {
+    process.stdout.write(
+      "Frozen protocol, fixtures, runner, and source hashes verified. No provider was called.\n",
+    );
+    return;
+  }
   await runRemaining(cases);
 }
 
