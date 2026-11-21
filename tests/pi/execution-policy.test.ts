@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  writeFile,
+  symlink,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -12,6 +19,8 @@ import {
 import {
   createPlanInspectionTool,
   inspectGitWorkspace,
+  captureReviewBoundary,
+  captureChangeReview,
 } from "../../src/pi/plan-inspection-tool.js";
 import { createWorkspaceSearchTool } from "../../src/pi/workspace-search-tool.js";
 
@@ -166,6 +175,42 @@ describe("Rook execution policy", () => {
     expect(() => inspectGitWorkspace(root, ["README.md"])).toThrow(
       "changed files",
     );
+  });
+
+  it("isolates task-window files, labels mixed selections, and fingerprints untracked content", async () => {
+    const root = await tempRepo();
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "user.ts"), "export const user = 1;\n");
+    await writeFile(join(root, "src", "task.ts"), "export const task = 1;\n");
+    execFileSync("git", ["add", "src"], { cwd: root });
+    execFileSync("git", ["commit", "-qm", "initial"], { cwd: root });
+    await writeFile(join(root, "src", "user.ts"), "export const user = 2;\n");
+    const boundary = captureReviewBoundary(root);
+    await writeFile(join(root, "src", "task.ts"), "export const task = 2;\n");
+    execFileSync("git", ["add", "src/task.ts"], { cwd: root });
+    await writeFile(join(root, "src", "new.ts"), "export const fresh = 1;\n");
+    const snapshot = captureChangeReview(
+      join(root, "src"),
+      "Update task only",
+      boundary,
+    );
+    expect(snapshot.scope.paths.sort()).toEqual(["src/new.ts", "src/task.ts"]);
+    expect(snapshot.changes).not.toContain("user = 2");
+    expect(snapshot.changes).toContain("fresh = 1");
+    expect(snapshot.scope.attribution).toBe("task-window");
+    const mixed = captureChangeReview(root, "Update task", boundary, [
+      "src/user.ts",
+    ]);
+    expect(mixed.scope.attribution).toBe("unknown");
+    expect(mixed.scope.limitations.join(" ")).toContain("mixed");
+    await writeFile(join(root, "src", "new.ts"), "export const fresh = 2;\n");
+    expect(
+      captureChangeReview(root, "Update task only", boundary).scope.revision,
+    ).not.toBe(snapshot.scope.revision);
+    await symlink("task.ts", join(root, "src", "linked.ts"));
+    expect(() =>
+      captureChangeReview(root, "Update task", boundary, ["src/linked.ts"]),
+    ).toThrow("linked");
   });
 
   it("maps changed source to direct dependents and existing focused tests", async () => {

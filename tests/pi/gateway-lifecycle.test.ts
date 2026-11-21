@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentEvent } from "../../src/pi/agent-gateway.js";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 
 const fixture = vi.hoisted(() => {
   const entries: unknown[] = [];
@@ -18,6 +22,17 @@ const fixture = vi.hoisted(() => {
     followUp: vi.fn(),
     steer: vi.fn(),
     abort: vi.fn(),
+    compact: vi.fn(),
+    model: { provider: "fixture", id: "review-model", name: "Review Model" },
+    modelRuntime: {
+      getModels: () => [
+        { provider: "fixture", id: "review-model", name: "Review Model" },
+      ],
+    },
+    agent: { streamFunction: vi.fn() },
+    getSessionStats: () => ({
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    }),
     getAllTools: vi.fn(() => []),
     setActiveToolsByName: vi.fn(),
     bindExtensions: vi.fn(),
@@ -25,6 +40,7 @@ const fixture = vi.hoisted(() => {
   };
   return {
     session,
+    dispose: vi.fn(),
     entries,
     savedSessions,
     setRebindSession(callback: typeof rebindSession) {
@@ -42,6 +58,7 @@ vi.mock("@earendil-works/pi-coding-agent", async (original) => ({
   ...(await original<object>()),
   createAgentSessionRuntime: async () => ({
     session,
+    dispose: fixture.dispose,
     setBeforeSessionInvalidate() {},
     setRebindSession: fixture.setRebindSession,
     async newSession() {
@@ -65,6 +82,7 @@ vi.mock("@earendil-works/pi-coding-agent", async (original) => ({
 }));
 
 import { createPiAgentGateway } from "../../src/pi/pi-agent-gateway.js";
+import { ReviewBudget } from "../../src/pi/review-budget.js";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -79,6 +97,77 @@ afterEach(() => {
 });
 
 describe("gateway run lifecycle", () => {
+  it("caps review stream output without changing ordinary gateway configuration", async () => {
+    const stream = vi.fn();
+    session.agent.streamFunction = stream;
+    await createPiAgentGateway(undefined, {
+      reviewBudget: new ReviewBudget("small prompt"),
+      readOnlyTools: ["read", "rook_search"],
+    });
+    session.agent.streamFunction(session.model, {}, { maxTokens: 9_000 });
+    expect(stream).toHaveBeenCalledWith(
+      session.model,
+      {},
+      { maxTokens: 1_000 },
+    );
+    expect(session.setActiveToolsByName).toHaveBeenCalledWith([
+      "read",
+      "rook_search",
+    ]);
+    session.agent.streamFunction = stream;
+    await createPiAgentGateway();
+    expect(session.agent.streamFunction).toBe(stream);
+  });
+  it.each(["newSession", "fork", "resumeSession", "compact", "send"] as const)(
+    "discards late review delivery after %s changes the task/session",
+    async (action) => {
+      const root = await mkdtemp(join(tmpdir(), "rook-review-lifecycle-"));
+      try {
+        execFileSync("git", ["init", "-q"], { cwd: root });
+        await writeFile(join(root, "source.ts"), "export const value = 1;\n");
+        execFileSync("git", ["add", "source.ts"], { cwd: root });
+        execFileSync(
+          "git",
+          [
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.test",
+            "commit",
+            "-qm",
+            "initial",
+          ],
+          { cwd: root },
+        );
+        await writeFile(join(root, "source.ts"), "export const value = 2;\n");
+        const gateway = await createPiAgentGateway(root);
+        let finish!: () => void;
+        session.prompt.mockImplementationOnce(
+          () =>
+            new Promise<void>((resolve) => {
+              finish = resolve;
+            }),
+        );
+        const pending = gateway.reviewGitChanges({
+          focus: "simplicity",
+          paths: ["source.ts"],
+          taskContext: "Update value.",
+        });
+        await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+        if (action === "fork") await gateway.fork("entry");
+        else if (action === "resumeSession")
+          await gateway.resumeSession("saved");
+        else if (action === "send")
+          await gateway.send("Different requirements.");
+        else await gateway[action]();
+        finish();
+        expect(await pending).toContain("Review discarded:");
+        expect(gateway.isRunning()).toBe(false);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
   it("honors explicit PLYTH off mode and refuses enabling its trace recorder", async () => {
     vi.stubEnv("ROOK_PLYTH_MODE", "off");
     vi.stubEnv("ROOK_PLYTH_FEEDBACK", "1");

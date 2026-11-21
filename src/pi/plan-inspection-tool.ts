@@ -1,6 +1,17 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readSync,
+  realpathSync,
+} from "node:fs";
 import { devNull } from "node:os";
-import { isAbsolute } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import type { ChangeReviewRequest } from "plyth";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
@@ -121,10 +132,9 @@ export function inspectGitWorkspace(
     "-z",
     "--untracked-files=all",
   ]);
-  let entries = status
-    .split("\0")
-    .filter(Boolean)
-    .filter((entry) => isSafeRepoPath(entry.slice(3)));
+  let entries = parseGitStatus(status).filter((entry) =>
+    isSafeRepoPath(entry.slice(3)),
+  );
   let files = changedRepoFiles(cwd).filter(isSafeRepoPath);
   if (selectedPaths) {
     const selected = [...new Set(selectedPaths)];
@@ -184,15 +194,19 @@ export function changedRepoFiles(cwd: string): string[] {
     "-z",
     "--untracked-files=all",
   ]);
-  const statusPaths = status
-    .split("\0")
-    .filter(Boolean)
-    .map((entry) => entry.slice(3));
+  const statusPaths = parseGitStatus(status).map((entry) => entry.slice(3));
   return [...new Set([...output.split("\0").filter(Boolean), ...statusPaths])];
 }
 
 export function isSafeRepoPath(path: string): boolean {
-  if (!path || isAbsolute(path) || path.includes("\0")) return false;
+  if (
+    !path ||
+    path.length > 512 ||
+    isAbsolute(path) ||
+    /^[a-z]:/i.test(path) ||
+    /[\x00-\x1f\\]/.test(path)
+  )
+    return false;
   const segments = path.split(/[\\/]+/).filter(Boolean);
   if (
     segments.some(
@@ -212,6 +226,197 @@ export function isSafeRepoPath(path: string): boolean {
   )
     return false;
   return !/\.(?:pem|key|p12|pfx)$/i.test(segments.at(-1) ?? "");
+}
+
+/** Porcelain -z rename entries have an extra source-path record, not a status. */
+function parseGitStatus(status: string): string[] {
+  const records = status.split("\0");
+  const entries: string[] = [];
+  for (let index = 0; index < records.length; index++) {
+    const entry = records[index];
+    if (!entry) continue;
+    entries.push(entry);
+    if (/[RC]/.test(entry.slice(0, 2))) index++;
+  }
+  return entries;
+}
+
+export interface ReviewBoundary {
+  head: string;
+  files: Set<string>;
+}
+
+export function reviewWorkspaceRoot(cwd: string): string {
+  return realpathSync(runGit(cwd, ["rev-parse", "--show-toplevel"]).trim());
+}
+
+/** Bounded changed-file snapshots only; never crawl the repository or persist source. */
+export function captureReviewBoundary(cwd: string): ReviewBoundary {
+  const root = reviewWorkspaceRoot(cwd);
+  const paths = changedRepoFiles(root).filter(isSafeRepoPath);
+  if (paths.length > 100)
+    throw new Error(
+      "Review scope exceeds 100 changed files; select a smaller workspace.",
+    );
+  return {
+    head: runGit(root, ["rev-parse", "--verify", "HEAD"]).trim(),
+    files: new Set(paths),
+  };
+}
+
+export function captureChangeReview(
+  cwd: string,
+  taskContext: string,
+  boundary?: ReviewBoundary,
+  selectedPaths?: readonly string[],
+): ChangeReviewRequest {
+  const root = reviewWorkspaceRoot(cwd);
+  const changed = changedRepoFiles(root).filter(isSafeRepoPath);
+  const workspace = realpathSync(cwd);
+  const withinWorkspace = (path: string) => {
+    const local = relative(workspace, resolve(root, path));
+    return (
+      local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute(local)
+    );
+  };
+  const head = runGit(root, ["rev-parse", "--verify", "HEAD"]).trim();
+  const knownBoundary = boundary?.head === head ? boundary : undefined;
+  const paths = selectedPaths
+    ? [...new Set(selectedPaths)]
+    : changed.filter(
+        (path) =>
+          withinWorkspace(path) &&
+          !knownBoundary?.files.has(path) &&
+          !/(?:^|\/)(?:dist|build|vendor|coverage|generated)(?:\/|$)/.test(
+            path,
+          ),
+      );
+  if (
+    paths.length > 20 ||
+    paths.some(
+      (path) =>
+        !isSafeRepoPath(path) ||
+        !changed.includes(path) ||
+        !withinWorkspace(path),
+    )
+  )
+    throw new Error(
+      "Review requires at most 20 safe changed repository-relative files.",
+    );
+  const mixed =
+    !knownBoundary || paths.some((path) => knownBoundary.files.has(path));
+  const limitations: string[] = [];
+  if (mixed)
+    limitations.push(
+      "Task attribution is unknown: selected files may include pre-existing or mixed user changes.",
+    );
+  if (
+    !selectedPaths &&
+    knownBoundary &&
+    changed.some((path) => knownBoundary.files.has(path))
+  )
+    limitations.push(
+      "Pre-existing changed files were excluded; use explicit --file scope to review mixed files without claiming task attribution.",
+    );
+  if (!taskContext.trim()) limitations.push("Task intent is unavailable.");
+  const view = paths.length ? inspectGitWorkspace(root, paths) : "";
+  if (view.includes("[Git output truncated"))
+    throw new Error("Review diff is too large; select fewer files.");
+  let changes = paths.length
+    ? view
+    : "No task-window changes are available for review.";
+  const hashes: [string, string][] = [];
+  const contents = new Map<string, string | null>();
+  for (const path of paths) {
+    const content = safeReviewFile(root, path);
+    hashes.push([path, fingerprint(content)]);
+    contents.set(path, content);
+  }
+  // Git diff omits new untracked contents; include them through the same safe file boundary.
+  const untracked = new Set(
+    runGit(root, ["ls-files", "--others", "--exclude-standard", "-z"]).split(
+      "\0",
+    ),
+  );
+  for (const path of paths) {
+    if (untracked.has(path))
+      changes += `\nUntracked file ${JSON.stringify(path)}:\n${contents.get(path) ?? "[deleted]"}`;
+  }
+  return {
+    version: 1,
+    taskContext,
+    changes,
+    scope: {
+      paths,
+      revision: createHash("sha256")
+        .update(JSON.stringify([head, changes, hashes]))
+        .digest("hex"),
+      attribution: mixed ? "unknown" : "task-window",
+      limitations,
+    },
+  };
+}
+
+function fingerprint(content: string | null): string {
+  return createHash("sha256").update(JSON.stringify(content)).digest("hex");
+}
+
+/** Reject links in every component, special files, binary and oversized content. */
+function safeReviewFile(root: string, path: string): string | null {
+  if (!isSafeRepoPath(path)) throw new Error("Unsafe review path.");
+  root = realpathSync(root);
+  const target = resolve(root, path);
+  const rel = relative(realpathSync(root), target);
+  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel))
+    throw new Error("Review path escapes workspace.");
+  let parent = root;
+  for (const segment of path.split("/").slice(0, -1)) {
+    parent = join(parent, segment);
+    try {
+      if (lstatSync(parent).isSymbolicLink())
+        throw new Error("Linked review path.");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  }
+  let info;
+  try {
+    info = lstatSync(target);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  if (!info.isFile() || info.nlink !== 1 || info.size > 128 * 1024)
+    throw new Error("Review file is linked, special, or exceeds 128 KiB.");
+  const fd = openSync(
+    target,
+    constants.O_RDONLY | constants.O_NONBLOCK | (constants.O_NOFOLLOW ?? 0),
+  );
+  try {
+    const before = fstatSync(fd);
+    if (
+      before.ino !== info.ino ||
+      !before.isFile() ||
+      before.nlink !== 1 ||
+      before.size > 128 * 1024
+    )
+      throw new Error("Review file changed during capture.");
+    const buffer = Buffer.alloc(before.size + 1);
+    const count = readSync(fd, buffer, 0, buffer.length, 0);
+    const after = fstatSync(fd);
+    if (
+      count !== before.size ||
+      before.mtimeMs !== after.mtimeMs ||
+      before.ctimeMs !== after.ctimeMs
+    )
+      throw new Error("Review file changed during capture.");
+    if (buffer.subarray(0, count).includes(0))
+      throw new Error("Binary review files are unsupported.");
+    return buffer.subarray(0, count).toString("utf8");
+  } finally {
+    closeSync(fd);
+  }
 }
 
 function runGit(cwd: string, args: string[]): string {

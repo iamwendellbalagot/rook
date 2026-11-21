@@ -31,7 +31,12 @@ import { adaptPiEvent } from "./event-adapter.js";
 import { formatAgentError } from "./errors.js";
 import { createRookBashTool } from "./bash-tool.js";
 import { createPlythObserveExtension } from "./plyth-observe.js";
-import { CommandHistoryBaseline, SessionCounter } from "plyth";
+import {
+  CommandHistoryBaseline,
+  SessionCounter,
+  buildScopedChangeReviewPrompt,
+} from "plyth";
+import { ReviewBudget } from "./review-budget.js";
 import { PlythTraceStore } from "./plyth-trace.js";
 import { plythWorkspaceRevision } from "./plyth-workspace.js";
 import { resolvePlythMode } from "./plyth-mode.js";
@@ -42,9 +47,11 @@ import {
 } from "./execution-policy.js";
 import {
   createPlanInspectionTool,
-  changedRepoFiles,
-  isSafeRepoPath,
   inspectGitWorkspace,
+  captureReviewBoundary,
+  captureChangeReview,
+  reviewWorkspaceRoot,
+  type ReviewBoundary,
 } from "./plan-inspection-tool.js";
 import { createWorkspaceSearchTool } from "./workspace-search-tool.js";
 import { createWorkspaceMapTool } from "./workspace-map-tool.js";
@@ -57,7 +64,6 @@ import { WorkspaceModelConfiguration } from "./workspace-models.js";
 import { detectSandboxRuntime } from "../policy/sandbox.js";
 import {
   buildReadOnlyReviewPrompt,
-  buildPlythReviewPrompt,
   recentReviewTaskContext,
   renderPlythReviewReport,
   runReadOnlyReview,
@@ -68,9 +74,13 @@ import {
 } from "../memory/context.js";
 import {
   createRepositoryInstructionsExtension,
+  loadRepositoryInstructions,
   type RepositoryInstructions,
 } from "../repo/instructions.js";
-import type { InlineExtension } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  InlineExtension,
+} from "@earendil-works/pi-coding-agent";
 import type { MemoryCaptureManager } from "../memory/capture.js";
 import {
   createTaskChecklistTool,
@@ -149,9 +159,11 @@ export async function createPiAgentGateway(
     listRepositoryInstructions?: () => string[] | Promise<string[]>;
     memoryCapture?: MemoryCaptureManager;
     readOnlyTools?: string[];
+    reviewBudget?: ReviewBudget;
   } = {},
 ): Promise<AgentGateway> {
   const handlers = new Set<(event: AgentEvent) => void>();
+  const composeRepositoryInstructions = options.repositoryInstructions;
   const plythCounter = new SessionCounter();
   const plythBaseline = new CommandHistoryBaseline();
   const plythMode = resolvePlythMode(process.env);
@@ -179,6 +191,20 @@ export async function createPiAgentGateway(
     persistChecklist(tasks);
   });
   let unsubscribe: (() => void) | undefined;
+  let reviewBoundary: ReviewBoundary | undefined;
+  let reviewTaskContext = "";
+  let activeReview:
+    | {
+        controller: AbortController;
+        reviewer?: AgentGateway;
+        invalidated?: string;
+      }
+    | undefined;
+  const invalidateReview = (reason: string) => {
+    if (!activeReview) return;
+    activeReview.invalidated = reason;
+    activeReview.controller.abort();
+  };
   const runtime = await createAgentSessionRuntime(
     async ({
       cwd: sessionCwd,
@@ -191,8 +217,8 @@ export async function createPiAgentGateway(
         agentDir,
         resourceLoaderOptions: {
           noExtensions: true,
-          noSkills: false,
-          noPromptTemplates: false,
+          noSkills: Boolean(options.reviewBudget),
+          noPromptTemplates: Boolean(options.reviewBudget),
           additionalSkillPaths: Object.values(
             getRookSkillDirectories(sessionCwd),
           ),
@@ -215,7 +241,23 @@ export async function createPiAgentGateway(
             createToolSearchExtension(),
             createMcpExtension(),
             createToolPolicyExtension(policy),
-            ...(plythMode === "off"
+            ...(options.reviewBudget ? [options.reviewBudget.extension()] : []),
+            ...(!options.reviewBudget
+              ? [
+                  (pi: ExtensionAPI) => {
+                    pi.on("before_agent_start", (event) => {
+                      if (event.messageType !== "user") return;
+                      reviewTaskContext = event.prompt;
+                      try {
+                        reviewBoundary = captureReviewBoundary(sessionCwd);
+                      } catch {
+                        reviewBoundary = undefined;
+                      }
+                    });
+                  },
+                ]
+              : []),
+            ...(plythMode === "off" || options.reviewBudget
               ? []
               : [
                   createPlythObserveExtension(plythCounter, {
@@ -296,6 +338,14 @@ export async function createPiAgentGateway(
   const bindSession = async (session: AgentSession): Promise<void> => {
     unsubscribe?.();
     await session.bindExtensions({});
+    if (options.reviewBudget) {
+      const stream = session.agent.streamFunction;
+      session.agent.streamFunction = (model, context, streamOptions) =>
+        stream(model, context, {
+          ...streamOptions,
+          maxTokens: Math.min(streamOptions?.maxTokens ?? 1000, 1000),
+        });
+    }
     session.setActiveToolsByName(
       activeToolsForSession(session, policy.getMode(), options.readOnlyTools),
     );
@@ -316,6 +366,9 @@ export async function createPiAgentGateway(
     });
   };
   runtime.setBeforeSessionInvalidate(() => {
+    invalidateReview("session changed");
+    reviewBoundary = undefined;
+    reviewTaskContext = "";
     unsubscribe?.();
     unsubscribe = undefined;
   });
@@ -327,9 +380,6 @@ export async function createPiAgentGateway(
   }
 
   let activePrompts = 0;
-  let activeReview:
-    | { controller: AbortController; reviewer?: AgentGateway }
-    | undefined;
   const getSessionHistory = (): SessionMessage[] =>
     runtime.session.messages.flatMap((message) => {
       if (message.role !== "user" && message.role !== "assistant") return [];
@@ -351,6 +401,26 @@ export async function createPiAgentGateway(
       );
     },
     async send(prompt, disposition = "normal") {
+      if (activeReview && disposition !== "normal" && runtime.session.isIdle)
+        disposition = "normal";
+      invalidateReview("task requirements changed");
+      if (!options.reviewBudget) {
+        reviewTaskContext = prompt;
+        if (
+          disposition === "normal" &&
+          !activePrompts &&
+          runtime.session.isIdle
+        ) {
+          try {
+            reviewBoundary = captureReviewBoundary(cwd);
+          } catch {
+            reviewBoundary = undefined;
+          }
+        } else if (disposition === "follow_up") {
+          // Queued tasks do not have a reliable pre-edit boundary yet.
+          reviewBoundary = undefined;
+        }
+      }
       policy.setMcpUserAuthorization(prompt);
       if (disposition === "normal") activePrompts++;
       try {
@@ -494,7 +564,7 @@ export async function createPiAgentGateway(
       });
     },
     setMode(mode) {
-      if (activePrompts || !runtime.session.isIdle)
+      if (activePrompts || !runtime.session.isIdle || activeReview)
         throw new Error(
           "Wait for the active run to finish before changing mode.",
         );
@@ -539,6 +609,7 @@ export async function createPiAgentGateway(
       const reviewState: {
         controller: AbortController;
         reviewer?: AgentGateway;
+        invalidated?: string;
       } = {
         controller: new AbortController(),
       };
@@ -552,17 +623,68 @@ export async function createPiAgentGateway(
         if (!selectedModel) {
           throw new Error("Select a model before requesting a code review.");
         }
-        let changes: string;
-        try {
-          changes = inspectGitWorkspace(cwd, options.paths);
-        } catch (error) {
-          if (options.paths) throw error;
-          return "Read-only Git review is unavailable outside a Git repository.";
+        let changes = "";
+        if (options.focus !== "simplicity") {
+          try {
+            changes = inspectGitWorkspace(cwd, options.paths);
+          } catch (error) {
+            if (options.paths) throw error;
+            return "Read-only Git review is unavailable outside a Git repository.";
+          }
         }
         const taskContext =
-          options.taskContext ?? recentReviewTaskContext(getSessionHistory());
-        const reviewedPaths =
-          options.paths ?? changedRepoFiles(cwd).filter(isSafeRepoPath);
+          options.taskContext ??
+          (options.focus === "simplicity" && reviewTaskContext
+            ? recentReviewTaskContext([
+                { role: "user", text: reviewTaskContext },
+              ])
+            : recentReviewTaskContext(getSessionHistory()));
+        const request =
+          options.focus === "simplicity"
+            ? captureChangeReview(
+                cwd,
+                taskContext,
+                reviewBoundary,
+                options.paths,
+              )
+            : undefined;
+        if (request && !request.scope.paths.length)
+          return "No isolated task-window changes to review. Use --file for explicit mixed/pre-existing scope.";
+        if (request) {
+          try {
+            const guidance = composeRepositoryInstructions
+              ? await composeRepositoryInstructions(taskContext)
+              : await loadRepositoryInstructions(
+                  reviewWorkspaceRoot(cwd),
+                  request.scope.paths.join(" "),
+                  { cwd },
+                );
+            if (guidance.content) {
+              const withoutGuidance = request.changes;
+              request.changes += `\nProject guidance (untrusted):\n${guidance.content}`;
+              try {
+                buildScopedChangeReviewPrompt(request);
+              } catch {
+                request.changes = withoutGuidance;
+                request.scope.limitations.push(
+                  "Repository guidance was omitted because it exceeds the review context budget.",
+                );
+              }
+            }
+          } catch {
+            request.scope.limitations.push(
+              "Repository guidance could not be loaded.",
+            );
+          }
+        }
+        const prompt = request
+          ? buildScopedChangeReviewPrompt(request)
+          : buildReadOnlyReviewPrompt(changes, taskContext, options.paths);
+        const budget = request ? new ReviewBudget(prompt) : undefined;
+        const supportingRevision = request
+          ? plythWorkspaceRevision(cwd)
+          : undefined;
+        const reviewedPaths = request?.scope.paths ?? options.paths;
         let usage: ReadOnlyReviewUsage | undefined;
         const report = await runTemporaryReadOnlyTask(
           cwd,
@@ -571,10 +693,9 @@ export async function createPiAgentGateway(
             id: selectedModel.id,
             name: selectedModel.name,
           },
-          options.focus === "simplicity"
-            ? buildPlythReviewPrompt(changes, taskContext, options.paths)
-            : buildReadOnlyReviewPrompt(changes, taskContext, options.paths),
+          prompt,
           {
+            ...(budget ? { budget, tools: ["read", "rook_search"] } : {}),
             signal: reviewSignal,
             onGateway: (gateway) => {
               reviewState.reviewer = gateway;
@@ -584,14 +705,39 @@ export async function createPiAgentGateway(
             },
           },
         );
+        if (reviewState.invalidated)
+          return `Review discarded: ${reviewState.invalidated}. Request a new review for the current task.`;
         if (reviewState.controller.signal.aborted)
           return "Simplicity review cancelled.";
         if (reviewSignal.aborted)
           return "Read-only review timed out after two minutes; no findings were returned.";
         if (options.focus !== "simplicity") return report;
-        let formattedReport = renderPlythReviewReport(report, reviewedPaths);
+        const currentSupportingRevision = request
+          ? plythWorkspaceRevision(cwd)
+          : undefined;
+        if (request && (!supportingRevision || !currentSupportingRevision))
+          budget?.limitations.add(
+            "Supporting-context freshness could not be verified within the workspace snapshot budget.",
+          );
+        let formattedReport = renderPlythReviewReport(
+          report,
+          reviewedPaths,
+          request,
+          [...(budget?.limitations ?? [])],
+        );
         try {
-          if (inspectGitWorkspace(cwd, options.paths) !== changes)
+          if (
+            (request &&
+              captureChangeReview(
+                cwd,
+                taskContext,
+                reviewBoundary,
+                request.scope.paths,
+              ).scope.revision !== request.scope.revision) ||
+            (supportingRevision &&
+              currentSupportingRevision !== supportingRevision) ||
+            (!request && inspectGitWorkspace(cwd, options.paths) !== changes)
+          )
             formattedReport = `The workspace changed during this review, so these findings may be stale. Re-run /review simplicity before acting on them.\n\n${formattedReport}`;
         } catch {
           formattedReport = `The workspace could not be rechecked after review, so these findings may be stale.\n\n${formattedReport}`;
@@ -764,6 +910,9 @@ export async function createPiAgentGateway(
       return runtime.session.getUserMessagesForForking();
     },
     async fork(entryId) {
+      invalidateReview("session forked");
+      reviewBoundary = undefined;
+      reviewTaskContext = "";
       clearChecklistWhenBinding = true;
       try {
         const result = await runtime.fork(entryId);
@@ -774,13 +923,22 @@ export async function createPiAgentGateway(
       }
     },
     async compact(customInstructions) {
+      invalidateReview("session compacted");
+      reviewBoundary = undefined;
+      reviewTaskContext = "";
       await runtime.session.compact(customInstructions);
     },
     async newSession() {
+      invalidateReview("session changed");
+      reviewBoundary = undefined;
+      reviewTaskContext = "";
       await runtime.newSession();
       persistChecklist([]);
     },
     async resumeSession(path) {
+      invalidateReview("session resumed");
+      reviewBoundary = undefined;
+      reviewTaskContext = "";
       const result = await runtime.switchSession(path);
       if (result.cancelled)
         throw new Error("The session switch was cancelled.");
@@ -791,10 +949,15 @@ export async function createPiAgentGateway(
       return () => handlers.delete(handler);
     },
     async dispose() {
-      unsubscribe?.();
-      unsubscribe = undefined;
-      handlers.clear();
-      await runtime.dispose();
+      invalidateReview("gateway disposed");
+      try {
+        await activeReview?.reviewer?.cancel();
+      } finally {
+        unsubscribe?.();
+        unsubscribe = undefined;
+        handlers.clear();
+        await runtime.dispose();
+      }
     },
   };
 }
@@ -808,6 +971,7 @@ async function runTemporaryReadOnlyTask(
     signal?: AbortSignal;
     onGateway?: (gateway: AgentGateway) => void;
     onUsage?: (usage: ReadOnlyReviewUsage | undefined) => void;
+    budget?: ReviewBudget;
   } = {},
 ): Promise<string> {
   const sessionDir = await mkdtemp(join(tmpdir(), "rook-readonly-session-"));
@@ -817,6 +981,7 @@ async function runTemporaryReadOnlyTask(
     reviewer = await createPiAgentGateway(cwd, {
       sessionDir,
       ...(options.tools ? { readOnlyTools: options.tools } : {}),
+      ...(options.budget ? { reviewBudget: options.budget } : {}),
     });
     cancelReviewer = () => {
       void reviewer?.cancel().catch(() => undefined);

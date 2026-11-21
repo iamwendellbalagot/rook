@@ -2,6 +2,8 @@ import {
   buildChangeReviewPrompt,
   formatChangeReviewReport,
   parseChangeReviewReport,
+  bindChangeReviewResult,
+  type ChangeReviewRequest,
 } from "plyth";
 import type {
   AgentEvent,
@@ -89,7 +91,15 @@ export function buildPlythReviewPrompt(
 export function renderPlythReviewReport(
   response: string,
   reviewedPaths?: readonly string[],
+  request?: ChangeReviewRequest,
+  limitations: string[] = [],
 ): string {
+  if (request) {
+    const result = bindChangeReviewResult(request, response, limitations);
+    return result.ok
+      ? `${formatChangeReviewReport(result.value.report)}\n\nScope v${result.value.version}: ${result.value.scope.paths.join(", ")}\nRevision: ${result.value.scope.revision}\nAttribution: ${result.value.scope.attribution}`
+      : `Review report could not be validated (${result.reason}). This is not a clean review; rerun /review simplicity after narrowing or clarifying the scope.`;
+  }
   const parsed = parseChangeReviewReport(response, reviewedPaths);
   return parsed.ok
     ? formatChangeReviewReport(parsed.value)

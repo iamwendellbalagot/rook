@@ -7,11 +7,28 @@ import {
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { createPiAgentGateway } from "../../src/pi/pi-agent-gateway.js";
+import { ReviewBudget } from "../../src/pi/review-budget.js";
 import { RookStore } from "../../src/db/store.js";
 import { MemoryCaptureManager } from "../../src/memory/capture.js";
 import type { RepositoryIdentity } from "../../src/repo/workspace.js";
 
 describe("Pi SDK compatibility", () => {
+  it("binds review-only budgets without provider inference", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rook-review-sdk-"));
+    const gateway = await createPiAgentGateway(root, {
+      sessionDir: join(root, "sessions"),
+      reviewBudget: new ReviewBudget("bounded review prompt"),
+      readOnlyTools: ["read", "rook_search"],
+    });
+    try {
+      expect(gateway.getActiveTools()).toEqual(["read", "rook_search"]);
+      gateway.setMode("build");
+      expect(gateway.getActiveTools()).toEqual(["read", "rook_search"]);
+    } finally {
+      await gateway.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it("creates and disposes an in-memory session without credentials", async () => {
     const { session } = await createAgentSession({ cwd: process.cwd() });
     expect(session).toBeDefined();
