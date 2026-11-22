@@ -1,4 +1,11 @@
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -8,6 +15,7 @@ import {
   createSandboxCommand,
   detectSandboxRuntime,
   runSandboxCommand,
+  sandboxRuntimeCandidates,
 } from "../../src/policy/sandbox.js";
 
 const nodeCommand = (script: string) =>
@@ -171,23 +179,105 @@ describe("Rook's Pi bash tool", () => {
     ).rejects.toThrow(/will not run the command without isolation/);
   });
 
+  it("selects only native OS sandbox backends", () => {
+    expect(sandboxRuntimeCandidates("linux")).toEqual(["bwrap"]);
+    expect(sandboxRuntimeCandidates("darwin")).toEqual(["seatbelt"]);
+    expect(sandboxRuntimeCandidates("win32")).toEqual([]);
+  });
+
   it.skipIf(process.platform !== "linux")(
     "builds a network-disabled Bubblewrap command rooted at the workspace",
     async () => {
       const root = await mkdtemp(join(tmpdir(), "rook-bwrap-"));
       try {
+        await mkdir(join(root, ".git"));
         const sandbox = await createSandboxCommand("npm test", root, "bwrap", {
           PATH: "/usr/bin",
         });
         expect(sandbox.executable).toContain("bwrap");
         expect(sandbox.args).toContain("--unshare-net");
         expect(sandbox.args).toContain("--bind");
+        expect(sandbox.args).toContain("--tmpfs");
+        expect(
+          sandbox.args.some(
+            (value, index) =>
+              value === "--ro-bind" &&
+              sandbox.args[index + 1] === "/" &&
+              sandbox.args[index + 2] === "/",
+          ),
+        ).toBe(false);
         expect(sandbox.args).toContain(await realpath(root));
+        const gitPath = join(root, ".git");
+        const gitMountIndex = sandbox.args.findIndex(
+          (value, index) =>
+            value === "--ro-bind" && sandbox.args[index + 1] === gitPath,
+        );
+        expect(sandbox.args.slice(gitMountIndex, gitMountIndex + 3)).toEqual([
+          "--ro-bind",
+          gitPath,
+          gitPath,
+        ]);
         expect(sandbox.args).toContain("/tmp");
         expect(sandbox.args).not.toContain("--share-net");
         expect(sandbox.args.at(-1)).toBe("npm test");
       } finally {
         await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "enforces workspace filesystem boundaries or fails closed when unavailable",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "rook-seatbelt-"));
+      const outside = `${root}-outside`;
+      const inside = join(root, "allowed.txt");
+      try {
+        await writeFile(outside, "secret");
+        const runtime = await detectSandboxRuntime();
+        if (!runtime) {
+          await expect(
+            createSandboxCommand(
+              "true",
+              root,
+              process.platform === "darwin" ? "seatbelt" : "bwrap",
+              {
+                PATH: "/usr/bin:/bin",
+                HOME: "/tmp",
+              },
+            ),
+          ).rejects.toThrow(/failed its isolation probe/);
+          return;
+        }
+        const sandbox = await createSandboxCommand(
+          `printf ok > ${JSON.stringify(inside)} && cat ${JSON.stringify(outside)}`,
+          root,
+          runtime,
+          { PATH: "/usr/bin:/bin", HOME: "/tmp" },
+        );
+        try {
+          const result = await runSandboxCommand(
+            sandbox.executable,
+            sandbox.args,
+            {
+              cwd: root,
+              env: {
+                PATH: "/usr/bin:/bin",
+                HOME: sandbox.env?.HOME ?? "/tmp",
+                ...sandbox.env,
+              },
+              timeout: 5_000,
+            },
+          );
+          expect(result.exitCode).not.toBe(0);
+          expect(await readFile(inside, "utf8")).toBe("ok");
+          expect(result.stdout).toBe("");
+        } finally {
+          await sandbox.cleanup?.();
+        }
+      } finally {
+        await rm(root, { recursive: true, force: true });
+        await rm(outside, { force: true });
       }
     },
   );
@@ -213,5 +303,21 @@ describe("Rook's Pi bash tool", () => {
     );
     expect(noisy.truncated).toBe(true);
     expect(noisy.exitCode).toBe(125);
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 200).unref();
+    const startedAt = Date.now();
+    await expect(
+      runSandboxCommand(
+        process.execPath,
+        ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"],
+        {
+          cwd: process.cwd(),
+          env: {},
+          timeout: 5_000,
+          signal: controller.signal,
+        },
+      ),
+    ).rejects.toThrow("aborted");
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(900);
   });
 });

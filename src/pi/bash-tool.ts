@@ -52,7 +52,7 @@ export function createRookBashTool(
         const runtime = sandboxRuntime ?? (await detectSandboxRuntime());
         if (!runtime) {
           throw new Error(
-            "Sandboxed shell execution is unavailable on this host; Rook will not run the command without isolation. Install Bubblewrap (Linux), or explicitly configure sandbox=false in .rook/policy.json to allow host execution.",
+            "Sandboxed shell execution is unavailable on this host; Rook will not run the command without isolation. Install Bubblewrap on Linux or use macOS Seatbelt, or explicitly configure sandbox_shell: false in .rook/policy.json to allow host execution.",
           );
         }
         const sandboxCwd = await realpath(directory);
@@ -66,13 +66,13 @@ export function createRookBashTool(
           runtime,
           sandboxEnv,
         );
-        const result = await runSandboxCommand(
-          sandbox.executable,
-          sandbox.args,
-          {
+        let result;
+        try {
+          result = await runSandboxCommand(sandbox.executable, sandbox.args, {
             cwd: sandboxCwd,
             env: {
               ...sandboxEnv,
+              ...sandbox.env,
               ...(executionOptions.env?.PI_CODING_AGENT_DIR
                 ? {
                     PI_CODING_AGENT_DIR:
@@ -85,8 +85,10 @@ export function createRookBashTool(
             ...(executionOptions.signal
               ? { signal: executionOptions.signal }
               : {}),
-          },
-        );
+          });
+        } finally {
+          await sandbox.cleanup?.();
+        }
         if (result.cancelled) throw new Error("aborted");
         if (result.timedOut) {
           throw new Error(`timeout:${timeout}`);
@@ -108,7 +110,7 @@ export function createRookBashTool(
     label: tool.label,
     execute: tool.execute,
     promptSnippet: "Run approved terminal commands in build mode.",
-    description: `${tool.description}${predictionDescription} Rook requires build mode. Routine allowlisted commands run without prompts in the sandbox; destructive or unclassified commands require approval, with optional exact-command session grants. ${useSandbox ? "Commands run in an OS sandbox with network disabled and workspace-only writes; sandbox runtime is required and execution fails closed when unavailable." : "Commands run on the host with the user's permissions and are not sandboxed (explicit opt-out)."} Timeout defaults to ${DEFAULT_SHELL_TIMEOUT}s; maximum ${MAX_SHELL_TIMEOUT}s.`,
+    description: `${tool.description}${predictionDescription} Rook requires build mode. Routine allowlisted commands run without prompts in the sandbox; destructive or unclassified commands require approval, with optional exact-command session grants. ${useSandbox ? "Commands run in an OS sandbox with network and unapproved filesystem access denied; sandbox runtime is required and execution fails closed when unavailable." : "Commands run on the host with the user's permissions and are not sandboxed (explicit opt-out)."} Timeout defaults to ${DEFAULT_SHELL_TIMEOUT}s; maximum ${MAX_SHELL_TIMEOUT}s.`,
     parameters: {
       ...tool.parameters,
       properties: {
