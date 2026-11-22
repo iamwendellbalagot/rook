@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import * as plyth from "plyth";
+import * as plyth from "plyth-core";
 import type { AgentEvent } from "../../src/pi/agent-gateway.js";
 import {
   buildReadOnlyReviewPrompt,

@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import * as plyth from "plyth";
-import { CommandHistoryBaseline, SessionCounter } from "plyth";
+import * as plyth from "plyth-core";
+import { CommandHistoryBaseline, SessionCounter } from "plyth-core";
 import { describe, expect, it } from "vitest";
 import {
   classifyCommand,

@@ -1,5 +1,5 @@
 {
-  "name": "@wendell2215/rook",
+  "name": "rook-agent",
   "version": "0.1.0",
   "rookCapabilities": {
     "plythIntegration": 1
@@ -47,16 +47,16 @@
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.19.0",
     "prettier": "3.6.2",
-    "plyth": "file:../plyth",
+    "plyth-core": "file:../plyth",
     "tsx": "4.20.6",
     "typescript": "7.0.2",
     "vitest": "5.1.0"
   },
   "peerDependencies": {
-    "plyth": "^0.1.0"
+    "plyth-core": "^0.1.0"
   },
   "peerDependenciesMeta": {
-    "plyth": {
+    "plyth-core": {
       "optional": true
     }
   }

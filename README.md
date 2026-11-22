@@ -21,11 +21,11 @@ npm run build
 node bin/rook.mjs --mock
 ```
 
-The project is in early development. The npm package uses the account-scoped name `@wendell2215/rook` because the unscoped `rook` name belongs to another maintainer; its executable remains `rook`. For provider-backed use, sign in with `/login` from the Rook TUI. Pi stores credentials in its user-level auth store; never put provider secrets in the repository or command history.
+The project is in early development. The npm package is `rook-agent`; its executable remains `rook`. For provider-backed use, sign in with `/login` from the Rook TUI. Pi stores credentials in its user-level auth store; never put provider secrets in the repository or command history.
 
 ### Local PLYTH development dependency
 
-PLYTH is an optional peer integration. Rook starts and works without PLYTH; when installed, it resolves the package from the active workspace and loads its adapter only there. For local development, clone `plyth` beside `rook`; its `file:../plyth` reference is a development dependency only. Install the scoped Rook package with `npm install @wendell2215/rook`, then add PLYTH to a workspace with `npx plyth install rook --project .`. This writes `.rook/plyth.json` (integration contract v1), defaulting to off. `--mode prompt` enables static guidance; `--mode integrated` opts into experimental dynamic feedback. `npx plyth uninstall rook --project .` removes the optional workspace dependency and disables the integration.
+PLYTH is an optional peer integration. Rook starts and works without PLYTH; when installed, it resolves the package from the active workspace and loads its adapter only there. For local development, clone `plyth` beside `rook`; its `file:../plyth` reference is a development dependency only. Install Rook with `npm install rook-agent`, then add PLYTH to a workspace with `npx plyth-core install rook --project .`. This writes `.rook/plyth.json` (integration contract v1), defaulting to off. `--mode prompt` enables static guidance; `--mode integrated` opts into experimental dynamic feedback. `npx plyth-core uninstall rook --project .` removes the optional workspace dependency and disables the integration.
 
 The default mode is observe-only: optional structured `expect` metadata, deterministic judging, in-memory session counts and an outcome-only command-history baseline. `/plyth` reports agent/history accuracy on the same comparable outcomes; edits or changed/unavailable workspace snapshots invalidate history. Snapshot budgets are 256 files / 2 MiB / best-effort 50 ms; symlinks, unknown hidden/sensitive inputs or larger workspaces make the comparison unavailable. Dependencies, external state, `.git` and `.rook` runtime data are outside this workspace-file heuristic.
 

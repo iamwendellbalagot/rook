@@ -4,12 +4,16 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { PlythRuntime } from "./plyth-contracts.js";
 
+const PLYTH_PACKAGE_NAME = "plyth-core";
+
 /** Resolve PLYTH from the target workspace, not from Rook's installation. */
 export async function loadPlythRuntime(
   cwd: string,
 ): Promise<PlythRuntime | undefined> {
   const require = createRequire(join(cwd, "__rook_plyth_resolver__.cjs"));
-  const entry = await findPlythEntry(require.resolve.paths("plyth") ?? []);
+  const entry = await findPlythEntry(
+    require.resolve.paths(PLYTH_PACKAGE_NAME) ?? [],
+  );
   if (!entry) return undefined;
   const loaded = (await import(pathToFileURL(entry).href)) as PlythRuntime;
   const requiredFunctions = [
@@ -45,7 +49,7 @@ async function findPlythEntry(
   searchPaths: string[],
 ): Promise<string | undefined> {
   for (const nodeModules of searchPaths) {
-    const packageRoot = join(nodeModules, "plyth");
+    const packageRoot = join(nodeModules, ...PLYTH_PACKAGE_NAME.split("/"));
     const manifestPath = join(packageRoot, "package.json");
     try {
       const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {

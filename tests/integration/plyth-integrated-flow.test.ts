@@ -3,7 +3,7 @@ import {
   DefaultResourceLoader,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import * as plyth from "plyth";
+import * as plyth from "plyth-core";
 import type {
   AssistantMessage,
   AssistantMessageEventStream,

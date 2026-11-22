@@ -179,7 +179,7 @@ export async function createPiAgentGateway(
   );
   if (requestedIntegratedMode !== "off" && !plythApi)
     throw new Error(
-      "PLYTH is enabled for this workspace but is not installed. Run `npx plyth install rook --project .` in the workspace, or set ROOK_PLYTH_INTEGRATED=off.",
+      "PLYTH is enabled for this workspace but is not installed. Run `npx plyth-core install rook --project .` in the workspace, or set ROOK_PLYTH_INTEGRATED=off.",
     );
   const plythIntegratedMode = plythApi ? requestedIntegratedMode : "off";
   const requestedPlythMode = resolvePlythMode(process.env);
@@ -730,7 +730,7 @@ export async function createPiAgentGateway(
       if (activeReview)
         throw new Error("A read-only review is already running.");
       if (options.focus === "simplicity" && !plythApi)
-        return "PLYTH is not installed in this workspace. Run `npx plyth install rook --project .` to enable simplicity review.";
+        return "PLYTH is not installed in this workspace. Run `npx plyth-core install rook --project .` to enable simplicity review.";
       const reviewState: {
         controller: AbortController;
         reviewer?: AgentGateway;

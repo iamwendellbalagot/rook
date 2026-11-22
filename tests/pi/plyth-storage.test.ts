@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createTraceRecord, parseTraceRecord } from "plyth";
+import { createTraceRecord, parseTraceRecord } from "plyth-core";
 import { PlythTraceStore } from "../../src/pi/plyth-trace.js";
 import { plythWorkspaceRevision } from "../../src/pi/plyth-workspace.js";
 import { resolvePlythMode } from "../../src/pi/plyth-mode.js";

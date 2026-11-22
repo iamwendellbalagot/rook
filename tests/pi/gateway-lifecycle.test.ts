@@ -204,8 +204,8 @@ describe("gateway run lifecycle", () => {
       try {
         await mkdir(join(root, "node_modules"), { recursive: true });
         await symlink(
-          join(process.cwd(), "node_modules", "plyth"),
-          join(root, "node_modules", "plyth"),
+          join(process.cwd(), "node_modules", "plyth-core"),
+          join(root, "node_modules", "plyth-core"),
           "dir",
         );
         execFileSync("git", ["init", "-q"], { cwd: root });
