@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { execFileSync } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,11 +10,17 @@ const PLYTH_PACKAGE_NAME = "plyth-core";
 /** Resolve PLYTH from the target workspace, not from Rook's installation. */
 export async function loadPlythRuntime(
   cwd: string,
+  options: { globalNodeModulesRoot?: string | null } = {},
 ): Promise<PlythRuntime | undefined> {
   const require = createRequire(join(cwd, "__rook_plyth_resolver__.cjs"));
-  const entry = await findPlythEntry(
-    require.resolve.paths(PLYTH_PACKAGE_NAME) ?? [],
-  );
+  const searchPaths = require.resolve.paths(PLYTH_PACKAGE_NAME) ?? [];
+  const globalRoot =
+    options.globalNodeModulesRoot === undefined
+      ? getGlobalNodeModulesRoot()
+      : options.globalNodeModulesRoot;
+  if (globalRoot && !searchPaths.includes(globalRoot))
+    searchPaths.push(globalRoot);
+  const entry = await findPlythEntry(searchPaths);
   if (!entry) return undefined;
   const loaded = (await import(pathToFileURL(entry).href)) as PlythRuntime;
   const requiredFunctions = [
@@ -43,6 +50,19 @@ export async function loadPlythRuntime(
       `The installed PLYTH package is incompatible; missing exports: ${missing.join(", ")}.`,
     );
   return loaded;
+}
+
+function getGlobalNodeModulesRoot(): string | undefined {
+  try {
+    return (
+      execFileSync("npm", ["root", "-g"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim() || undefined
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 async function findPlythEntry(

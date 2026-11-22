@@ -109,7 +109,7 @@ const BUILTIN_SLASH_COMMANDS: SlashCommandSuggestion[] = [
   { command: "/settings", description: "Adjust thinking level" },
   {
     command: "/plyth",
-    description: "Show predictions/history or control local traces",
+    description: "Show status, enable/disable PLYTH, or control traces",
   },
   { command: "/new", description: "Start a new session" },
   { command: "/sessions", description: "Browse saved sessions" },
@@ -1394,15 +1394,31 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         case "/plyth": {
           removeHome();
           const args = prompt.trim().split(/\s+/).slice(1);
-          if (args.length) {
+          const command = args[0] ?? "status";
+          if (command === "enable" || command === "disable") {
+            if (args.length !== 1) {
+              appendText(
+                "Usage: /plyth [status|enable|disable|trace ...]",
+                "error",
+              );
+              return;
+            }
+            appendText(
+              (await options.gateway.setPlythIntegratedMode?.(
+                command === "enable" ? "integrated" : "off",
+              )) ?? "PLYTH controls unavailable in this gateway.",
+              "muted",
+            );
+            return;
+          }
+          if (command === "trace") {
             const action = args[1] ?? "status";
             if (
-              args[0] !== "trace" ||
               args.length > 2 ||
               !["status", "on", "off", "export", "clear"].includes(action)
             ) {
               appendText(
-                "Usage: /plyth [trace [status|on|off|export|clear]]",
+                "Usage: /plyth [status|enable|disable|trace [status|on|off|export|clear]]",
                 "error",
               );
               return;
@@ -1412,6 +1428,13 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
                 action as "status" | "on" | "off" | "export" | "clear",
               ) ?? "PLYTH traces unavailable in this gateway.",
               "muted",
+            );
+            return;
+          }
+          if (command !== "status" || args.length > 1) {
+            appendText(
+              "Usage: /plyth [status|enable|disable|trace [status|on|off|export|clear]]",
+              "error",
             );
             return;
           }

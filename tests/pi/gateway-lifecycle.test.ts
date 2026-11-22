@@ -258,7 +258,7 @@ describe("gateway run lifecycle", () => {
     vi.stubEnv("ROOK_PLYTH_FEEDBACK", "1");
     const gateway = await createPiAgentGateway();
     expect(gateway.getPlythMode?.()).toBe("off");
-    expect(gateway.controlPlythTrace?.("on")).toContain("PLYTH is off");
+    expect(gateway.controlPlythTrace?.("on")).toContain("PLYTH is disabled");
     expect(gateway.getPlythStats().baseline).toMatchObject({
       comparisons: 0,
       unavailable: 0,

@@ -214,6 +214,7 @@ export interface AgentGateway {
   setMode(mode: PermissionMode): void;
   getPlythStats(): SessionPredictionStats;
   getPlythMode?(): "off" | "observe" | "feedback" | "prompt" | "integrated";
+  setPlythIntegratedMode?(mode: "off" | "integrated"): Promise<string>;
   controlPlythTrace?(
     action: "status" | "on" | "off" | "export" | "clear",
   ): string;

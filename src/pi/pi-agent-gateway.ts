@@ -36,7 +36,10 @@ import type { PilotRunGuard } from "../eval/pilot-run-guard.js";
 import { PlythTraceStore } from "./plyth-trace.js";
 import { plythWorkspaceRevision } from "./plyth-workspace.js";
 import { resolvePlythMode } from "./plyth-mode.js";
-import { resolvePlythIntegratedMode } from "./plyth-integrated-mode.js";
+import {
+  resolvePlythIntegratedMode,
+  writePlythIntegratedMode,
+} from "./plyth-integrated-mode.js";
 import { createPlythIntegratedExtension } from "./plyth-integrated.js";
 import { loadPlythRuntime } from "./plyth-runtime.js";
 import type { SessionPredictionStats } from "./plyth-contracts.js";
@@ -176,6 +179,7 @@ export async function createPiAgentGateway(
   const requestedIntegratedMode = await resolvePlythIntegratedMode(
     process.env,
     cwd,
+    plythApi && process.env.ROOK_PLYTH_MODE !== "off" ? "integrated" : "off",
   );
   if (requestedIntegratedMode !== "off" && !plythApi)
     throw new Error(
@@ -189,7 +193,7 @@ export async function createPiAgentGateway(
     ? new plythApi.CommandHistoryBaseline()
     : undefined;
   const plythTrace = new PlythTraceStore(
-    plythMode !== "off" && process.env.ROOK_PLYTH_TRACE === "1",
+    Boolean(plythApi) && process.env.ROOK_PLYTH_TRACE === "1",
     undefined,
     plythApi?.parseTraceRecord,
   );
@@ -311,13 +315,14 @@ export async function createPiAgentGateway(
               : []),
             ...(options.isolatedEvaluation ||
             !plythApi ||
-            plythIntegratedMode !== "off" ||
-            plythMode === "off" ||
+            (plythIntegratedMode === "off" && plythMode === "off") ||
             options.reviewBudget
               ? []
               : [
                   createPlythObserveExtension(plythApi, plythCounter!, {
-                    feedback: plythMode === "feedback",
+                    feedback:
+                      plythIntegratedMode === "off" && plythMode === "feedback",
+                    guidance: plythIntegratedMode === "off",
                     baseline: plythBaseline,
                     workspaceRevision: () => plythWorkspaceRevision(sessionCwd),
                     trace: plythTrace,
@@ -713,12 +718,24 @@ export async function createPiAgentGateway(
       if (!plythApi) return "off";
       return plythIntegratedMode !== "off" ? plythIntegratedMode : plythMode;
     },
+    async setPlythIntegratedMode(mode) {
+      if (mode !== "off" && !plythApi)
+        return "PLYTH is not installed globally. Run `npm install --global plyth-core`, then restart Rook.";
+      await writePlythIntegratedMode(cwd, mode);
+      if (process.env.ROOK_PLYTH_INTEGRATED !== undefined)
+        return `Saved PLYTH ${mode} for this workspace, but ROOK_PLYTH_INTEGRATED overrides it. Unset that variable and restart Rook to apply the workspace setting.`;
+      return `PLYTH ${mode === "integrated" ? "enabled (integrated)" : "disabled"} for this workspace. Restart Rook to apply the change.`;
+    },
     controlPlythTrace(action) {
       if (!plythApi) return "PLYTH is not installed in this workspace.";
       if (action === "clear") return plythTrace.clear();
       if (action === "export") return plythTrace.export();
-      if (action === "on" && plythMode === "off")
-        return "PLYTH is off; restart with ROOK_PLYTH_MODE=observe to enable tracing.";
+      if (
+        action === "on" &&
+        plythIntegratedMode === "off" &&
+        plythMode === "off"
+      )
+        return "PLYTH is disabled; use `/plyth enable` and restart Rook before enabling traces.";
       if (action === "on" || action === "off")
         plythTrace.setEnabled(action === "on");
       return plythTrace.status();

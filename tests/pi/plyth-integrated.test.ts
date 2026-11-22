@@ -10,6 +10,7 @@ import {
   PLYTH_INTEGRATED_GUIDANCE,
 } from "../../src/pi/plyth-integrated.js";
 import { resolvePlythIntegratedMode } from "../../src/pi/plyth-integrated-mode.js";
+import { writePlythIntegratedMode } from "../../src/pi/plyth-integrated-mode.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -109,6 +110,9 @@ describe("PLYTH integrated inference extension", () => {
   it("resolves off, prompt-only, and integrated as separate opt-in modes", async () => {
     await expect(resolvePlythIntegratedMode({})).resolves.toBe("off");
     await expect(
+      resolvePlythIntegratedMode({}, process.cwd(), "integrated"),
+    ).resolves.toBe("integrated");
+    await expect(
       resolvePlythIntegratedMode({ ROOK_PLYTH_INTEGRATED: "prompt" }),
     ).resolves.toBe("prompt");
     await expect(
@@ -120,6 +124,16 @@ describe("PLYTH integrated inference extension", () => {
     await expect(
       resolvePlythIntegratedMode({ ROOK_PLYTH_INTEGRATED: "true" }),
     ).resolves.toBe("off");
+  });
+
+  it("persists interactive enable and disable selections safely", async () => {
+    const root = await repo();
+    await writePlythIntegratedMode(root, "integrated");
+    await expect(resolvePlythIntegratedMode({}, root)).resolves.toBe(
+      "integrated",
+    );
+    await writePlythIntegratedMode(root, "off");
+    await expect(resolvePlythIntegratedMode({}, root)).resolves.toBe("off");
   });
 
   it("loads the project mode and lets an explicit environment mode override it", async () => {

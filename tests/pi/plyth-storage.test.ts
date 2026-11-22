@@ -148,8 +148,8 @@ describe.skipIf(!constants.O_NOFOLLOW)(
 );
 
 it("keeps observation, feedback, persistence and disabled modes independent", () => {
-  expect(resolvePlythMode({})).toBe("observe");
-  expect(resolvePlythMode({ ROOK_PLYTH_TRACE: "1" })).toBe("observe");
+  expect(resolvePlythMode({})).toBe("off");
+  expect(resolvePlythMode({ ROOK_PLYTH_TRACE: "1" })).toBe("off");
   expect(resolvePlythMode({ ROOK_PLYTH_FEEDBACK: "1" })).toBe("feedback");
   expect(
     resolvePlythMode({ ROOK_PLYTH_MODE: "off", ROOK_PLYTH_FEEDBACK: "1" }),

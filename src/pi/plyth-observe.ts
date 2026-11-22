@@ -18,6 +18,7 @@ export function createPlythObserveExtension(
   counter: any,
   options: {
     feedback?: boolean;
+    guidance?: boolean;
     baseline?: any;
     workspaceRevision?: () => string | undefined;
     trace?: { append(record: TraceRecord): void };
@@ -254,9 +255,10 @@ export function createPlythObserveExtension(
         }
       });
 
-      pi.on("before_agent_start", (event) => ({
-        systemPrompt: `${event.systemPrompt}\n\nPLYTH prediction guidance: ${GUIDANCE}`,
-      }));
+      if (options.guidance !== false)
+        pi.on("before_agent_start", (event) => ({
+          systemPrompt: `${event.systemPrompt}\n\nPLYTH prediction guidance: ${GUIDANCE}`,
+        }));
     },
   };
 }

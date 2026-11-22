@@ -33,7 +33,7 @@ describe("Pi SDK compatibility", () => {
     );
     vi.stubEnv("ROOK_PLYTH_MODE", "observe");
     const modes = [
-      [undefined, "observe"],
+      [undefined, "integrated"],
       ["prompt", "prompt"],
       ["integrated", "integrated"],
       ["off", "observe"],

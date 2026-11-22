@@ -15,7 +15,9 @@ describe("optional workspace PLYTH runtime", () => {
   it("returns unavailable when the workspace has no PLYTH package", async () => {
     const root = await mkdtemp(join(tmpdir(), "rook-no-plyth-module-"));
     roots.push(root);
-    await expect(loadPlythRuntime(root)).resolves.toBeUndefined();
+    await expect(
+      loadPlythRuntime(root, { globalNodeModulesRoot: null }),
+    ).resolves.toBeUndefined();
   });
 
   it("loads PLYTH from the workspace even though it is a peer of Rook", async () => {
@@ -28,7 +30,27 @@ describe("optional workspace PLYTH runtime", () => {
       "dir",
     );
 
-    const runtime = await loadPlythRuntime(root);
+    const runtime = await loadPlythRuntime(root, {
+      globalNodeModulesRoot: null,
+    });
+    expect(runtime?.IntegratedPlythFlow).toBeTypeOf("function");
+    expect(runtime?.SessionCounter).toBeTypeOf("function");
+  });
+
+  it("falls back to global PLYTH in a workspace without Node metadata", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rook-global-plyth-workspace-"));
+    roots.push(root);
+    const globalNodeModules = join(root, "global", "node_modules");
+    await mkdir(globalNodeModules, { recursive: true });
+    await symlink(
+      join(process.cwd(), "node_modules", "plyth-core"),
+      join(globalNodeModules, "plyth-core"),
+      "dir",
+    );
+
+    const runtime = await loadPlythRuntime(root, {
+      globalNodeModulesRoot: globalNodeModules,
+    });
     expect(runtime?.IntegratedPlythFlow).toBeTypeOf("function");
     expect(runtime?.SessionCounter).toBeTypeOf("function");
   });

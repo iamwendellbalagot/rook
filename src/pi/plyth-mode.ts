@@ -6,5 +6,5 @@ export function resolvePlythMode(env: NodeJS.ProcessEnv): PlythMode {
       ? env.ROOK_PLYTH_MODE
       : "observe";
   }
-  return env.ROOK_PLYTH_FEEDBACK === "1" ? "feedback" : "observe";
+  return env.ROOK_PLYTH_FEEDBACK === "1" ? "feedback" : "off";
 }

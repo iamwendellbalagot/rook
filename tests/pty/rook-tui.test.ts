@@ -81,6 +81,7 @@ class EventGateway implements AgentGateway {
   verificationUri = "https://login.example.test/device";
   loggedOutProviders: string[] = [];
   modeHistory: PermissionMode[] = [];
+  plythModeChanges: ("off" | "integrated")[] = [];
   forkedEntry?: string;
   compactedInstructions: string | undefined = undefined;
   private finishPendingRun: (() => void) | undefined = undefined;
@@ -276,6 +277,11 @@ class EventGateway implements AgentGateway {
     _action: "status" | "on" | "off" | "export" | "clear",
   ): string {
     return "PLYTH traces off";
+  }
+
+  async setPlythIntegratedMode(mode: "off" | "integrated"): Promise<string> {
+    this.plythModeChanges.push(mode);
+    return `PLYTH ${mode} saved; restart Rook to apply.`;
   }
 
   getPlythStats(): ReturnType<AgentGateway["getPlythStats"]> {
@@ -993,7 +999,7 @@ describe("Rook TUI shell", () => {
     await finished;
   });
 
-  it("shows outcome-only baseline comparisons and routes explicit trace controls without inference", async () => {
+  it("shows PLYTH status, routes enable/disable and trace controls without inference", async () => {
     const terminal = new FakeTerminal();
     const gateway = new EventGateway();
     const stats = gateway.getPlythStats();
@@ -1010,6 +1016,7 @@ describe("Rook TUI shell", () => {
     const trace = vi
       .spyOn(gateway, "controlPlythTrace")
       .mockReturnValue("PLYTH traces on");
+    const setPlythMode = vi.spyOn(gateway, "setPlythIntegratedMode");
     const app = createRookTui({
       cwd: "/workspace/sample-project",
       gateway,
@@ -1020,6 +1027,13 @@ describe("Rook TUI shell", () => {
     await app.submit("/plyth");
     let screen = app.tui.render(100).map(stripTerminalSequences).join("\n");
     expect(screen).toContain("agent 1/2 · history 2/2");
+    await app.submit("/plyth enable");
+    expect(setPlythMode).toHaveBeenLastCalledWith("integrated");
+    await app.submit("/plyth disable");
+    expect(setPlythMode).toHaveBeenLastCalledWith("off");
+    await app.submit("/plyth enable prompt");
+    screen = app.tui.render(100).map(stripTerminalSequences).join("\n");
+    expect(screen).toContain("Usage: /plyth");
     for (const action of ["status", "on", "off", "export", "clear"]) {
       await app.submit(`/plyth trace ${action}`);
       expect(trace).toHaveBeenLastCalledWith(action);
@@ -1028,6 +1042,7 @@ describe("Rook TUI shell", () => {
     screen = app.tui.render(100).map(stripTerminalSequences).join("\n");
     expect(screen).toContain("Usage: /plyth");
     expect(trace).toHaveBeenCalledTimes(5);
+    expect(setPlythMode).toHaveBeenCalledTimes(2);
     expect(gateway.sentPrompts).toHaveLength(before);
     app.stop();
     await finished;

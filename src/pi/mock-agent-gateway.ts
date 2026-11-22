@@ -26,6 +26,9 @@ export class MockAgentGateway implements AgentGateway {
   getPlythMode(): "observe" {
     return "observe";
   }
+  async setPlythIntegratedMode(mode: "off" | "integrated"): Promise<string> {
+    return `PLYTH ${mode} mode is unavailable in the mock gateway.`;
+  }
   controlPlythTrace(): string {
     return "PLYTH traces unavailable in the mock gateway.";
   }
