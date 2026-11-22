@@ -25,21 +25,47 @@ The project is in early development. The npm package is `rook-agent`; its execut
 
 ### Local PLYTH development dependency
 
-PLYTH is an optional peer integration. Rook starts and works without PLYTH; when installed, it resolves the package from the active workspace and loads its adapter only there. To enable it in a workspace with globally installed Rook, run `npx plyth-core install rook --project .`; this adds only PLYTH to that workspace. The installer prefers a compatible local Rook package when present and otherwise checks the global npm install. For local development, clone `plyth` beside `rook`; its `file:../plyth` reference is a development dependency only. This writes `.rook/plyth.json` (integration contract v1), defaulting to off. `--mode prompt` enables static guidance; `--mode integrated` opts into experimental dynamic feedback. `npx plyth-core uninstall rook --project .` removes the optional workspace dependency and disables the integration.
+PLYTH is an optional peer integration. Install both tools globally once:
 
-The default mode is observe-only: optional structured `expect` metadata, deterministic judging, in-memory session counts and an outcome-only command-history baseline. `/plyth` reports agent/history accuracy on the same comparable outcomes; edits or changed/unavailable workspace snapshots invalidate history. Snapshot budgets are 256 files / 2 MiB / best-effort 50 ms; symlinks, unknown hidden/sensitive inputs or larger workspaces make the comparison unavailable. Dependencies, external state, `.git` and `.rook` runtime data are outside this workspace-file heuristic.
+```sh
+npm install --global rook-agent plyth-core
+```
+
+Rook resolves PLYTH from the active workspace first, then from the global npm
+installation. Configure a workspace (including non-Node projects) with:
+
+```sh
+plyth-core install rook --project .
+```
+
+This writes `.rook/plyth.json` with integrated mode by default and does not add
+a `package.json`, lockfile, or `node_modules`. Restart Rook after changing its
+mode. `/plyth status` reports the current mode; `/plyth enable` selects
+integrated mode; `/plyth disable` turns it off for this workspace. Existing
+trace controls remain under `/plyth trace [status|on|off|export|clear]`.
+`plyth-core status rook --project .` reports the installed package and
+effective mode. `plyth-core uninstall rook --project .` disables PLYTH for the
+workspace but leaves the globally installed package and saved traces intact.
+
+Prompt-only mode remains supported through
+`plyth-core install rook --project . --mode prompt`; the TUI does not toggle it.
+An explicit `ROOK_PLYTH_INTEGRATED=off|prompt|integrated` environment setting
+overrides the workspace configuration. For local development, clone `plyth`
+beside `rook`; its `file:../plyth` reference is a development dependency only.
+
+Integrated mode includes deterministic outcome observation, in-memory session counts, and an outcome-only command-history baseline. `/plyth status` reports agent/history accuracy on the same comparable outcomes; edits or changed/unavailable workspace snapshots invalidate history. Snapshot budgets are 256 files / 2 MiB / best-effort 50 ms; symlinks, unknown hidden/sensitive inputs or larger workspaces make the comparison unavailable. Dependencies, external state, `.git` and `.rook` runtime data are outside this workspace-file heuristic.
 
 Set `ROOK_PLYTH_MODE=off` for a same-host B0 (no extension, prediction schema/guidance or snapshots), `observe` for B1, or `feedback` for experimental B2. An explicit mode overrides the compatibility flag `ROOK_PLYTH_FEEDBACK=1`. Feedback remains default-off, specific-miss-only, deduplicated and capped at five per session. Commands, permissions and required verification do not change.
 
 Persistence is separately opt-in: `ROOK_PLYTH_TRACE=1` or `/plyth trace on`. `/plyth trace [status|on|off|export|clear]` controls the private local JSONL ledger at `$ROOK_HOME/plyth/trace.jsonl` (default `~/.rook/plyth/trace.jsonl`). It stores only coarse times/durations, enums, a random session pseudonym and baseline correctness flags—not commands, output, evidence, paths, prompts or host IDs. It is capped at 64 KiB, private on POSIX, and storage errors fail open. `off` preserves records; `clear` deletes the ledger and disables tracing in this process. Stop other tracing processes before deletion if you want it to stay empty. No ledger is written by default and no data is uploaded. See sibling Plyth `docs/rook.md` for capabilities, snapshot limits, retention, safe export and stale-lock recovery.
 
-### Integrated PLYTH assistance (experimental, default off)
+### Integrated PLYTH assistance (experimental)
 
 `ROOK_PLYTH_INTEGRATED=integrated` opts into sparse assistance inside the existing Pi inference/tool loop. It adds concise behavioral guidance, one bounded task-local change checkpoint after observed source changes, and at most two recovery signals when the same supported test/build/diagnostic failure and evidence repeat. Checkpoints enter the next normal inference context; recovery advice is appended to the existing Bash result. It does not start a reviewer/provider turn, run tools, remove code, authorize actions, or claim a root cause. Task text and paths are escaped as untrusted context; task state and feedback are in-memory only. Session/fork/compaction boundaries clear task state.
 
-The project installer persists this selection in `.rook/plyth.json` (`{"schemaVersion":1,"integrationVersion":1,"mode":"off|prompt|integrated"}`). An explicit `ROOK_PLYTH_INTEGRATED` environment setting overrides the project value. Integrated mode remains experimental and disabled by default.
+The workspace installer persists this selection in `.rook/plyth.json` (`{"schemaVersion":1,"integrationVersion":1,"mode":"off|prompt|integrated"}`). Integrated mode is the default when PLYTH is installed; use `/plyth disable` or `ROOK_PLYTH_INTEGRATED=off` to turn it off. An explicit `ROOK_PLYTH_INTEGRATED` environment setting overrides the workspace value.
 
-`ROOK_PLYTH_INTEGRATED=prompt` enables only the same static guidance, for prompt-only comparison. Unset, `off`, or an unrecognized value disables the integrated path. The integrated modes suppress the separate legacy observer for that session; legacy `ROOK_PLYTH_MODE=off|observe|feedback` and `ROOK_PLYTH_FEEDBACK=1` behavior remains unchanged when integrated mode is off. `/plyth` reports `integrated` or `prompt-only`. No live/provider-backed effectiveness evaluation has been run for this feature; it remains experimental and opt-in.
+`ROOK_PLYTH_INTEGRATED=prompt` enables only the same static guidance. An explicit `off` disables the integrated path. Legacy `ROOK_PLYTH_MODE=off|observe|feedback` and `ROOK_PLYTH_FEEDBACK=1` behavior remains available when integrated mode is off. `/plyth status` reports the active mode. No live/provider-backed effectiveness evaluation has been run for this feature; it remains experimental.
 
 Rook-first feature completion does **not** establish feedback benefit. The earlier bounded Phase 3 evaluation found insufficient benefit evidence and predates the completed baseline/trace features. Other coding-agent adapters are deferred.
 
