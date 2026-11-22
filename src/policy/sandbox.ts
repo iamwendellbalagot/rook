@@ -131,6 +131,7 @@ export async function createSandboxCommand(
           `-DWORKSPACE=${cwd}`,
           `-DWORKSPACE_GIT_DIR=${join(cwd, ".git")}`,
           `-DPRIVATE_TMP=${canonicalPrivateTemp}`,
+          "--",
           "/bin/sh",
           "-lc",
           command,
