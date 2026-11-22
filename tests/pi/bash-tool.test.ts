@@ -6,8 +6,9 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createRookBashTool } from "../../src/pi/bash-tool.js";
 import { shellTimeout } from "../../src/policy/shell-limits.js";
@@ -160,12 +161,21 @@ describe("Rook's Pi bash tool", () => {
     }
   });
 
-  it("fails closed when the Bubblewrap runtime is not executable", async () => {
+  it("runs in the native sandbox or fails closed when unavailable", async () => {
     const tool = createRookBashTool(process.cwd());
-    const runtimeMissing =
-      process.platform !== "linux" || !(await detectSandboxRuntime());
-    if (!runtimeMissing) {
-      expect(await detectSandboxRuntime()).toBe("bwrap");
+    const runtime = await detectSandboxRuntime();
+    if (runtime) {
+      const result = await tool.execute(
+        "live-sandbox",
+        { command: "printf live-sandbox-ok" },
+        undefined,
+        undefined,
+        {} as never,
+      );
+      expect(result.isError).not.toBe(true);
+      expect(result.content[0]).toMatchObject({
+        text: expect.stringContaining("live-sandbox-ok"),
+      });
       return;
     }
     await expect(
@@ -232,8 +242,12 @@ describe("Rook's Pi bash tool", () => {
       const root = await mkdtemp(join(tmpdir(), "rook-seatbelt-"));
       const outside = `${root}-outside`;
       const inside = join(root, "allowed.txt");
+      const gitConfig = join(root, ".git", "config");
       try {
         await writeFile(outside, "secret");
+        await mkdir(join(root, ".git"));
+        await writeFile(gitConfig, "protected");
+        const canonicalRoot = await realpath(root);
         const runtime = await detectSandboxRuntime();
         if (!runtime) {
           await expect(
@@ -250,7 +264,7 @@ describe("Rook's Pi bash tool", () => {
           return;
         }
         const sandbox = await createSandboxCommand(
-          `printf ok > ${JSON.stringify(inside)} && cat ${JSON.stringify(outside)}`,
+          `printf ok > ${JSON.stringify(join(canonicalRoot, basename(inside)))}; printf tampered > ${JSON.stringify(join(canonicalRoot, ".git", "config"))}; cat ${JSON.stringify(`../${basename(outside)}`)}`,
           root,
           runtime,
           { PATH: "/usr/bin:/bin", HOME: "/tmp" },
@@ -271,9 +285,72 @@ describe("Rook's Pi bash tool", () => {
           );
           expect(result.exitCode).not.toBe(0);
           expect(await readFile(inside, "utf8")).toBe("ok");
+          expect(await readFile(gitConfig, "utf8")).toBe("protected");
           expect(result.stdout).toBe("");
+          expect(result.stderr).toContain("Operation not permitted");
         } finally {
           await sandbox.cleanup?.();
+        }
+        if (runtime === "seatbelt") {
+          let connections = 0;
+          const server = createServer((socket) => {
+            connections++;
+            socket.destroy();
+          });
+          await new Promise<void>((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(0, "127.0.0.1", resolve);
+          });
+          try {
+            const address = server.address();
+            if (!address || typeof address === "string")
+              throw new Error("Could not start local sandbox network fixture.");
+            const networkSandbox = await createSandboxCommand(
+              `/usr/bin/nc -z -w 1 127.0.0.1 ${address.port}`,
+              root,
+              runtime,
+              { PATH: "/usr/bin:/bin" },
+            );
+            try {
+              const networkResult = await runSandboxCommand(
+                networkSandbox.executable,
+                networkSandbox.args,
+                {
+                  cwd: root,
+                  env: { PATH: "/usr/bin:/bin", ...networkSandbox.env },
+                  timeout: 5_000,
+                },
+              );
+              expect(networkResult.exitCode).not.toBe(0);
+              expect(connections).toBe(0);
+            } finally {
+              await networkSandbox.cleanup?.();
+            }
+          } finally {
+            await new Promise<void>((resolve) => server.close(() => resolve()));
+          }
+
+          const timeoutSandbox = await createSandboxCommand(
+            "sleep 10 & wait",
+            root,
+            runtime,
+            { PATH: "/usr/bin:/bin" },
+          );
+          try {
+            const timeoutResult = await runSandboxCommand(
+              timeoutSandbox.executable,
+              timeoutSandbox.args,
+              {
+                cwd: root,
+                env: { PATH: "/usr/bin:/bin", ...timeoutSandbox.env },
+                timeout: 100,
+              },
+            );
+            expect(timeoutResult.timedOut).toBe(true);
+            expect(timeoutResult.exitCode).toBe(124);
+          } finally {
+            await timeoutSandbox.cleanup?.();
+          }
         }
       } finally {
         await rm(root, { recursive: true, force: true });

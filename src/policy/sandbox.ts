@@ -133,10 +133,14 @@ export async function createSandboxCommand(
           `-DPRIVATE_TMP=${canonicalPrivateTemp}`,
           "--",
           "/bin/sh",
-          "-lc",
+          "-c",
           command,
         ],
-        env: { HOME: canonicalPrivateTemp, TMPDIR: canonicalPrivateTemp },
+        env: {
+          PATH: seatbeltPath(env.PATH),
+          HOME: canonicalPrivateTemp,
+          TMPDIR: canonicalPrivateTemp,
+        },
         cleanup: () => rm(privateTemp, { recursive: true, force: true }),
       };
     } catch (error) {
@@ -199,7 +203,7 @@ function seatbeltProfile(): string {
 (allow signal (target same-sandbox))
 (allow process-info* (target same-sandbox))
 (allow sysctl-read)
-(allow file-read* (subpath "/System") (subpath "/usr") (subpath "/bin") (subpath "/sbin") (subpath "/Library/Apple") (subpath "/private/var/db/dyld") (literal "/private/etc/profile") (literal "/dev/null") (literal "/dev/urandom") (literal "/dev/random") (subpath (param "WORKSPACE")))
+(allow file-read* (subpath "/System") (subpath "/usr") (subpath "/bin") (subpath "/sbin") (subpath "/usr/local") (subpath "/opt/homebrew") (subpath "/Library/Apple") (subpath "/private/var/db/dyld") (literal "/") (literal "/private/var/select/sh") (literal "/dev/null") (literal "/dev/urandom") (literal "/dev/random") (subpath (param "WORKSPACE")))
 (allow file-read* (subpath (param "PRIVATE_TMP")))
 (allow file-write* (subpath (param "WORKSPACE")) (subpath (param "PRIVATE_TMP")))
 (deny file-write* (subpath (param "WORKSPACE_GIT_DIR")))
@@ -214,12 +218,27 @@ function probeSeatbelt(executable: string): boolean {
     executable,
     [
       "-p",
-      '(version 1) (deny default) (allow process-exec) (allow file-read* (subpath "/System") (subpath "/usr") (subpath "/bin") (subpath "/private/var/db/dyld"))',
+      '(version 1) (deny default) (allow process-exec) (allow file-read* (subpath "/System") (subpath "/usr") (subpath "/bin") (subpath "/private/var/db/dyld") (literal "/"))',
       "/usr/bin/true",
     ],
     { encoding: "utf8", timeout: 2_000, windowsHide: true },
   );
   return result.status === 0;
+}
+
+function seatbeltPath(pathValue = ""): string {
+  const allowedRoots = [
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+  ];
+  return pathValue
+    .split(delimiter)
+    .filter((path) => allowedRoots.includes(resolve(path)))
+    .join(delimiter);
 }
 
 function probeBubblewrap(executable: string): boolean {
