@@ -19,6 +19,17 @@ export type AgentEvent =
       outputTokens?: number;
       stopReason?: string;
     }
+  | { type: "context_usage"; usage: SessionContextUsage | undefined }
+  | {
+      type: "compaction";
+      phase: "start" | "end";
+      reason: "manual" | "threshold" | "overflow";
+      tokensBefore?: number;
+      estimatedTokensAfter?: number;
+      aborted?: boolean;
+      willRetry?: boolean;
+      error?: string;
+    }
   | { type: "todo_updated"; tasks: TaskChecklistItem[] }
   | { type: "run_settled"; aborted: boolean }
   | { type: "task_receipt"; text: string }
@@ -100,6 +111,17 @@ export interface CurrentSessionInfo {
   id: string;
   path?: string;
   name?: string;
+}
+
+export interface SessionContextUsage {
+  tokens: number | null;
+  contextWindow: number;
+  percent: number | null;
+}
+
+export interface SessionCompactionResult {
+  tokensBefore: number;
+  estimatedTokensAfter?: number;
 }
 
 export interface PermissionDecision {
@@ -204,13 +226,14 @@ export interface AgentGateway {
   setThinkingLevel(level: string): void;
   listSessions(): Promise<SessionInfo[]>;
   currentSession(): CurrentSessionInfo;
+  getContextUsage?(): SessionContextUsage | undefined;
   sessionHistory(): SessionMessage[];
   listSkills(): AgentResource[];
   listPromptTemplates(): AgentResource[];
   isResourceCommand(prompt: string): boolean;
   listForkPoints(): ForkPoint[];
   fork(entryId: string): Promise<void>;
-  compact(customInstructions?: string): Promise<void>;
+  compact(customInstructions?: string): Promise<SessionCompactionResult>;
   newSession(): Promise<void>;
   resumeSession(path: string): Promise<void>;
   setMode(mode: PermissionMode): void;

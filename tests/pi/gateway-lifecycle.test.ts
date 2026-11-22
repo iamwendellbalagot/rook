@@ -9,6 +9,7 @@ const fixture = vi.hoisted(() => {
   const entries: unknown[] = [];
   const savedSessions = new Map<string, unknown[]>();
   let rebindSession: ((session: any) => Promise<void>) | undefined;
+  let sessionEventHandler: ((event: any) => void) | undefined;
   const session = {
     isIdle: true,
     isStreaming: false,
@@ -22,7 +23,10 @@ const fixture = vi.hoisted(() => {
     followUp: vi.fn(),
     steer: vi.fn(),
     abort: vi.fn(),
-    compact: vi.fn(),
+    compact: vi.fn(async (_instructions?: string) => ({
+      tokensBefore: 100,
+      estimatedTokensAfter: 10,
+    })),
     model: { provider: "fixture", id: "review-model", name: "Review Model" },
     modelRuntime: {
       getModels: () => [
@@ -33,10 +37,20 @@ const fixture = vi.hoisted(() => {
     getSessionStats: () => ({
       tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     }),
+    getContextUsage: () => ({
+      tokens: null,
+      contextWindow: 128_000,
+      percent: null,
+    }),
     getAllTools: vi.fn(() => []),
     setActiveToolsByName: vi.fn(),
     bindExtensions: vi.fn(),
-    subscribe: vi.fn(() => () => {}),
+    subscribe: vi.fn((handler: (event: any) => void) => {
+      sessionEventHandler = handler;
+      return () => {
+        sessionEventHandler = undefined;
+      };
+    }),
   };
   return {
     session,
@@ -48,6 +62,12 @@ const fixture = vi.hoisted(() => {
     },
     async rebind() {
       await rebindSession?.(session);
+    },
+    emit(event: unknown) {
+      sessionEventHandler?.(event);
+    },
+    clearSessionEventHandler() {
+      sessionEventHandler = undefined;
     },
   };
 });
@@ -97,6 +117,7 @@ afterEach(() => {
   fixture.savedSessions.clear();
   session.sessionManager.appendCustomEntry.mockClear();
   fixture.setRebindSession(undefined);
+  fixture.clearSessionEventHandler();
 });
 
 describe("gateway run lifecycle", () => {
@@ -387,5 +408,119 @@ describe("gateway run lifecycle", () => {
     });
     await gateway.newSession();
     expect(events.at(-1)).toEqual({ type: "todo_updated", tasks: [] });
+  });
+
+  it("clears a completed checklist when the successful run settles", async () => {
+    const completedTasks = [
+      { id: "done", title: "Finished task", status: "completed" },
+    ];
+    fixture.savedSessions.set("completed-session", [
+      {
+        type: "custom",
+        customType: "rook_task_checklist",
+        data: { tasks: completedTasks },
+      },
+    ]);
+    const gateway = await createPiAgentGateway();
+    const events: AgentEvent[] = [];
+    gateway.subscribe((event) => events.push(event));
+    await gateway.resumeSession("completed-session");
+    events.length = 0;
+    session.sessionManager.appendCustomEntry.mockClear();
+
+    fixture.emit({ type: "agent_settled", aborted: false });
+
+    expect(events.at(-1)).toEqual({ type: "todo_updated", tasks: [] });
+    expect(session.sessionManager.appendCustomEntry).toHaveBeenCalledWith(
+      "rook_task_checklist",
+      { tasks: [] },
+    );
+  });
+
+  it("preserves a completed checklist when a run is cancelled", async () => {
+    const completedTasks = [
+      { id: "done", title: "Finished task", status: "completed" },
+    ];
+    fixture.savedSessions.set("completed-session", [
+      {
+        type: "custom",
+        customType: "rook_task_checklist",
+        data: { tasks: completedTasks },
+      },
+    ]);
+    const gateway = await createPiAgentGateway();
+    const events: AgentEvent[] = [];
+    gateway.subscribe((event) => events.push(event));
+    await gateway.resumeSession("completed-session");
+    events.length = 0;
+    session.sessionManager.appendCustomEntry.mockClear();
+
+    fixture.emit({ type: "agent_settled", aborted: true });
+
+    expect(events).not.toContainEqual({ type: "todo_updated", tasks: [] });
+    expect(session.sessionManager.appendCustomEntry).not.toHaveBeenCalled();
+  });
+
+  it("returns compaction estimates and preserves Rook handoff guidance", async () => {
+    const gateway = await createPiAgentGateway();
+    const events: AgentEvent[] = [];
+    gateway.subscribe((event) => events.push(event));
+
+    await expect(gateway.compact("Keep the final decision")).resolves.toEqual({
+      tokensBefore: 100,
+      estimatedTokensAfter: 10,
+    });
+
+    const instructions = session.compact.mock.calls.at(-1)?.[0];
+    expect(instructions).toContain("Preserve the user's goal");
+    expect(instructions).toContain("Keep active task checklist items");
+    expect(instructions).toContain("Keep the final decision");
+    expect(events.at(-1)).toEqual({
+      type: "context_usage",
+      usage: {
+        tokens: 10,
+        contextWindow: 128_000,
+        percent: (10 / 128_000) * 100,
+      },
+    });
+  });
+
+  it("updates the session context meter after automatic compaction", async () => {
+    const gateway = await createPiAgentGateway();
+    const events: AgentEvent[] = [];
+    gateway.subscribe((event) => events.push(event));
+    events.length = 0;
+
+    fixture.emit({ type: "compaction_start", reason: "threshold" });
+    fixture.emit({
+      type: "compaction_end",
+      reason: "threshold",
+      result: { tokensBefore: 100, estimatedTokensAfter: 25 },
+      aborted: false,
+      willRetry: false,
+    });
+
+    expect(events).toContainEqual({
+      type: "compaction",
+      phase: "start",
+      reason: "threshold",
+    });
+    expect(events).toContainEqual({
+      type: "compaction",
+      phase: "end",
+      reason: "threshold",
+      tokensBefore: 100,
+      estimatedTokensAfter: 25,
+      aborted: false,
+      willRetry: false,
+    });
+    expect(events.at(-1)).toEqual({
+      type: "context_usage",
+      usage: {
+        tokens: 25,
+        contextWindow: 128_000,
+        percent: (25 / 128_000) * 100,
+      },
+    });
   });
 });

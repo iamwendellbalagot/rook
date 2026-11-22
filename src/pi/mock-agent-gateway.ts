@@ -10,6 +10,7 @@ import type {
   ProviderAuthInteraction,
   ProviderAuthType,
   SessionInfo,
+  SessionCompactionResult,
   SessionMessage,
   ThinkingInfo,
 } from "./agent-gateway.js";
@@ -119,7 +120,7 @@ export class MockAgentGateway implements AgentGateway {
     throw new Error("The mock gateway has no saved session branches.");
   }
 
-  async compact(): Promise<void> {
+  async compact(): Promise<SessionCompactionResult> {
     throw new Error("The mock gateway has no persistent session to compact.");
   }
 

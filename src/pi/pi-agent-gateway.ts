@@ -25,6 +25,8 @@ import type {
   ProviderInfo,
   SessionInfo,
   SessionMessage,
+  SessionCompactionResult,
+  SessionContextUsage,
   ThinkingInfo,
 } from "./agent-gateway.js";
 import { adaptPiEvent } from "./event-adapter.js";
@@ -212,6 +214,7 @@ export async function createPiAgentGateway(
   );
   let refreshWorkspaceModels = async (): Promise<void> => {};
   let checklist: TaskChecklistItem[] = [];
+  let compactedContextEstimate: number | undefined;
   let clearChecklistWhenBinding = false;
   let persistChecklist = (tasks: TaskChecklistItem[]): void => {
     checklist = tasks;
@@ -483,6 +486,7 @@ export async function createPiAgentGateway(
       ),
     );
     policy.clearSessionPermissionGrants();
+    compactedContextEstimate = undefined;
     checklist = clearChecklistWhenBinding
       ? []
       : restoreTaskChecklistFromEntries(session.sessionManager.getBranch());
@@ -494,6 +498,7 @@ export async function createPiAgentGateway(
       emit({ type: "todo_updated", tasks });
     };
     emit({ type: "todo_updated", tasks: checklist });
+    emit({ type: "context_usage", usage: session.getContextUsage() });
     unsubscribe = session.subscribe((event) => {
       if (activeReceipt) {
         if (event.type === "agent_settled" && event.aborted) {
@@ -512,6 +517,48 @@ export async function createPiAgentGateway(
         }
       }
       for (const mapped of adaptPiEvent(event)) emit(mapped);
+      if (event.type === "compaction_start") {
+        emit({ type: "compaction", phase: "start", reason: event.reason });
+      } else if (event.type === "compaction_end") {
+        compactedContextEstimate = event.result?.estimatedTokensAfter;
+        emit({
+          type: "compaction",
+          phase: "end",
+          reason: event.reason,
+          ...(event.result
+            ? {
+                tokensBefore: event.result.tokensBefore,
+                ...(event.result.estimatedTokensAfter === undefined
+                  ? {}
+                  : {
+                      estimatedTokensAfter: event.result.estimatedTokensAfter,
+                    }),
+              }
+            : {}),
+          aborted: event.aborted,
+          willRetry: event.willRetry,
+          ...(event.errorMessage ? { error: event.errorMessage } : {}),
+        });
+      }
+      if (
+        event.type === "compaction_end" ||
+        event.type === "agent_settled" ||
+        event.type === "message_end"
+      ) {
+        const usage = session.getContextUsage();
+        if (usage?.tokens !== null && usage?.tokens !== undefined) {
+          compactedContextEstimate = undefined;
+        }
+        emit({ type: "context_usage", usage: currentContextUsage() });
+      }
+      if (
+        event.type === "agent_settled" &&
+        !event.aborted &&
+        checklist.length > 0 &&
+        checklist.every((task) => task.status === "completed")
+      ) {
+        persistChecklist([]);
+      }
     });
   };
   runtime.setBeforeSessionInvalidate(() => {
@@ -528,7 +575,24 @@ export async function createPiAgentGateway(
     for (const handler of handlers) handler(event);
   }
 
+  function currentContextUsage(): SessionContextUsage | undefined {
+    const usage = runtime.session.getContextUsage();
+    if (
+      !usage ||
+      usage.tokens !== null ||
+      compactedContextEstimate === undefined
+    )
+      return usage;
+    return {
+      ...usage,
+      tokens: compactedContextEstimate,
+      percent: (compactedContextEstimate / usage.contextWindow) * 100,
+    };
+  }
+
   let activePrompts = 0;
+  const isGatewayRunning = (): boolean =>
+    activePrompts > 0 || !runtime.session.isIdle;
   const getSessionHistory = (): SessionMessage[] =>
     runtime.session.messages.flatMap((message) => {
       if (message.role !== "user" && message.role !== "assistant") return [];
@@ -543,11 +607,7 @@ export async function createPiAgentGateway(
     });
   return {
     isRunning() {
-      return (
-        activePrompts > 0 ||
-        !runtime.session.isIdle ||
-        activeReview !== undefined
-      );
+      return isGatewayRunning();
     },
     async send(prompt, disposition = "normal") {
       if (activeReview && disposition !== "normal" && runtime.session.isIdle)
@@ -1093,6 +1153,9 @@ export async function createPiAgentGateway(
         ...(session.sessionName ? { name: session.sessionName } : {}),
       };
     },
+    getContextUsage(): SessionContextUsage | undefined {
+      return currentContextUsage();
+    },
     sessionHistory(): SessionMessage[] {
       return getSessionHistory();
     },
@@ -1139,16 +1202,44 @@ export async function createPiAgentGateway(
       }
     },
     async compact(customInstructions) {
+      if (isGatewayRunning()) {
+        throw new Error(
+          "Wait for the current run to finish before compacting.",
+        );
+      }
       invalidateReview("session compacted");
       reviewBoundary = undefined;
       reviewTaskContext = "";
-      await runtime.session.compact(customInstructions);
+      const instructions = [
+        "Write a concise handoff summary for continuing this session. Preserve the user's goal, explicit constraints, decisions and rationale, important file paths, verification already performed, and remaining work.",
+        "Keep active task checklist items and their exact status. Never describe unfinished or unverified work as complete. Retain details needed to continue implementation; omit routine tool chatter and superseded exploration.",
+        customInstructions
+          ? `Additional user guidance: ${customInstructions}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      const result = await runtime.session.compact(instructions);
+      compactedContextEstimate = result.estimatedTokensAfter;
+      emit({ type: "context_usage", usage: currentContextUsage() });
+      return {
+        tokensBefore: result.tokensBefore,
+        ...(result.estimatedTokensAfter === undefined
+          ? {}
+          : { estimatedTokensAfter: result.estimatedTokensAfter }),
+      };
     },
     async newSession() {
+      if (isGatewayRunning()) {
+        throw new Error(
+          "Wait for the current run to finish before starting a new session.",
+        );
+      }
       invalidateReview("session changed");
       reviewBoundary = undefined;
       reviewTaskContext = "";
       await runtime.newSession();
+      emit({ type: "context_usage", usage: currentContextUsage() });
       persistChecklist([]);
     },
     async resumeSession(path) {
@@ -1158,10 +1249,15 @@ export async function createPiAgentGateway(
       const result = await runtime.switchSession(path);
       if (result.cancelled)
         throw new Error("The session switch was cancelled.");
+      emit({ type: "context_usage", usage: currentContextUsage() });
     },
     subscribe(handler) {
       handlers.add(handler);
       handler({ type: "todo_updated", tasks: checklist });
+      handler({
+        type: "context_usage",
+        usage: currentContextUsage(),
+      });
       return () => handlers.delete(handler);
     },
     async dispose() {

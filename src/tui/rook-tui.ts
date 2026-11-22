@@ -910,21 +910,24 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   });
   const updateFooter = (): void => {
     const width = Math.max(1, terminal.columns - SCREEN_GUTTER * 2);
-    const context = state.usage?.inputTokens;
     const compactCount = (value: number | undefined): string =>
       value === undefined
         ? "—"
         : value >= 1000
           ? `${(value / 1000).toFixed(1)}k`
           : String(value);
+    const contextUsage = options.gateway.getContextUsage?.();
+    const context = contextUsage
+      ? `${contextUsage.tokens === null ? "—" : `~${compactCount(contextUsage.tokens)}`}/${compactCount(contextUsage.contextWindow)}${contextUsage.percent === null ? "" : ` ${Math.round(contextUsage.percent)}%`}`
+      : "—";
     footerDivider.setText(tone("─".repeat(Math.max(0, width - 4)), "border"));
     const mode =
       state.mode.toUpperCase() + (state.mode === "plan" ? " (read-only)" : "");
     const memory = options.memoryCapture ? "ready" : "unavailable";
     const footerText =
       width >= 120
-        ? `${tone("Rook v0.1.0", "muted")}  │  ${tone("Model:", "muted")} ${tone(modelLabel, "text")}  │  ${tone("Provider:", "muted")} ${tone(providerLabel, "text")}  │  ${tone("Mode:", "muted")} ${tone(mode, state.mode === "plan" ? "blue" : "amber", true)}  │  ${tone("Context:", "muted")} ${tone(compactCount(context), "text")}  │  ${tone("Memory:", "muted")} ${tone(memory, options.memoryCapture ? "green" : "dim", Boolean(options.memoryCapture))}`
-        : `${tone("Rook v0.1.0", "muted")}  │  ${tone(modelLabel, "text")}  │  ${tone(providerLabel, "text")}  │  ${tone(state.mode.toUpperCase(), state.mode === "plan" ? "blue" : "amber", true)}  │  ${tone(`Ctx ${compactCount(context)}`, "muted")}  │  ${tone(`Mem ${memory}`, options.memoryCapture ? "green" : "dim")}`;
+        ? `${tone("Rook v0.1.0", "muted")}  │  ${tone("Model:", "muted")} ${tone(modelLabel, "text")}  │  ${tone("Provider:", "muted")} ${tone(providerLabel, "text")}  │  ${tone("Mode:", "muted")} ${tone(mode, state.mode === "plan" ? "blue" : "amber", true)}  │  ${tone("Context:", "muted")} ${tone(context, "text")}  │  ${tone("Memory:", "muted")} ${tone(memory, options.memoryCapture ? "green" : "dim", Boolean(options.memoryCapture))}`
+        : `${tone("Rook v0.1.0", "muted")}  │  ${tone(modelLabel, "text")}  │  ${tone(providerLabel, "text")}  │  ${tone(state.mode.toUpperCase(), state.mode === "plan" ? "blue" : "amber", true)}  │  ${tone(`Ctx ${context}`, "muted")}  │  ${tone(`Mem ${memory}`, options.memoryCapture ? "green" : "dim")}`;
     footer.setText(truncateToWidth(footerText, Math.max(0, width - 2)));
     tui.requestRender();
   };
@@ -1093,6 +1096,29 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     } else if (event.type === "todo_updated") {
       checklistSidebar.setTasks(event.tasks);
       compactChecklist.setTasks(event.tasks);
+      tui.requestRender();
+    } else if (event.type === "context_usage") {
+      updateFooter();
+    } else if (event.type === "compaction") {
+      if (event.phase === "start") {
+        loadingIndicator.setText(tone("Compacting session context…", "blue"));
+      } else if (event.willRetry) {
+        loadingIndicator.setText(tone("Retrying session compaction…", "blue"));
+      } else {
+        loadingIndicator.setText("");
+        if (event.reason !== "manual") {
+          if (event.error)
+            appendText(`Automatic compaction failed: ${event.error}`, "error");
+          else if (!event.aborted)
+            appendText(
+              event.tokensBefore === undefined
+                ? "Session context compacted automatically."
+                : `Session context compacted automatically: ${formatContextCount(event.tokensBefore)} → ${event.estimatedTokensAfter === undefined ? "refreshed" : `~${formatContextCount(event.estimatedTokensAfter)}`}.`,
+              "muted",
+            );
+        }
+        updateFooter();
+      }
       tui.requestRender();
     } else if (event.type === "usage") {
       // Pi reports usage once per assistant message, including tool-call turns.
@@ -1491,11 +1517,29 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           showForkMenu();
           return;
         case "/compact":
+          if (options.gateway.isRunning()) {
+            appendText(
+              "Wait for the current run to finish before compacting.",
+              "error",
+            );
+            return;
+          }
           try {
-            await options.gateway.compact(
+            const result = await options.gateway.compact(
               prompt.slice("/compact".length).trim() || undefined,
             );
-            appendText("Pi compacted the current session context.", "muted");
+            const after =
+              result.estimatedTokensAfter ??
+              options.gateway.getContextUsage?.()?.tokens ??
+              undefined;
+            const percent = options.gateway.getContextUsage?.()?.percent;
+            appendText(
+              after === undefined
+                ? `Compacted session context (${formatContextCount(result.tokensBefore)} tokens before); context meter refreshed.`
+                : `Compacted session context: ${formatContextCount(result.tokensBefore)} → ~${formatContextCount(after)} tokens${percent == null ? "" : ` · ${Math.round(percent)}% of context window`}.`,
+              "muted",
+            );
+            updateFooter();
           } catch (error) {
             appendText(errorMessage(error), "error");
           }
@@ -1991,6 +2035,13 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   }
 
   async function startNewSession(): Promise<void> {
+    if (options.gateway.isRunning()) {
+      appendText(
+        "Cancel or wait for the current run before starting a new session.",
+        "error",
+      );
+      return;
+    }
     try {
       await options.gateway.newSession();
       renderCurrentSession();
@@ -2197,6 +2248,16 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
 
   function renderCurrentSession(): void {
     suppliedMemoryIds = [];
+    activeResponse = undefined;
+    activeResponseText = "";
+    state = {
+      ...state,
+      runState: "idle",
+      response: "",
+      error: null,
+      tools: [],
+      usage: null,
+    };
     removeHome();
     for (const child of [...transcript.children]) transcript.removeChild(child);
     toolCards.clear();
@@ -2707,6 +2768,10 @@ function formatTaskChecklist(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function formatContextCount(value: number): string {
+  return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value);
 }
 
 function compactSessionLabel(value: string): string {

@@ -27,6 +27,7 @@ import type {
   ProviderInfo,
   SessionInfo,
   SessionMessage,
+  SessionContextUsage,
   ThinkingInfo,
 } from "../../src/pi/agent-gateway.js";
 import type { SubagentProfile } from "../../src/pi/subagents.js";
@@ -84,6 +85,11 @@ class EventGateway implements AgentGateway {
   plythModeChanges: ("off" | "integrated")[] = [];
   forkedEntry?: string;
   compactedInstructions: string | undefined = undefined;
+  contextUsage: SessionContextUsage | undefined = {
+    tokens: 1_024,
+    contextWindow: 128_000,
+    percent: 0.8,
+  };
   private finishPendingRun: (() => void) | undefined = undefined;
 
   async send(
@@ -247,8 +253,16 @@ class EventGateway implements AgentGateway {
     this.forkedEntry = entryId;
   }
 
-  async compact(customInstructions?: string): Promise<void> {
+  async compact(
+    customInstructions?: string,
+  ): Promise<{ tokensBefore: number; estimatedTokensAfter: number }> {
     this.compactedInstructions = customInstructions;
+    this.contextUsage = { tokens: 512, contextWindow: 128_000, percent: 0.4 };
+    return { tokensBefore: 1_024, estimatedTokensAfter: 512 };
+  }
+
+  getContextUsage(): SessionContextUsage | undefined {
+    return this.contextUsage;
   }
 
   completePendingRun(): void {
@@ -264,6 +278,7 @@ class EventGateway implements AgentGateway {
 
   async newSession(): Promise<void> {
     this.sessionId = "session-87654321";
+    this.contextUsage = { tokens: 0, contextWindow: 128_000, percent: 0 };
   }
 
   async resumeSession(): Promise<void> {}
@@ -1400,6 +1415,7 @@ describe("Rook TUI shell", () => {
     expect(homeScreen.join("\n")).toContain("feature/ui");
     expect(homeScreen.join("\n")).toContain("sample-project");
     expect(homeScreen.join("\n")).toContain("/workspace/sample-project");
+    expect(homeScreen.join("\n")).toContain("Ctx ~1.0k/128.0k 1%");
 
     await app.submit("/build");
     expect(app.tui.render(100).join("\n")).toContain("/build");
@@ -1428,6 +1444,12 @@ describe("Rook TUI shell", () => {
     expect(app.tui.render(100).join("\n")).toContain("Rook v0.1.0");
 
     const pendingRun = app.submit("long running prompt");
+    await app.submit("/new");
+    expect(gateway.currentSession().id).toBe("session-87654321");
+    app.tui.renderNow(true);
+    expect(
+      app.tui.getScreenLines().map(stripTerminalSequences).join("\n"),
+    ).toContain("A response is still running. Use /cancel");
     gateway.emit({ type: "error", message: "Provider timed out (504)." });
     await app.submit("Use the smaller change");
     await app.submit("/build");
@@ -1451,6 +1473,11 @@ describe("Rook TUI shell", () => {
 
     await app.submit("/compact Keep the final decision");
     expect(gateway.compactedInstructions).toBe("Keep the final decision");
+    app.tui.renderNow(true);
+    expect(app.tui.render(180).join("\n")).toContain(
+      "Compacted session context: 1.0k → ~512 tokens",
+    );
+    expect(app.tui.render(180).join("\n")).toContain("Ctx ~512/128.0k");
     await app.submit("/skills");
     await app.submit("/prompts");
     await app.submit("/skill:review");
