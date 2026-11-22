@@ -95,7 +95,7 @@ export class TaskReceipt {
   render(): string {
     const end = snapshot(this.cwd);
     const before = this.start;
-    const lines = [`Build ${this.outcome} · task receipt`];
+    const lines = [`Build-mode run ${this.outcome} · task receipt`];
     const list = (label: string, paths: Iterable<string>) => {
       const items = [...paths];
       const remaining =

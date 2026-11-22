@@ -48,7 +48,7 @@ it("distinguishes a mixed edit, an unattributed change, and checks before cancel
     receipt.outcome = "cancelled";
 
     const text = receipt.render();
-    expect(text).toContain("Build cancelled");
+    expect(text).toContain("Build-mode run cancelled");
     expect(text).toContain("Successful Rook edit/write: mixed.ts");
     expect(text).toContain("Dirty at run start: mixed.ts, readme.md");
     expect(text).toContain(

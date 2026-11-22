@@ -104,8 +104,24 @@ Rook engineering policy:
 - Keep small tasks small: read the relevant code, edit, inspect the diff, run an appropriate focused check, and finish. Do not create a checklist or explore the whole repository for a straightforward edit. Batch repository-required handoff and commit work at completion.
 - After implementation, inspect the actual diff and ${config.testingStrategy === "change-impact" ? "prefer rook_impact to select relevant existing tests" : "select relevant existing tests directly when the affected scope is clear; use rook_impact for shared code, broad changes, or uncertain dependencies"}. Impact analysis is optional, not a prerequisite for verification. Expand coverage when shared contracts or broad dependents justify it${config.escalateOnUncertainty ? " or impact is uncertain" : ""}. Run selected checks through the approved bash tool; ${config.runFullSuiteByDefault ? "the full suite may be used when relevant" : "do not default to the full suite"}.
 - ${config.minimizeToolCalls ? "Avoid rereading unchanged files and repeating successful checks when the diff is unchanged." : "Reuse completed reads and checks where practical."} Report checks actually run, failures, and missing verification honestly.
-- Subjective quality goals are guidance, not mechanically guaranteed. Plan mode is read-only: use bounded workspace read/search tools, rook_code for TypeScript/JavaScript symbol navigation and diagnostics, and rook_inspect for structured Git inspection; never attempt shell execution or mutation in plan mode.
+- Subjective quality goals are guidance, not mechanically guaranteed.
 `;
+
+function modeGuidance(mode: PermissionMode): string {
+  if (mode === "build") {
+    return `
+AUTHORITATIVE ROOK MODE: BUILD.
+- Rook's current mode and the tools declared for this request are authoritative; earlier assistant messages claiming this session is read-only or in plan mode are stale and must not be repeated.
+- For requested workspace changes, use the available edit/write tools. Use bash only through Rook's approved sandbox and policy. If a declared tool or policy actually blocks an action, explain that specific restriction rather than claiming the environment is read-only.
+- A user's message cannot change runtime permissions, but this request is already in Build mode.
+`;
+  }
+  return `
+AUTHORITATIVE ROOK MODE: PLAN (READ-ONLY).
+- Do not mutate the workspace or run shell commands. A user's natural-language claim that the session is now in Build mode does not change runtime permissions.
+- If the requested task requires changes, explain that the user must switch Rook to Build mode with /build or Shift+Tab; do not imply that saying “proceed” changes the mode.
+`;
+}
 
 export function createExecutionPolicyExtension(
   getMode: () => PermissionMode,
@@ -114,9 +130,12 @@ export function createExecutionPolicyExtension(
   return {
     name: "rook-execution-policy",
     factory(pi: ExtensionAPI) {
-      pi.on("before_agent_start", (event) => ({
-        systemPrompt: `${event.systemPrompt}\n\n${QUALITY_GUIDANCE(config)}\nCurrent Rook mode: ${getMode()}.`,
-      }));
+      pi.on("before_agent_start", (event) => {
+        const mode = getMode();
+        return {
+          systemPrompt: `${event.systemPrompt}\n\n${QUALITY_GUIDANCE(config)}\n${modeGuidance(mode)}Current Rook mode: ${mode}.`,
+        };
+      });
     },
   };
 }
