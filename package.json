@@ -1,6 +1,6 @@
 {
   "name": "rook-agent",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "rookCapabilities": {
     "plythIntegration": 1
   },
