@@ -17,6 +17,8 @@ import {
   removeWorktree,
 } from "./repo/worktrees.js";
 import { createRookTui } from "./tui/rook-tui.js";
+import { runStdioProcess } from "./protocol/stdio.js";
+import { ROOK_PACKAGE_VERSION } from "./version.js";
 import { initialAppState, reduceAppState, type AppState } from "./app/state.js";
 import {
   installSkills,
@@ -49,6 +51,18 @@ export function parseCliArguments(
 }
 
 export async function main(args = process.argv.slice(2)): Promise<void> {
+  if (args[0] === "--stdio") {
+    const cwdIndex = args.indexOf("--cwd");
+    if (
+      (cwdIndex >= 0 &&
+        (!args[cwdIndex + 1] || args.indexOf("--cwd", cwdIndex + 1) >= 0)) ||
+      (cwdIndex < 0 ? args.length !== 1 : args.length !== 3)
+    )
+      throw new Error("Usage: rook --stdio [--cwd PATH]");
+    const cwd = cwdIndex < 0 ? process.cwd() : args[cwdIndex + 1];
+    await runStdioProcess(cwd!);
+    return;
+  }
   if (args[0] === "worktree") {
     await runWorktreeCommand(args.slice(1));
     return;
@@ -72,7 +86,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     return;
   }
   if (args.includes("--version") || args.includes("-v")) {
-    console.log("rook 0.1.0");
+    console.log(`rook ${ROOK_PACKAGE_VERSION}`);
     return;
   }
 
