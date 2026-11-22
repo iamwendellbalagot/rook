@@ -28,12 +28,14 @@
 | Plan-mode repository inspection            | Read-only           | `rook_inspect` runs fixed Git operations without exposing arbitrary shell                                                        |
 | On-demand repository orientation           | Read-only           | `rook_map` emits bounded source/symbol metadata, query-ranked without source dumps                                               |
 | Change-impact verification                 | Implemented         | `rook_impact` maps the diff to direct dependents, existing tests, and checks                                                     |
+| Task receipts                              | Implemented         | Interactive Build summary from file-tool and check outcomes plus a bounded, read-only Git comparison                             |
+| Repository memory visibility               | Implemented         | Context-supply count and `/memory supplied` for the latest supplied claims and their evidence                                    |
 | Isolated read-only review/research         | Implemented         | `/review` and `/explore` use temporary plan-mode Pi sessions on explicit request                                                 |
 | Architect/editor separation                | Implemented         | `/architect` returns an explicit read-only proposal; it never auto-applies it                                                    |
 | Repository instruction files               | Implemented         | Scoped, bounded `AGENTS.md` only; `/instructions` lists applicable files                                                         |
 | Sandboxed shell and isolated worktrees     | Implemented/limited | Bubblewrap on Linux, fail-closed elsewhere by default; managed detached worktrees                                                |
 | Configurable project subagents             | Implemented/limited | `.rook/agents.json` profiles; fresh sessions restricted to fixed read-only tools                                                 |
-| Coding-aware navigation/diagnostics        | Implemented/limited | `rook_code` TypeScript language service for TS/JS symbols and per-file diagnostics                                               |
+| Coding-aware navigation/diagnostics        | Implemented/limited | `rook_code` has built-in TS/JS; optional sandboxed Pyright and `gopls` provide explicitly partial results (experimental)         |
 | Extension and hook boundary                | Implemented/limited | Inline Rook hooks and selected Pi built-ins only; executable extensions ignored; unclassified tools require interactive approval |
 | PLYTH prediction feedback pilot            | Observe-only        | Optional structured expectation on eligible Bash commands; in-memory counts via `/plyth`; no feedback or event ledger            |
 

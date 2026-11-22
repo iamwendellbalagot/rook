@@ -348,12 +348,16 @@ describe("repository memory retrieval and context", () => {
           event: BeforeAgentStartEvent,
         ) => Promise<BeforeAgentStartEventResult | void>)
       | undefined;
-    const extension = createMemoryContextExtension(compose) as {
+    const supplied = vi.fn();
+    let context: ((event: { messages: unknown[] }) => void) | undefined;
+    const extension = createMemoryContextExtension(compose, supplied) as {
       factory(api: ExtensionAPI): void;
     };
     extension.factory({
-      on: (_event: string, callback: unknown) => {
-        handler = callback as typeof handler;
+      on: (event: string, callback: unknown) => {
+        if (event === "before_agent_start")
+          handler = callback as typeof handler;
+        if (event === "context") context = callback as typeof context;
       },
     } as unknown as ExtensionAPI);
     expect(handler).toBeDefined();
@@ -398,6 +402,15 @@ describe("repository memory retrieval and context", () => {
         display: false,
       },
     });
+    expect(supplied).not.toHaveBeenCalled();
+    context!({ messages: [{ role: "user", content: "relevant" }] });
+    expect(supplied).not.toHaveBeenCalled();
+    const actualContext = {
+      messages: [{ role: "custom", ...injected?.message }],
+    };
+    context!(actualContext);
+    context!(actualContext);
+    expect(supplied).toHaveBeenCalledExactlyOnceWith(["memory-1"]);
     expect(userEvent.systemPrompt).toBe("base system prompt");
     expect(compose).toHaveBeenCalledTimes(2);
   });

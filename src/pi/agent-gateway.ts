@@ -21,6 +21,8 @@ export type AgentEvent =
     }
   | { type: "todo_updated"; tasks: TaskChecklistItem[] }
   | { type: "run_settled"; aborted: boolean }
+  | { type: "task_receipt"; text: string }
+  | { type: "memory_supplied"; ids: readonly string[] }
   | { type: "error"; message: string };
 
 export interface ModelInfo {

@@ -15,6 +15,7 @@ import type {
   SessionPermissionGrant,
 } from "../pi/agent-gateway.js";
 import { TASK_CHECKLIST_TOOL_NAME } from "../pi/task-checklist.js";
+import type { TaskReceipt } from "../pi/task-receipt.js";
 import { MAX_SHELL_COMMAND_LENGTH, shellTimeout } from "./shell-limits.js";
 import { FileChangeRecovery } from "./file-change-recovery.js";
 
@@ -841,7 +842,10 @@ function isVerificationCommand(value: unknown): value is string {
   );
 }
 
-export function createToolPolicyExtension(policy: ToolPolicy): InlineExtension {
+export function createToolPolicyExtension(
+  policy: ToolPolicy,
+  activeReceipt?: () => TaskReceipt | undefined,
+): InlineExtension {
   return {
     name: "rook-tool-policy",
     factory(pi: ExtensionAPI) {
@@ -852,14 +856,31 @@ export function createToolPolicyExtension(policy: ToolPolicy): InlineExtension {
           event.input,
           event.toolCallId,
         );
-        return decision.allowed
-          ? undefined
-          : { block: true, reason: decision.reason };
+        if (decision.allowed) return;
+        activeReceipt?.()?.blocked(
+          event.toolName,
+          event.toolCallId,
+          event.input,
+          decision.reason,
+        );
+        return { block: true, reason: decision.reason };
       });
-      pi.on("tool_execution_start", (event) =>
-        policy.beginToolExecution(event.toolCallId, event.toolName, event.args),
-      );
+      pi.on("tool_execution_start", (event) => {
+        if (event.toolName !== TASK_CHECKLIST_TOOL_NAME) {
+          activeReceipt?.()?.started(
+            event.toolName,
+            event.toolCallId,
+            event.args,
+          );
+        }
+        return policy.beginToolExecution(
+          event.toolCallId,
+          event.toolName,
+          event.args,
+        );
+      });
       pi.on("tool_execution_end", async (event) => {
+        activeReceipt?.()?.finished(event.toolCallId, event.isError);
         await policy.finishToolExecution(
           event.toolCallId,
           event.toolName,

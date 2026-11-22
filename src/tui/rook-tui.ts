@@ -879,6 +879,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   const toolCards = new Map<string, Text>();
   let activeResponse: Markdown | undefined;
   let activeResponseText = "";
+  let suppliedMemoryIds: readonly string[] = [];
   let activeInference:
     | {
         startedAt: number;
@@ -1077,6 +1078,18 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       loadingIndicator.setText("");
       if (state.runState === "running") startLoadingStatus();
       tui.requestRender();
+    } else if (event.type === "task_receipt") {
+      appendText(
+        event.text.split("\n").map(safeTerminalText).join("\n"),
+        "muted",
+      );
+    } else if (event.type === "memory_supplied" && event.ids.length) {
+      suppliedMemoryIds = event.ids;
+      const count = event.ids.length;
+      appendText(
+        `${count} repo ${count === 1 ? "memory" : "memories"} supplied · /memory supplied`,
+        "muted",
+      );
     } else if (event.type === "todo_updated") {
       checklistSidebar.setTasks(event.tasks);
       compactChecklist.setTasks(event.tasks);
@@ -1590,6 +1603,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     state = reduceAppState(state, { type: "prompt_submitted" });
     if (state.runState !== "running") return;
     appendText(`› ${prompt}`, "user");
+    suppliedMemoryIds = [];
     activeResponse = undefined;
     activeResponseText = "";
     const startedAt = performance.now();
@@ -1670,6 +1684,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       }
       case "opt-out": {
         memory.optOut();
+        suppliedMemoryIds = [];
         appendText(
           "Project memory capture is off; pending confirmations were cleared. Use /memory opt-in to re-enable it.",
           "muted",
@@ -1692,6 +1707,25 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
           entries.length
             ? entries.map(safeTerminalText).join("\n")
             : "No memories are stored for this repository.",
+          "muted",
+        );
+        return;
+      }
+      case "supplied": {
+        const details = suppliedMemoryIds.flatMap((id) => {
+          const detail = memory.inspect(id);
+          return detail
+            ? [
+                `[${id}]`,
+                ...detail,
+                `/memory verify ${id} · /memory forget ${id} confirm`,
+              ]
+            : [`[${id}] No longer available in this repository.`];
+        });
+        appendText(
+          details.length
+            ? details.map(safeTerminalText).join("\n")
+            : "No repo memories were supplied for the latest run.",
           "muted",
         );
         return;
@@ -1780,7 +1814,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       }
       default:
         appendText(
-          "Usage: /memory [status|show|detail <id>|verify <id> [confirm]|refresh|pause|resume|opt-out|opt-in|pending|confirm <id>|cancel <id>|forget <id> confirm]. Review a memory claim and its evidence before running `/memory verify <id> confirm`. Use `remember: <claim>` in a prompt to request a memory, then confirm its pending ID.",
+          "Usage: /memory [status|show|supplied|detail <id>|verify <id> [confirm]|refresh|pause|resume|opt-out|opt-in|pending|confirm <id>|cancel <id>|forget <id> confirm]. Review a memory claim and its evidence before running `/memory verify <id> confirm`. Use `remember: <claim>` in a prompt to request a memory, then confirm its pending ID.",
           "muted",
         );
     }
@@ -2162,6 +2196,7 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
   }
 
   function renderCurrentSession(): void {
+    suppliedMemoryIds = [];
     removeHome();
     for (const child of [...transcript.children]) transcript.removeChild(child);
     toolCards.clear();

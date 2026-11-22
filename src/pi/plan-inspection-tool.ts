@@ -264,6 +264,49 @@ export function captureReviewBoundary(cwd: string): ReviewBoundary {
   };
 }
 
+/** Compare bounded, safe dirty paths without retaining file contents. */
+export function captureReceiptWorkspace(cwd: string) {
+  const workspace = realpathSync(cwd);
+  const root = reviewWorkspaceRoot(workspace);
+  const head = runGit(root, ["rev-parse", "--verify", "HEAD"]).trim();
+  const status = runGit(root, [
+    "status",
+    "--porcelain=v1",
+    "-z",
+    "--no-renames",
+    "--untracked-files=all",
+  ]);
+  const paths = new Map<string, string | undefined>();
+  let partial = false;
+  for (const entry of parseGitStatus(status)) {
+    const path = entry.slice(3);
+    const local = relative(workspace, resolve(root, path)).split(sep).join("/");
+    if (local === ".." || local.startsWith("../")) continue;
+    if (!isSafeRepoPath(path) || !isReceiptPath(local) || paths.size >= 50) {
+      partial = true;
+      continue;
+    }
+    try {
+      paths.set(
+        local,
+        `${entry.slice(0, 2)}:${fingerprint(safeReviewFile(root, path))}`,
+      );
+    } catch {
+      paths.set(local, undefined);
+      partial = true;
+    }
+  }
+  return { head, paths, partial };
+}
+
+export function isReceiptPath(path: string): boolean {
+  return (
+    isSafeRepoPath(path) &&
+    !/[\x7f-\x9f\u202a-\u202e\u2066-\u2069]/.test(path) &&
+    !/(?:^|\/)(?:id_rsa|id_ed25519)(?:\/|$)/i.test(path)
+  );
+}
+
 export function captureChangeReview(
   cwd: string,
   taskContext: string,

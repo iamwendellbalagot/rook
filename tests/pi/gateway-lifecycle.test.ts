@@ -254,6 +254,7 @@ describe("gateway run lifecycle", () => {
     },
   );
   it("honors explicit PLYTH off mode and refuses enabling its trace recorder", async () => {
+    vi.stubEnv("ROOK_PLYTH_INTEGRATED", "off");
     vi.stubEnv("ROOK_PLYTH_MODE", "off");
     vi.stubEnv("ROOK_PLYTH_FEEDBACK", "1");
     const gateway = await createPiAgentGateway();

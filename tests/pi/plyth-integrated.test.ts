@@ -108,7 +108,9 @@ function toolResult(
 
 describe("PLYTH integrated inference extension", () => {
   it("resolves off, prompt-only, and integrated as separate opt-in modes", async () => {
-    await expect(resolvePlythIntegratedMode({})).resolves.toBe("off");
+    await expect(resolvePlythIntegratedMode({}, await repo())).resolves.toBe(
+      "off",
+    );
     await expect(
       resolvePlythIntegratedMode({}, process.cwd(), "integrated"),
     ).resolves.toBe("integrated");

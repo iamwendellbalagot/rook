@@ -132,15 +132,20 @@ export function createMemoryContextExtension(
   compose: (
     prompt: string,
   ) => RetrievedMemoryContext | Promise<RetrievedMemoryContext>,
+  onSupplied?: (memoryIds: readonly string[]) => void,
 ): InlineExtension {
   return {
     name: "rook-memory-context",
     factory(pi) {
+      let pending: RetrievedMemoryContext | undefined;
       pi.on("before_agent_start", async (event) => {
-        if (event.messageType !== "user" || !event.prompt) return;
+        if (event.messageType !== "user") return;
+        pending = undefined;
+        if (!event.prompt) return;
         try {
           const result = await compose(event.prompt);
           if (!result.content) return;
+          if (onSupplied && result.memoryIds.length) pending = result;
           return {
             message: {
               customType: "rook-memory-context",
@@ -153,6 +158,26 @@ export function createMemoryContextExtension(
           return;
         }
       });
+      if (onSupplied) {
+        pi.on("context", (event) => {
+          const supply = pending;
+          if (
+            !supply ||
+            !event.messages.some(
+              (message) =>
+                message.role === "custom" &&
+                message.customType === "rook-memory-context" &&
+                message.content === supply.content,
+            )
+          )
+            return;
+          pending = undefined;
+          onSupplied(supply.memoryIds);
+        });
+        pi.on("agent_settled", () => {
+          pending = undefined;
+        });
+      }
     },
   };
 }

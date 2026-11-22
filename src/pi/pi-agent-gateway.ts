@@ -28,6 +28,7 @@ import type {
   ThinkingInfo,
 } from "./agent-gateway.js";
 import { adaptPiEvent } from "./event-adapter.js";
+import { TaskReceipt } from "./task-receipt.js";
 import { formatAgentError } from "./errors.js";
 import { createRookBashTool } from "./bash-tool.js";
 import { createPlythObserveExtension } from "./plyth-observe.js";
@@ -221,6 +222,7 @@ export async function createPiAgentGateway(
   });
   let unsubscribe: (() => void) | undefined;
   let reviewBoundary: ReviewBoundary | undefined;
+  let activeReceipt: TaskReceipt | undefined;
   let reviewTaskContext = "";
   let activeReview:
     | {
@@ -296,7 +298,7 @@ export async function createPiAgentGateway(
               : []),
             // Run accounting must see every attempt before ToolPolicy can block
             // one; Pi short-circuits later tool_call handlers on the first block.
-            createToolPolicyExtension(policy),
+            createToolPolicyExtension(policy, () => activeReceipt),
             ...(options.reviewBudget ? [options.reviewBudget.extension()] : []),
             ...(!options.reviewBudget
               ? [
@@ -346,7 +348,11 @@ export async function createPiAgentGateway(
               executionConfig,
             ),
             ...(options.memoryContext
-              ? [createMemoryContextExtension(options.memoryContext)]
+              ? [
+                  createMemoryContextExtension(options.memoryContext, (ids) =>
+                    emit({ type: "memory_supplied", ids }),
+                  ),
+                ]
               : []),
             ...(!options.isolatedEvaluation &&
             options.repositoryInstructionsExtension
@@ -401,7 +407,14 @@ export async function createPiAgentGateway(
             createPlanInspectionTool(sessionCwd),
             createWorkspaceSearchTool(sessionCwd),
             createWorkspaceMapTool(sessionCwd),
-            createCodeIntelligenceTool(sessionCwd),
+            createCodeIntelligenceTool(
+              sessionCwd,
+              () =>
+                policy.getMode() === "build" &&
+                executionConfig.sandboxShell &&
+                !options.isolatedEvaluation &&
+                !options.reviewBudget,
+            ),
             createChangeImpactTool(sessionCwd, executionConfig),
           ],
         })),
@@ -482,6 +495,22 @@ export async function createPiAgentGateway(
     };
     emit({ type: "todo_updated", tasks: checklist });
     unsubscribe = session.subscribe((event) => {
+      if (activeReceipt) {
+        if (event.type === "agent_settled" && event.aborted) {
+          activeReceipt.outcome = "cancelled";
+        } else if (
+          event.type === "message_end" &&
+          event.message.role === "assistant"
+        ) {
+          const reason = event.message.stopReason;
+          activeReceipt.outcome =
+            reason === "error"
+              ? "failed"
+              : reason === "aborted"
+                ? "cancelled"
+                : "finished";
+        }
+      }
       for (const mapped of adaptPiEvent(event)) emit(mapped);
     });
   };
@@ -541,6 +570,16 @@ export async function createPiAgentGateway(
           reviewBoundary = undefined;
         }
       }
+      const receipt =
+        disposition === "normal" &&
+        !activePrompts &&
+        runtime.session.isIdle &&
+        policy.getMode() === "build" &&
+        !options.isolatedEvaluation &&
+        !options.reviewBudget
+          ? new TaskReceipt(cwd)
+          : undefined;
+      if (receipt) activeReceipt = receipt;
       policy.setMcpUserAuthorization(prompt);
       if (disposition === "normal") activePrompts++;
       try {
@@ -569,11 +608,18 @@ export async function createPiAgentGateway(
         }
       } catch (error) {
         const message = formatAgentError(error);
+        if (receipt && receipt.outcome !== "cancelled") {
+          receipt.outcome = "failed";
+        }
         if (disposition === "normal") emit({ type: "error", message });
         throw new Error(message);
       } finally {
         policy.clearMcpUserAuthorization();
         if (disposition === "normal") activePrompts--;
+        if (receipt) {
+          activeReceipt = undefined;
+          emit({ type: "task_receipt", text: receipt.render() });
+        }
       }
     },
     async cancel() {

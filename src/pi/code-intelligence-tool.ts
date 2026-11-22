@@ -10,6 +10,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import ts from "typescript-legacy";
+import { inspectExternalCode } from "./external-code-intelligence.js";
 
 const MAX_FILES = 1000;
 const MAX_OUTPUT = 12_000;
@@ -36,14 +37,17 @@ const EXCLUDED = new Set([
   ".rook-worktrees",
 ]);
 
-export function createCodeIntelligenceTool(cwd: string) {
+export function createCodeIntelligenceTool(
+  cwd: string,
+  allowExternal: () => boolean = () => false,
+) {
   return defineTool({
     name: "rook_code",
-    label: "Navigate code and inspect TypeScript diagnostics (read-only)",
+    label: "Navigate code and inspect focused diagnostics (read-only)",
     description:
-      "Use the TypeScript language service for symbol definitions/references and focused syntactic/semantic diagnostics. Requires an in-workspace TypeScript or JavaScript file; output and project file count are bounded.",
+      "Find definitions, references, or focused diagnostics for an in-workspace source file. TypeScript/JavaScript are built in; Python and Go require optional preinstalled language servers in a Linux sandbox and Build mode. Results and project size are bounded.",
     promptSnippet:
-      "Use rook_code to find symbol definitions/references or inspect focused TypeScript diagnostics when text search is insufficient.",
+      "Use rook_code for symbol definitions/references or focused diagnostics when text search is insufficient.",
     parameters: Type.Object(
       {
         action: Type.Union([
@@ -60,9 +64,24 @@ export function createCodeIntelligenceTool(cwd: string) {
       },
       { additionalProperties: false },
     ),
-    execute: async (_id, input) => {
+    execute: async (_id, input, signal) => {
       const root = await realpath(cwd);
-      const file = await resolveSourceFile(root, input.path);
+      const language = /\.pyi?$/.test(input.path)
+        ? "python"
+        : /\.go$/.test(input.path)
+          ? "go"
+          : undefined;
+      const file = await resolveSourceFile(root, input.path, Boolean(language));
+      if (language) {
+        return inspectExternalCode(
+          language,
+          root,
+          file,
+          input,
+          allowExternal(),
+          signal,
+        );
+      }
       const project = createLanguageService(root, file);
       try {
         const limit = input.limit ?? MAX_RESULTS;
@@ -168,13 +187,18 @@ export function createCodeIntelligenceTool(cwd: string) {
 async function resolveSourceFile(
   root: string,
   requested: string,
+  external = false,
 ): Promise<string> {
   if (isAbsolute(requested) || requested.split(/[\\/]+/).includes("..")) {
     throw new Error("Code navigation paths must stay within the workspace.");
   }
   const file = resolve(root, requested);
   const rel = relative(root, file);
-  if (!isWithin(root, file) || isSensitivePath(rel) || !SOURCE.test(file)) {
+  if (
+    !isWithin(root, file) ||
+    isSensitivePath(rel) ||
+    (!external && !SOURCE.test(file))
+  ) {
     throw new Error(
       "Code navigation requires a safe in-workspace source file.",
     );
@@ -183,6 +207,7 @@ async function resolveSourceFile(
   if (
     !info.isFile() ||
     info.isSymbolicLink() ||
+    (external && info.nlink !== 1) ||
     (await realpath(file)) !== file
   ) {
     throw new Error("Code navigation does not follow links or non-file paths.");
