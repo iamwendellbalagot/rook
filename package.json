@@ -1,10 +1,11 @@
 {
   "name": "rook-agent",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "rookCapabilities": {
     "plythIntegration": 1
   },
   "description": "A coding agent that grows with your codebase.",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=22.19.0"
