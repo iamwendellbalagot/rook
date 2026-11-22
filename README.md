@@ -53,6 +53,16 @@ An explicit `ROOK_PLYTH_INTEGRATED=off|prompt|integrated` environment setting
 overrides the workspace configuration. For local development, clone `plyth`
 beside `rook`; its `file:../plyth` reference is a development dependency only.
 
+### Headless desktop protocol (experimental)
+
+Desktop clients can launch the `rook` executable with `--stdio` for the
+versioned, read-only Ask protocol. It requires Node.js 22.19.0 or newer and
+uses Rook's existing provider login/configuration. The protocol is experimental;
+Build, arbitrary MCP, interactive login, and durable event replay are not
+available. See [stdio protocol v1](docs/STDIO_PROTOCOL.md) for framing,
+session lifecycle, streamed events, cancellation, permission responses, and
+limits.
+
 Integrated mode includes deterministic outcome observation, in-memory session counts, and an outcome-only command-history baseline. `/plyth status` reports agent/history accuracy on the same comparable outcomes; edits or changed/unavailable workspace snapshots invalidate history. Snapshot budgets are 256 files / 2 MiB / best-effort 50 ms; symlinks, unknown hidden/sensitive inputs or larger workspaces make the comparison unavailable. Dependencies, external state, `.git` and `.rook` runtime data are outside this workspace-file heuristic.
 
 Set `ROOK_PLYTH_MODE=off` for a same-host B0 (no extension, prediction schema/guidance or snapshots), `observe` for B1, or `feedback` for experimental B2. An explicit mode overrides the compatibility flag `ROOK_PLYTH_FEEDBACK=1`. Feedback remains default-off, specific-miss-only, deduplicated and capped at five per session. Commands, permissions and required verification do not change.
