@@ -6,6 +6,7 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
   loadWorkspaceModelProviders,
   WorkspaceModelConfiguration,
+  workspaceEndpointFingerprint,
 } from "../../src/pi/workspace-models.js";
 
 describe("workspace model providers", () => {
@@ -165,5 +166,23 @@ describe("workspace model providers", () => {
         { id: "gpt-6-sol" },
       ],
     });
+  });
+
+  it("fingerprints workspace endpoints without including credentials", () => {
+    const first = {
+      baseUrl: "https://api.example.com/v1",
+      models: [{ id: "m1", baseUrl: "https://model.example.com/v1" }],
+    };
+    const sameEndpoint = { ...first };
+    const changedEndpoint = {
+      ...first,
+      baseUrl: "https://other.example.com/v1",
+    };
+    expect(workspaceEndpointFingerprint(first)).toBe(
+      workspaceEndpointFingerprint(sameEndpoint),
+    );
+    expect(workspaceEndpointFingerprint(first)).not.toBe(
+      workspaceEndpointFingerprint(changedEndpoint),
+    );
   });
 });

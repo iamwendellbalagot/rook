@@ -1,9 +1,10 @@
 import { readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 type ProviderConfiguration = Parameters<ModelRuntime["registerProvider"]>[1];
 
-interface WorkspaceModel {
+export interface WorkspaceModel {
   id: string;
   name: string;
   api: string;
@@ -20,7 +21,7 @@ interface WorkspaceModel {
   maxTokens: number;
 }
 
-interface WorkspaceProvider {
+export interface WorkspaceProvider {
   name?: string;
   baseUrl?: string;
   apiKey?: string;
@@ -87,6 +88,30 @@ export async function loadWorkspaceModelProviders(
     providers[providerId] = validateProvider(providerId, value);
   }
   return providers;
+}
+
+export function workspaceModelEndpoint(
+  provider: WorkspaceProvider,
+  modelId: string,
+): string | undefined {
+  return (
+    provider.models?.find((model) => model.id === modelId)?.baseUrl ??
+    provider.baseUrl
+  );
+}
+
+export function workspaceEndpointFingerprint(
+  provider: Pick<WorkspaceProvider, "baseUrl" | "models">,
+): string {
+  const endpointConfig = [provider.baseUrl ?? ""];
+  for (const model of provider.models ?? [])
+    endpointConfig.push(
+      "\0",
+      model.id,
+      "\0",
+      model.baseUrl ?? provider.baseUrl ?? "",
+    );
+  return createHash("sha256").update(endpointConfig.join("")).digest("hex");
 }
 
 function validateProvider(

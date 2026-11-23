@@ -7,9 +7,16 @@ import type {
   AgentGateway,
   ExternalAccessChoice,
   ExternalAccessRequest,
+  ProviderAuthEvent,
+  ProviderAuthPrompt,
   SessionInfo,
 } from "../pi/agent-gateway.js";
 import { createPiAgentGateway } from "../pi/pi-agent-gateway.js";
+import {
+  loadWorkspaceModelProviders,
+  workspaceEndpointFingerprint,
+  workspaceModelEndpoint,
+} from "../pi/workspace-models.js";
 import { ROOK_PACKAGE_VERSION } from "../version.js";
 
 export const ROOK_PROTOCOL_VERSION = 1;
@@ -39,6 +46,14 @@ interface PendingPermission {
   timer: NodeJS.Timeout;
 }
 
+interface PendingAuthPrompt {
+  resolve: (value: string) => void;
+  reject: (error: Error) => void;
+  timer: NodeJS.Timeout;
+  signal: AbortSignal;
+  onAbort: () => void;
+}
+
 export interface StdioProtocolOptions {
   cwd?: string;
   input: AsyncIterable<string | Error>;
@@ -66,7 +81,11 @@ export async function runStdioProtocol(
 
   const pendingRequests = new Set<Promise<void>>();
   const pendingPermissions = new Map<string, PendingPermission>();
+  const pendingAuthPrompts = new Map<string, PendingAuthPrompt>();
+  const authLogins = new Map<string, AbortController>();
+  const authSecrets = new Map<string, string[]>();
   let nextPermissionId = 0;
+  let nextAuthPromptId = 0;
   let gateway: AgentGateway | undefined;
   let unsubscribe: (() => void) | undefined;
   let workspaceId: string | undefined;
@@ -77,6 +96,12 @@ export async function runStdioProtocol(
   let initialized = false;
   let initializing = false;
   let stopping = false;
+  let workspaceProviders: Awaited<
+    ReturnType<typeof loadWorkspaceModelProviders>
+  > = {};
+  let workspacePath: string | undefined;
+  const allowedWorkspaceProviders = new Map<string, string>();
+  const advertisedWorkspaceProviders = new Map<string, string>();
 
   const respond = (id: RpcId, result: unknown): void =>
     send({ jsonrpc: "2.0", id, result });
@@ -104,6 +129,112 @@ export async function runStdioProtocol(
       pending.resolve("deny");
       pendingPermissions.delete(id);
     }
+  };
+
+  const closePendingAuthPrompts = (): void => {
+    for (const [id, pending] of pendingAuthPrompts) {
+      clearTimeout(pending.timer);
+      pending.signal.removeEventListener("abort", pending.onAbort);
+      pending.reject(new RpcError(-32021, "Sign-in cancelled."));
+      pendingAuthPrompts.delete(id);
+    }
+  };
+
+  const requestAuthPrompt = (
+    loginId: string,
+    prompt: ProviderAuthPrompt,
+    signal: AbortSignal,
+  ): Promise<string> => {
+    if (stopping || signal.aborted)
+      return Promise.reject(new RpcError(-32021, "Sign-in cancelled."));
+    const id = `rook:auth:${loginId}:${++nextAuthPromptId}`;
+    return new Promise((resolvePrompt, rejectPrompt) => {
+      const onAbort = (): void => {
+        const pending = pendingAuthPrompts.get(id);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        pendingAuthPrompts.delete(id);
+        signal.removeEventListener("abort", onAbort);
+        rejectPrompt(new RpcError(-32021, "Sign-in cancelled."));
+      };
+      const timer = setTimeout(() => {
+        pendingAuthPrompts.delete(id);
+        signal.removeEventListener("abort", onAbort);
+        rejectPrompt(new RpcError(-32022, "Sign-in prompt timed out."));
+      }, 5 * 60_000);
+      pendingAuthPrompts.set(id, {
+        resolve: resolvePrompt,
+        reject: rejectPrompt,
+        timer,
+        signal,
+        onAbort,
+      });
+      signal.addEventListener("abort", onAbort, { once: true });
+      send({
+        jsonrpc: "2.0",
+        id,
+        method: "provider/auth_prompt",
+        params: { loginId, prompt: publicAuthPrompt(prompt) },
+      });
+    });
+  };
+
+  const emitAuthEvent = (loginId: string, event: ProviderAuthEvent): void => {
+    notification("provider/auth_event", { loginId, event });
+  };
+
+  const providersWithSource = (current: AgentGateway): JsonObject[] =>
+    current.listProviders().map((provider) => {
+      const workspaceProvider = workspaceProviders[provider.id];
+      return {
+        ...provider,
+        source: workspaceProvider ? "workspace" : "provider",
+        ...(workspaceProvider?.baseUrl
+          ? { endpoint: workspaceProvider.baseUrl }
+          : {}),
+        ...(workspaceProvider
+          ? {
+              endpointFingerprint:
+                workspaceEndpointFingerprint(workspaceProvider),
+            }
+          : {}),
+      };
+    });
+
+  const requireWorkspaceProviderConsent = (providerId: string): void => {
+    const workspaceProvider = workspaceProviders[providerId];
+    if (
+      workspaceProvider &&
+      allowedWorkspaceProviders.get(providerId) !==
+        workspaceEndpointFingerprint(workspaceProvider)
+    )
+      throw new RpcError(
+        -32023,
+        `Provider '${providerId}' endpoint configuration changed or has not been approved. Explicit workspace-provider consent is required.`,
+      );
+  };
+
+  const refreshWorkspaceProviders = async (): Promise<void> => {
+    if (workspacePath)
+      workspaceProviders = await loadWorkspaceModelProviders(workspacePath);
+  };
+
+  const hasWorkspaceConfigurationChanged = (): boolean => {
+    let changed = false;
+    const currentIds = new Set(Object.keys(workspaceProviders));
+    for (const providerId of advertisedWorkspaceProviders.keys()) {
+      if (!currentIds.has(providerId)) changed = true;
+    }
+    for (const [providerId, provider] of Object.entries(workspaceProviders)) {
+      const fingerprint = workspaceEndpointFingerprint(provider);
+      if (advertisedWorkspaceProviders.get(providerId) !== fingerprint)
+        changed = true;
+      advertisedWorkspaceProviders.set(providerId, fingerprint);
+    }
+    for (const providerId of [...advertisedWorkspaceProviders.keys()])
+      if (!currentIds.has(providerId))
+        advertisedWorkspaceProviders.delete(providerId);
+    return changed;
   };
 
   const requestPermission = (
@@ -162,6 +293,32 @@ export async function runStdioProtocol(
     }
     if (message.method === undefined && isRpcId(message.id)) {
       const pending = pendingPermissions.get(String(message.id));
+      const pendingAuth = pendingAuthPrompts.get(String(message.id));
+      if (pendingAuth) {
+        const result = isObject(message.result) ? message.result : {};
+        if (message.error) {
+          const error = isObject(message.error) ? message.error : {};
+          pendingAuth.reject(
+            new RpcError(
+              typeof error.code === "number" ? error.code : -32602,
+              "Sign-in prompt failed.",
+            ),
+          );
+        } else if (typeof result.value !== "string") {
+          pendingAuth.reject(
+            new RpcError(-32602, "Auth response value must be a string."),
+          );
+        } else {
+          const loginId = String(message.id).split(":")[2];
+          if (loginId && result.value)
+            authSecrets.get(loginId)?.push(result.value);
+          pendingAuth.resolve(result.value);
+        }
+        clearTimeout(pendingAuth.timer);
+        pendingAuth.signal.removeEventListener("abort", pendingAuth.onAbort);
+        pendingAuthPrompts.delete(String(message.id));
+        return;
+      }
       const result = isObject(message.result) ? message.result : {};
       const choice = result.choice;
       if (!pending || !["once", "session", "deny"].includes(String(choice))) {
@@ -176,6 +333,7 @@ export async function runStdioProtocol(
     const method = message.method;
     const id = isRpcId(message.id) ? message.id : undefined;
     const params = isObject(message.params) ? message.params : {};
+    let workspaceConfigurationChanged = false;
     if (typeof method !== "string") {
       if (id !== undefined) fail(id, -32600, "Invalid JSON-RPC method.");
       return;
@@ -200,6 +358,7 @@ export async function runStdioProtocol(
           );
         initializing = true;
         const cwd = await realpath(resolve(options.cwd ?? process.cwd()));
+        workspacePath = cwd;
         const factory =
           options.createGateway ??
           ((workspace) =>
@@ -212,8 +371,15 @@ export async function runStdioProtocol(
         gateway.setMode("plan");
         gateway.setExternalAccessPrompt(requestPermission);
         workspaceId = pathToFileURL(cwd).href;
+        workspaceProviders = await loadWorkspaceModelProviders(cwd);
+        for (const [providerId, provider] of Object.entries(workspaceProviders))
+          advertisedWorkspaceProviders.set(
+            providerId,
+            workspaceEndpointFingerprint(provider),
+          );
         initialized = true;
         unsubscribe = gateway.subscribe(emitUpdate);
+        const providers = providersWithSource(gateway);
         respond(id, {
           protocolVersion: ROOK_PROTOCOL_VERSION,
           rookVersion: ROOK_PACKAGE_VERSION,
@@ -224,17 +390,21 @@ export async function runStdioProtocol(
             streamedPrompts: true,
             cancellation: true,
             permissionRequests: true,
+            providerControls: {
+              providers: true,
+              login: true,
+              logout: true,
+              authInteractions: ["text", "secret", "manual_code", "select"],
+              cancellation: true,
+            },
+            modelCatalog: true,
+            modelSelection: true,
             immutableReadOnlyTools: [...READ_ONLY_TOOLS],
             buildSessions: false,
             arbitraryMcp: false,
           },
-          providers: gateway
-            .listProviders()
-            .map(({ id: providerId, name, configured }) => ({
-              id: providerId,
-              name,
-              configured,
-            })),
+          providers,
+          currentModel: gateway.currentModel() ?? null,
         });
       } catch (error) {
         const rpc = asRpcError(error);
@@ -242,6 +412,34 @@ export async function runStdioProtocol(
       } finally {
         initializing = false;
       }
+      return;
+    }
+    if (method === "provider/auth_cancel") {
+      if (!initialized) {
+        if (id !== undefined)
+          fail(id, -32001, "Initialize the Rook connection first.");
+        return;
+      }
+      if (typeof params.loginId !== "string") {
+        if (id !== undefined) fail(id, -32602, "loginId must be a string.");
+        return;
+      }
+      if (id === undefined) return;
+      const loginId = params.loginId;
+      if (!authLogins.has(loginId)) {
+        respond(id, { accepted: false });
+        return;
+      }
+      const controller = authLogins.get(loginId);
+      controller?.abort();
+      for (const [promptId, prompt] of pendingAuthPrompts) {
+        if (!promptId.startsWith(`rook:auth:${loginId}:`)) continue;
+        clearTimeout(prompt.timer);
+        prompt.signal.removeEventListener("abort", prompt.onAbort);
+        prompt.reject(new RpcError(-32021, "Sign-in cancelled."));
+        pendingAuthPrompts.delete(promptId);
+      }
+      respond(id, { accepted: true });
       return;
     }
 
@@ -292,13 +490,207 @@ export async function runStdioProtocol(
       stopping = true;
       options.onShutdown?.();
       closePendingPermissions();
+      for (const controller of authLogins.values()) controller.abort();
+      closePendingAuthPrompts();
       if (activeRunId) await gateway?.cancel();
       return;
+    }
+
+    if (method === "provider/auth_prompt_response") {
+      const promptId = params.promptId;
+      if (typeof promptId !== "string" || typeof params.value !== "string") {
+        if (id !== undefined)
+          fail(id, -32602, "promptId and a string value are required.");
+        return;
+      }
+      const prompt = pendingAuthPrompts.get(promptId);
+      if (!prompt) {
+        if (id !== undefined)
+          fail(id, -32004, "Sign-in prompt expired or was cancelled.");
+        return;
+      }
+      clearTimeout(prompt.timer);
+      prompt.signal.removeEventListener("abort", prompt.onAbort);
+      pendingAuthPrompts.delete(promptId);
+      prompt.resolve(params.value);
+      if (id !== undefined) respond(id, { accepted: true });
+      return;
+    }
+
+    if (
+      method.startsWith("provider/") ||
+      method.startsWith("model/") ||
+      method === "workspace/allow_provider"
+    ) {
+      if (id === undefined) return;
+      if (!gateway || !initialized) {
+        fail(id, -32001, "Initialize the Rook connection first.");
+        return;
+      }
+      try {
+        await refreshWorkspaceProviders();
+        workspaceConfigurationChanged = hasWorkspaceConfigurationChanged();
+        if (workspaceConfigurationChanged) {
+          send({
+            jsonrpc: "2.0",
+            method: "workspace/providers_changed",
+            params: { providers: providersWithSource(gateway) },
+          });
+          if (method === "workspace/allow_provider") {
+            const requested = params.providerId;
+            if (
+              typeof requested === "string" &&
+              params.endpointFingerprint ===
+                advertisedWorkspaceProviders.get(requested)
+            ) {
+              // The client presented the current endpoint fingerprint after the change notification.
+              workspaceConfigurationChanged = false;
+            }
+          }
+        }
+      } catch {
+        fail(
+          id,
+          -32025,
+          "Workspace provider configuration could not be refreshed; provider use is blocked.",
+        );
+        return;
+      }
     }
 
     if (id === undefined) return;
     try {
       switch (method) {
+        case "workspace/allow_provider": {
+          const current = requireIdle();
+          if (
+            typeof params.providerId !== "string" ||
+            !workspaceProviders[params.providerId]
+          )
+            throw new RpcError(
+              -32602,
+              "providerId is not configured by this workspace.",
+            );
+          if (
+            workspaceConfigurationChanged &&
+            params.endpointFingerprint === undefined
+          )
+            throw new RpcError(
+              -32024,
+              "Workspace provider endpoints changed; review the current endpoint before granting access.",
+            );
+          const provider = workspaceProviders[params.providerId]!;
+          if (
+            typeof params.endpointFingerprint !== "string" ||
+            params.endpointFingerprint !==
+              workspaceEndpointFingerprint(provider)
+          )
+            throw new RpcError(
+              -32024,
+              "Workspace provider endpoint configuration changed; review it before granting access.",
+            );
+          allowedWorkspaceProviders.set(
+            params.providerId,
+            params.endpointFingerprint,
+          );
+          respond(id, { providers: providersWithSource(current) });
+          return;
+        }
+        case "provider/list": {
+          const current = requireIdle();
+          respond(id, { providers: providersWithSource(current) });
+          return;
+        }
+        case "provider/login": {
+          const current = requireIdle();
+          const { providerId, authType, loginId } = params;
+          if (
+            typeof providerId !== "string" ||
+            (authType !== "api_key" && authType !== "oauth") ||
+            typeof loginId !== "string" ||
+            !/^[A-Za-z0-9_-]{1,64}$/.test(loginId)
+          )
+            throw new RpcError(
+              -32602,
+              "providerId, authType, and a valid loginId are required.",
+            );
+          if (authLogins.has(loginId))
+            throw new RpcError(-32003, "That sign-in is already active.");
+          const provider = current
+            .listProviders()
+            .find((item) => item.id === providerId);
+          if (!provider?.authMethods.some((item) => item.type === authType))
+            throw new RpcError(
+              -32602,
+              "That provider does not advertise the selected sign-in method.",
+            );
+          requireWorkspaceProviderConsent(providerId);
+          const controller = new AbortController();
+          authLogins.set(loginId, controller);
+          authSecrets.set(loginId, []);
+          try {
+            await current.login(providerId, authType, {
+              signal: controller.signal,
+              prompt: (prompt) =>
+                requestAuthPrompt(loginId, prompt, controller.signal),
+              notify: (event) => emitAuthEvent(loginId, event),
+            });
+            respond(id, {
+              providers: providersWithSource(current),
+              currentModel: current.currentModel() ?? null,
+              models: await listModelRecords(current, workspaceProviders),
+            });
+          } catch (error) {
+            fail(
+              id,
+              asRpcError(error).code,
+              redactAuthError(error, authSecrets.get(loginId) ?? []),
+            );
+          } finally {
+            authLogins.delete(loginId);
+            authSecrets.get(loginId)?.fill("");
+            authSecrets.delete(loginId);
+          }
+          return;
+        }
+        case "provider/logout": {
+          const current = requireIdle();
+          if (typeof params.providerId !== "string")
+            throw new RpcError(-32602, "providerId must be a string.");
+          await current.logout(params.providerId);
+          respond(id, { providers: providersWithSource(current) });
+          return;
+        }
+        case "model/list": {
+          const current = requireIdle();
+          respond(id, {
+            models: await listModelRecords(current, workspaceProviders),
+            currentModel: current.currentModel() ?? null,
+          });
+          return;
+        }
+        case "model/select": {
+          const current = requireIdle();
+          if (
+            typeof params.provider !== "string" ||
+            typeof params.id !== "string"
+          )
+            throw new RpcError(-32602, "provider and id are required.");
+          requireWorkspaceProviderConsent(params.provider);
+          const model = (await current.listModels()).find(
+            (candidate) =>
+              candidate.provider === params.provider &&
+              candidate.id === params.id,
+          );
+          if (!model)
+            throw new RpcError(
+              -32602,
+              "That model is not in Rook's effective catalog.",
+            );
+          await current.selectModel(model);
+          respond(id, { currentModel: current.currentModel() ?? null });
+          return;
+        }
         case "session/new": {
           const current = requireIdle();
           if (params.mode !== undefined && params.mode !== "ask")
@@ -367,6 +759,23 @@ export async function runStdioProtocol(
           const current = requireSession();
           if (activeRunId)
             throw new RpcError(-32003, "A prompt is already running.");
+          try {
+            await refreshWorkspaceProviders();
+            if (hasWorkspaceConfigurationChanged())
+              send({
+                jsonrpc: "2.0",
+                method: "workspace/providers_changed",
+                params: { providers: providersWithSource(current) },
+              });
+          } catch {
+            throw new RpcError(
+              -32025,
+              "Workspace provider configuration could not be refreshed; the prompt is blocked.",
+            );
+          }
+          const selectedProvider = current.currentModel()?.provider;
+          if (selectedProvider)
+            requireWorkspaceProviderConsent(selectedProvider);
           if (typeof params.text !== "string" || !params.text.trim())
             throw new RpcError(-32602, "text must be a non-empty string.");
           if (params.text.length > MAX_PROMPT_CHARS)
@@ -416,12 +825,18 @@ export async function runStdioProtocol(
       }
     } catch (error) {
       const rpc = asRpcError(error);
-      fail(id, rpc.code, rpc.message);
+      fail(
+        id,
+        rpc.code,
+        method === "provider/login" ? redactAuthError(error) : rpc.message,
+      );
     }
   };
 
   const disposeGateway = async (): Promise<void> => {
     closePendingPermissions();
+    for (const controller of authLogins.values()) controller.abort();
+    closePendingAuthPrompts();
     unsubscribe?.();
     unsubscribe = undefined;
     if (gateway) {
@@ -467,11 +882,45 @@ export async function runStdioProtocol(
   } finally {
     stopping = true;
     closePendingPermissions();
+    for (const controller of authLogins.values()) controller.abort();
+    closePendingAuthPrompts();
     if (activeRunId) await gateway?.cancel().catch(() => undefined);
     await Promise.allSettled([...pendingRequests]);
     await disposeGateway();
     await writing;
   }
+}
+
+async function listModelRecords(
+  gateway: AgentGateway,
+  providers: Awaited<ReturnType<typeof loadWorkspaceModelProviders>>,
+): Promise<JsonObject[]> {
+  const models = await gateway.listModels();
+  return models.map((model) => ({
+    ...model,
+    ...(providers[model.provider]
+      ? {
+          source: "workspace",
+          endpoint:
+            workspaceModelEndpoint(providers[model.provider]!, model.id) ??
+            null,
+        }
+      : { source: "provider" }),
+  }));
+}
+
+function publicAuthPrompt(prompt: ProviderAuthPrompt): JsonObject {
+  if (prompt.type === "select")
+    return {
+      type: prompt.type,
+      message: prompt.message,
+      options: prompt.options,
+    };
+  return {
+    type: prompt.type,
+    message: prompt.message,
+    ...(prompt.placeholder ? { placeholder: prompt.placeholder } : {}),
+  };
 }
 
 export async function runStdioProcess(cwd?: string): Promise<void> {
@@ -552,6 +1001,19 @@ function asRpcError(error: unknown): RpcError {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function redactAuthError(error: unknown, secrets: string[] = []): string {
+  const message = errorMessage(error);
+  return secrets
+    .reduce(
+      (safe, secret) => (secret ? safe.replaceAll(secret, "[redacted]") : safe),
+      message,
+    )
+    .replace(
+      /(?:sk-[A-Za-z0-9_-]{12,}|Bearer\s+\S+|[A-Za-z0-9_-]{32,})/gi,
+      "[redacted]",
+    );
 }
 
 function isObject(value: unknown): value is JsonObject {

@@ -3,13 +3,14 @@
 Rook exposes a newline-delimited JSON-RPC 2.0 interface for desktop clients. The
 protocol is experimental and may change before a stable protocol version is
 announced. It uses Rook's existing provider configuration, credentials,
-sessions, tools, and permission policy; it does not provide a separate login
-flow.
+sessions, tools, and permission policy. Native provider/model methods are
+advertised in `initialize`; older Rook versions that omit them remain
+Ask-compatible but require sign-in/model selection in Rook.
 
 ## Requirements and launch
 
 - Node.js 22.19.0 or newer.
-- Configure a provider using Rook's supported CLI/TUI login before prompting.
+- Provider setup may use native stdio sign-in or Rook's supported CLI/TUI login.
 - Launch the installed executable with `node <rook-bin> --stdio [--cwd PATH]`.
   The process working directory is used when `--cwd` is omitted.
 - stdin and stdout are reserved for protocol frames. Each frame is one UTF-8
@@ -59,6 +60,24 @@ Other session methods:
   filesystem path.
 - `session/history` returns the latest 1–200 messages (default 200), plus
   `truncated`.
+
+## Providers, models, and authentication
+
+`initialize` advertises `providerControls`, `modelCatalog`, and
+`modelSelection`. It reports effective providers, workspace source/endpoint,
+and the active model. Methods are `provider/list`, `provider/login`,
+`provider/logout`, `model/list`, and `model/select`. Workspace-defined
+providers require a Laplace project-trust decision and a matching
+`workspace/allow_provider` endpoint fingerprint before sign-in, model selection,
+or prompting. A changed or unreadable `models.json` blocks provider use until
+the updated endpoint is reviewed and explicitly approved again.
+
+`provider/login` accepts a client-chosen `loginId`. Rook requests interactive
+values with `provider/auth_prompt` (text, secret, manual code, or select); the
+client responds to the request ID with `{ "result": { "value": "..." } }`.
+The secret is transient protocol input only; it is not emitted as an event.
+`provider/auth_event` relays browser/device-code/progress notices. Clients may
+cancel with `provider/auth_cancel` and `loginId`. Rook/Pi owns auth persistence.
 
 ## Prompts, events, and cancellation
 
@@ -129,4 +148,4 @@ client response is not itself filesystem authorization.
   the gateway, and exit. stdin EOF also cancels and disposes.
 
 Protocol v1 does not support Build sessions, arbitrary MCP, remote execution,
-durable event replay, interactive authentication, or automatic prompt replay.
+durable event replay, or automatic prompt replay.
