@@ -38,7 +38,10 @@ const READ_ONLY_TOOLS = [
 
 type JsonObject = Record<string, unknown>;
 type RpcId = string | number;
-type GatewayFactory = (cwd: string) => Promise<AgentGateway>;
+type GatewayFactory = (
+  cwd: string,
+  sessionDir?: string,
+) => Promise<AgentGateway>;
 type Write = (message: JsonObject) => Promise<void> | void;
 
 interface PendingPermission {
@@ -56,6 +59,7 @@ interface PendingAuthPrompt {
 
 export interface StdioProtocolOptions {
   cwd?: string;
+  sessionDir?: string;
   input: AsyncIterable<string | Error>;
   write: Write;
   onError?: (message: string) => void;
@@ -363,13 +367,16 @@ export async function runStdioProtocol(
         workspacePath = cwd;
         const factory =
           options.createGateway ??
-          ((workspace) =>
+          ((workspace, sessionDir) =>
             createPiAgentGateway(workspace, {
+              ...(sessionDir ? { sessionDir } : {}),
               // This list is fixed for the lifetime of the process. Calling
               // setMode("build") cannot widen a desktop Ask session.
               readOnlyTools: READ_ONLY_TOOLS,
             }));
-        gateway = await factory(cwd);
+        gateway = options.sessionDir
+          ? await factory(cwd, options.sessionDir)
+          : await factory(cwd);
         gateway.setMode("plan");
         gateway.setExternalAccessPrompt(requestPermission);
         workspaceId = pathToFileURL(cwd).href;
@@ -389,6 +396,7 @@ export async function runStdioProtocol(
           workspaceId,
           capabilities: {
             sessions: ["new", "list", "load", "history"],
+            hostSessionStorage: Boolean(options.sessionDir),
             streamedPrompts: true,
             cancellation: true,
             permissionRequests: true,
@@ -933,10 +941,14 @@ function publicAuthPrompt(prompt: ProviderAuthPrompt): JsonObject {
   };
 }
 
-export async function runStdioProcess(cwd?: string): Promise<void> {
+export async function runStdioProcess(
+  cwd?: string,
+  sessionDir?: string,
+): Promise<void> {
   const input = readProtocolLines(process.stdin);
   await runStdioProtocol({
     ...(cwd ? { cwd } : {}),
+    ...(sessionDir ? { sessionDir } : {}),
     input,
     write: async (message) => {
       const output = `${JSON.stringify(message)}\n`;

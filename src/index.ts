@@ -60,7 +60,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     )
       throw new Error("Usage: rook --stdio [--cwd PATH]");
     const cwd = cwdIndex < 0 ? process.cwd() : args[cwdIndex + 1];
-    await runStdioProcess(cwd!);
+    await runStdioProcess(cwd!, process.env.LAPLACE_ROOK_SESSION_DIR);
     return;
   }
   if (args[0] === "worktree") {

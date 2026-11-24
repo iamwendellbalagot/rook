@@ -148,12 +148,14 @@ function createFixtureGateway(
 function harness(
   createGateway = vi.fn(async () => createFixtureGateway().gateway),
   cwd = process.cwd(),
+  sessionDir?: string,
 ) {
   const input = new InputQueue();
   const output: Record<string, unknown>[] = [];
   const waiters: (() => void)[] = [];
   const task = runStdioProtocol({
     cwd,
+    ...(sessionDir ? { sessionDir } : {}),
     input,
     createGateway,
     write: (message) => {
@@ -270,6 +272,23 @@ describe("Rook stdio protocol v1", () => {
     h.input.close();
     await h.task;
     expect(fixture.gateway.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("passes host-selected session storage to the gateway", async () => {
+    const fixture = createFixtureGateway();
+    const createGateway = vi.fn(async () => fixture.gateway);
+    const h = harness(createGateway, process.cwd(), "/app-data/sessions/repo");
+    h.send(rpc(1, "initialize", { protocolVersion: 1 }));
+    const initialized = await h.next((message) => message.id === 1);
+    expect(initialized.result).toMatchObject({
+      capabilities: { hostSessionStorage: true },
+    });
+    expect(createGateway).toHaveBeenCalledWith(
+      process.cwd(),
+      "/app-data/sessions/repo",
+    );
+    h.input.close();
+    await h.task;
   });
 
   it("exposes provider/model controls and keeps auth values on the prompt response path", async () => {
