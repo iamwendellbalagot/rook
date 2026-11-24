@@ -3,7 +3,6 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Readable } from "node:stream";
 import type {
-  ModelInfo,
   AgentEvent,
   AgentGateway,
   ExternalAccessChoice,
@@ -101,7 +100,6 @@ export async function runStdioProtocol(
     ReturnType<typeof loadWorkspaceModelProviders>
   > = {};
   let workspacePath: string | undefined;
-  const allowedWorkspaceProviders = new Map<string, string>();
   const advertisedWorkspaceProviders = new Map<string, string>();
 
   const respond = (id: RpcId, result: unknown): void =>
@@ -187,16 +185,23 @@ export async function runStdioProtocol(
   const providersWithSource = (current: AgentGateway): JsonObject[] =>
     current.listProviders().map((provider) => {
       const workspaceProvider = workspaceProviders[provider.id];
-      const missingEnvironmentVariables =
-        workspaceProvider?.apiKey?.startsWith("$") &&
-        !process.env[workspaceProvider.apiKey.slice(1)]
-          ? [workspaceProvider.apiKey.slice(1)]
-          : [];
+      const requiredEnvironmentVariables = [
+        workspaceProvider?.apiKey,
+        ...(
+          (workspaceProvider?.models ?? []) as Array<{ apiKey?: string }>
+        ).map((model) => model.apiKey),
+      ]
+        .filter((key): key is string => Boolean(key?.startsWith("$")))
+        .map((key) => key.slice(1));
+      const missingEnvironmentVariables = [
+        ...new Set(requiredEnvironmentVariables),
+      ].filter((name) => !process.env[name]);
+      const configured = workspaceProvider
+        ? missingEnvironmentVariables.length === 0
+        : provider.configured;
       return {
         ...provider,
-        ...(workspaceProvider?.apiKey?.startsWith("$")
-          ? { configured: missingEnvironmentVariables.length === 0 }
-          : {}),
+        configured,
         source: workspaceProvider ? "workspace" : "provider",
         ...(workspaceProvider?.baseUrl
           ? { endpoint: workspaceProvider.baseUrl }
@@ -213,19 +218,6 @@ export async function runStdioProtocol(
       };
     });
 
-  const requireWorkspaceProviderConsent = (providerId: string): void => {
-    const workspaceProvider = workspaceProviders[providerId];
-    if (
-      workspaceProvider &&
-      allowedWorkspaceProviders.get(providerId) !==
-        workspaceEndpointFingerprint(workspaceProvider)
-    )
-      throw new RpcError(
-        -32023,
-        `Provider '${providerId}' endpoint configuration changed or has not been approved. Explicit workspace-provider consent is required.`,
-      );
-  };
-
   const refreshWorkspaceProviders = async (): Promise<void> => {
     if (workspacePath)
       workspaceProviders = await loadWorkspaceModelProviders(workspacePath);
@@ -234,9 +226,8 @@ export async function runStdioProtocol(
   const hasWorkspaceConfigurationChanged = (): boolean => {
     let changed = false;
     const currentIds = new Set(Object.keys(workspaceProviders));
-    for (const providerId of advertisedWorkspaceProviders.keys()) {
+    for (const providerId of advertisedWorkspaceProviders.keys())
       if (!currentIds.has(providerId)) changed = true;
-    }
     for (const [providerId, provider] of Object.entries(workspaceProviders)) {
       const fingerprint = workspaceEndpointFingerprint(provider);
       if (advertisedWorkspaceProviders.get(providerId) !== fingerprint)
@@ -345,7 +336,6 @@ export async function runStdioProtocol(
     const method = message.method;
     const id = isRpcId(message.id) ? message.id : undefined;
     const params = isObject(message.params) ? message.params : {};
-    let workspaceConfigurationChanged = false;
     if (typeof method !== "string") {
       if (id !== undefined) fail(id, -32600, "Invalid JSON-RPC method.");
       return;
@@ -529,11 +519,7 @@ export async function runStdioProtocol(
       return;
     }
 
-    if (
-      method.startsWith("provider/") ||
-      method.startsWith("model/") ||
-      method === "workspace/allow_provider"
-    ) {
+    if (method.startsWith("provider/") || method.startsWith("model/")) {
       if (id === undefined) return;
       if (!gateway || !initialized) {
         fail(id, -32001, "Initialize the Rook connection first.");
@@ -541,24 +527,15 @@ export async function runStdioProtocol(
       }
       try {
         await refreshWorkspaceProviders();
-        workspaceConfigurationChanged = hasWorkspaceConfigurationChanged();
-        if (workspaceConfigurationChanged && method !== "provider/list") {
+        if (hasWorkspaceConfigurationChanged()) {
           send({
             jsonrpc: "2.0",
             method: "workspace/providers_changed",
-            params: { providers: providersWithSource(gateway) },
+            params: {
+              providers: providersWithSource(gateway),
+              models: await listModelRecords(gateway, workspaceProviders),
+            },
           });
-          if (method === "workspace/allow_provider") {
-            const requested = params.providerId;
-            if (
-              typeof requested === "string" &&
-              params.endpointFingerprint ===
-                advertisedWorkspaceProviders.get(requested)
-            ) {
-              // The client presented the current endpoint fingerprint after the change notification.
-              workspaceConfigurationChanged = false;
-            }
-          }
         }
       } catch {
         fail(
@@ -573,44 +550,12 @@ export async function runStdioProtocol(
     if (id === undefined) return;
     try {
       switch (method) {
-        case "workspace/allow_provider": {
-          const current = requireIdle();
-          if (
-            typeof params.providerId !== "string" ||
-            !workspaceProviders[params.providerId]
-          )
-            throw new RpcError(
-              -32602,
-              "providerId is not configured by this workspace.",
-            );
-          if (
-            workspaceConfigurationChanged &&
-            params.endpointFingerprint === undefined
-          )
-            throw new RpcError(
-              -32024,
-              "Workspace provider endpoints changed; review the current endpoint before granting access.",
-            );
-          const provider = workspaceProviders[params.providerId]!;
-          if (
-            typeof params.endpointFingerprint !== "string" ||
-            params.endpointFingerprint !==
-              workspaceEndpointFingerprint(provider)
-          )
-            throw new RpcError(
-              -32024,
-              "Workspace provider endpoint configuration changed; review it before granting access.",
-            );
-          allowedWorkspaceProviders.set(
-            params.providerId,
-            params.endpointFingerprint,
-          );
-          respond(id, { providers: providersWithSource(current) });
-          return;
-        }
         case "provider/list": {
           const current = requireIdle();
-          respond(id, { providers: providersWithSource(current) });
+          respond(id, {
+            providers: providersWithSource(current),
+            models: await listModelRecords(current, workspaceProviders),
+          });
           return;
         }
         case "provider/login": {
@@ -636,7 +581,6 @@ export async function runStdioProtocol(
               -32602,
               "That provider does not advertise the selected sign-in method.",
             );
-          requireWorkspaceProviderConsent(providerId);
           const controller = new AbortController();
           authLogins.set(loginId, controller);
           authSecrets.set(loginId, []);
@@ -670,7 +614,11 @@ export async function runStdioProtocol(
           if (typeof params.providerId !== "string")
             throw new RpcError(-32602, "providerId must be a string.");
           await current.logout(params.providerId);
-          respond(id, { providers: providersWithSource(current) });
+          respond(id, {
+            providers: providersWithSource(current),
+            models: await listModelRecords(current, workspaceProviders),
+            currentModel: current.currentModel() ?? null,
+          });
           return;
         }
         case "model/list": {
@@ -688,18 +636,22 @@ export async function runStdioProtocol(
             typeof params.id !== "string"
           )
             throw new RpcError(-32602, "provider and id are required.");
-          requireWorkspaceProviderConsent(params.provider);
-          const model = (
-            await listAvailableModels(current, workspaceProviders)
-          ).find(
+          const model = (await current.listModels()).find(
             (candidate) =>
               candidate.provider === params.provider &&
               candidate.id === params.id,
           );
           if (!model)
+            throw new RpcError(-32602, "That model is not in Rook's catalog.");
+          const provider = providersWithSource(current).find(
+            (item) => item.id === params.provider,
+          );
+          if (!provider)
+            throw new RpcError(-32602, "That provider is not available.");
+          if (!provider.configured)
             throw new RpcError(
-              -32602,
-              "That model is not in Rook's effective catalog.",
+              -32027,
+              "Set up this provider before selecting its model.",
             );
           await current.selectModel(model);
           respond(id, { currentModel: current.currentModel() ?? null });
@@ -779,7 +731,10 @@ export async function runStdioProtocol(
               send({
                 jsonrpc: "2.0",
                 method: "workspace/providers_changed",
-                params: { providers: providersWithSource(current) },
+                params: {
+                  providers: providersWithSource(current),
+                  models: await listModelRecords(current, workspaceProviders),
+                },
               });
           } catch {
             throw new RpcError(
@@ -788,8 +743,16 @@ export async function runStdioProtocol(
             );
           }
           const selectedProvider = current.currentModel()?.provider;
-          if (selectedProvider)
-            requireWorkspaceProviderConsent(selectedProvider);
+          if (
+            selectedProvider &&
+            !providersWithSource(current).find(
+              (provider) => provider.id === selectedProvider,
+            )?.configured
+          )
+            throw new RpcError(
+              -32027,
+              "Set up the selected provider before sending a prompt.",
+            );
           if (typeof params.text !== "string" || !params.text.trim())
             throw new RpcError(-32602, "text must be a non-empty string.");
           if (params.text.length > MAX_PROMPT_CHARS)
@@ -909,8 +872,10 @@ async function listModelRecords(
   gateway: AgentGateway,
   providers: Awaited<ReturnType<typeof loadWorkspaceModelProviders>>,
 ): Promise<JsonObject[]> {
-  return (await listAvailableModels(gateway, providers)).map((model) => ({
+  const providerRecords = gateway.listProviders();
+  return (await gateway.listModels()).map((model) => ({
     ...model,
+    ...modelProviderState(model.provider, providerRecords, providers),
     ...(providers[model.provider]
       ? {
           source: "workspace",
@@ -922,26 +887,36 @@ async function listModelRecords(
   }));
 }
 
-async function listAvailableModels(
-  gateway: AgentGateway,
+function modelProviderState(
+  providerId: string,
+  providerRecords: ReturnType<AgentGateway["listProviders"]>,
   workspaceProviders: Awaited<ReturnType<typeof loadWorkspaceModelProviders>>,
-): Promise<ModelInfo[]> {
-  const providers = gateway.listProviders();
-  const configuredProviders = new Set(
-    providers
-      .filter((provider) => provider.configured)
-      .map((provider) => provider.id),
-  );
-  return (await gateway.listModels()).filter((model) => {
-    const workspaceProvider = workspaceProviders[model.provider];
-    return (
-      configuredProviders.has(model.provider) &&
-      !(
-        workspaceProvider?.apiKey?.startsWith("$") &&
-        !process.env[workspaceProvider.apiKey.slice(1)]
-      )
-    );
-  });
+): JsonObject {
+  const workspaceProvider = workspaceProviders[providerId];
+  const missingEnvironmentVariables = [
+    workspaceProvider?.apiKey,
+    ...((workspaceProvider?.models ?? []) as Array<{ apiKey?: string }>).map(
+      (model) => model.apiKey,
+    ),
+  ]
+    .filter((key): key is string => Boolean(key?.startsWith("$")))
+    .map((key) => key.slice(1))
+    .filter((name) => !process.env[name]);
+  return {
+    configured: workspaceProvider
+      ? missingEnvironmentVariables.length === 0
+      : Boolean(
+          providerRecords.find((provider) => provider.id === providerId)
+            ?.configured,
+        ),
+    ...(missingEnvironmentVariables.length
+      ? {
+          missingEnvironmentVariables: [
+            ...new Set(missingEnvironmentVariables),
+          ],
+        }
+      : {}),
+  };
 }
 
 function publicAuthPrompt(prompt: ProviderAuthPrompt): JsonObject {

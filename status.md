@@ -1,7 +1,7 @@
 # Work Handoff Status
 
-- **Latest uncommitted work for Laplace Ask:** stdio model listing now filters unconfigured providers and workspace providers with missing environment keys; provider payload identifies missing variable names without values. Changes are not verified because the user requested no tests. Laplace Ask code is complete in the sibling repository; user manual verification remains pending.
-- **In progress: negotiated desktop provider/model protocol.** Added stdio capability reporting and provider/model list/select, interactive login prompts/events/cancellation, workspace model source labeling, endpoint-change invalidation, and secret-redacted login errors. Focused stdio/workspace tests (14) and protocol type-check pass. No live login or model request has been run; package build is not verified because unrelated `plyth-core` checkout exports are stale.
+- **Latest Laplace Ask integration:** stdio now lists configured and unconfigured models with missing environment-variable names, permits direct selection of configured models without workspace-consent gates, and blocks prompts until an unconfigured provider is set up. Laplace embeds provider login in its model picker and removes Ask trust/endpoint approval UI. Focused stdio tests (11) pass; full typecheck remains blocked by pre-existing `plyth-core` missing exports and workspace-model test typing errors, with no changed-source errors. No live login/model request or native manual verification was performed.
+- **Desktop provider/model protocol:** Supports provider/model list/select, interactive login prompts/events/cancellation, workspace model source labeling, endpoint-change notifications, and secret-redacted login errors. No live login or model request has been run; package build is not verified because unrelated `plyth-core` checkout exports are stale.
 
 ## Current state
 

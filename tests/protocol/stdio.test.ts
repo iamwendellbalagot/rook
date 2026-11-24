@@ -342,7 +342,7 @@ describe("Rook stdio protocol v1", () => {
     await h.task;
   });
 
-  it("requires approval of the current workspace endpoint before model use", async () => {
+  it("allows configured workspace models without project consent", async () => {
     const directory = await mkdtemp(join(tmpdir(), "rook-stdio-provider-"));
     try {
       const modelsPath = join(directory, "models.json");
@@ -362,6 +362,9 @@ describe("Rook stdio protocol v1", () => {
         );
       await writeConfig("https://first.example/v1");
       const fixture = createFixtureGateway();
+      fixture.gateway.listModels = vi.fn(async () => [
+        { provider: "fixture", id: "model-1", name: "Fixture Model" },
+      ]);
       const h = harness(
         vi.fn(async () => fixture.gateway),
         directory,
@@ -376,51 +379,32 @@ describe("Rook stdio protocol v1", () => {
         source: "workspace",
         endpoint: "https://first.example/v1",
       });
-      const approvedFingerprint = provider.endpointFingerprint;
-
-      await writeConfig("https://changed-before-allow.example/v1");
-      h.send(rpc(3, "provider/list"));
-      const changedList = await h.next((message) => message.id === 3);
-      const changedProvider = (
-        changedList.result as { providers: Record<string, unknown>[] }
-      ).providers[0]!;
-      h.send(
-        rpc(4, "workspace/allow_provider", {
-          providerId: "fixture",
-          endpointFingerprint: changedProvider.endpointFingerprint,
-        }),
+      h.send(rpc(2, "model/list"));
+      expect(
+        (await h.next((message) => message.id === 2)).result,
+      ).toMatchObject({
+        models: [{ id: "model-1", configured: false }],
+      });
+      h.send(rpc(3, "model/select", { provider: "fixture", id: "model-1" }));
+      expect((await h.next((message) => message.id === 3)).error).toMatchObject(
+        {
+          code: -32027,
+        },
       );
+      process.env.ROOK_TEST_KEY = "fixture-secret";
+      h.send(rpc(4, "model/list"));
       expect(
         (await h.next((message) => message.id === 4)).result,
       ).toMatchObject({
-        providers: [{ endpoint: "https://changed-before-allow.example/v1" }],
+        models: [{ id: "model-1", configured: true }],
       });
-      await writeConfig("https://second.example/v1");
-      h.send(rpc(5, "provider/list"));
-      const latest = await h.next((message) => message.id === 5);
-      const latestProvider = (
-        latest.result as { providers: Record<string, unknown>[] }
-      ).providers[0]!;
-      h.send(
-        rpc(6, "workspace/allow_provider", {
-          providerId: "fixture",
-          endpointFingerprint: latestProvider.endpointFingerprint,
-        }),
-      );
-      await h.next((message) => message.id === 6);
-      await writeConfig("https://third.example/v1");
-      h.send(rpc(7, "model/select", { provider: "fixture", id: "model-1" }));
-      const changedProviderError = await h.next((message) => message.id === 7);
-      expect(changedProviderError.error).toMatchObject({ code: -32023 });
-      expect(fixture.gateway.selectModel).not.toHaveBeenCalled();
-
-      h.send(rpc(8, "provider/list"));
-      const refreshed = await h.next((message) => message.id === 8);
-      const updatedProvider = (
-        refreshed.result as { providers: Record<string, unknown>[] }
-      ).providers[0]!;
-      expect(updatedProvider.endpoint).toBe("https://third.example/v1");
-      expect(updatedProvider.endpointFingerprint).not.toBe(approvedFingerprint);
+      h.send(rpc(5, "model/select", { provider: "fixture", id: "model-1" }));
+      expect(
+        (await h.next((message) => message.id === 5)).result,
+      ).toMatchObject({
+        currentModel: { provider: "fixture", id: "model-1" },
+      });
+      delete process.env.ROOK_TEST_KEY;
       h.input.close();
       await h.task;
     } finally {
@@ -428,7 +412,7 @@ describe("Rook stdio protocol v1", () => {
     }
   });
 
-  it("lists available models only for configured providers", async () => {
+  it("lists configured and unconfigured models with setup state", async () => {
     const fixture = createFixtureGateway();
     fixture.gateway.listProviders = () => [
       { id: "fixture", name: "Fixture", configured: true, authMethods: [] },
@@ -448,7 +432,10 @@ describe("Rook stdio protocol v1", () => {
     await h.next((message) => message.id === 1);
     h.send(rpc(2, "model/list"));
     expect((await h.next((message) => message.id === 2)).result).toMatchObject({
-      models: [{ provider: "fixture", id: "model-1" }],
+      models: [
+        { provider: "fixture", id: "model-1", configured: true },
+        { provider: "signed-out", id: "model-2", configured: false },
+      ],
     });
     h.input.close();
     await h.task;
