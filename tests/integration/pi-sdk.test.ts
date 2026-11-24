@@ -163,7 +163,7 @@ describe("Pi SDK compatibility", () => {
     }
   });
 
-  it("loads ignored workspace providers into Pi's model runtime on picker refresh", async () => {
+  it("loads workspace providers into Pi's model runtime when a key is available", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "rook-workspace-model-runtime-"));
     const previousKey = process.env.ROOK_TEST_API_KEY;
     process.env.ROOK_TEST_API_KEY = "test-token";

@@ -1,5 +1,6 @@
 # Work Handoff Status
 
+- **Latest uncommitted work for Laplace Ask:** stdio model listing now filters unconfigured providers and workspace providers with missing environment keys; provider payload identifies missing variable names without values. Changes are not verified because the user requested no tests. Laplace Ask code is complete in the sibling repository; user manual verification remains pending.
 - **In progress: negotiated desktop provider/model protocol.** Added stdio capability reporting and provider/model list/select, interactive login prompts/events/cancellation, workspace model source labeling, endpoint-change invalidation, and secret-redacted login errors. Focused stdio/workspace tests (14) and protocol type-check pass. No live login or model request has been run; package build is not verified because unrelated `plyth-core` checkout exports are stale.
 
 ## Current state
@@ -159,3 +160,4 @@
 - Collect and human-score controlled provider/model coding-evaluation runs if model-quality comparisons are needed.
 - Independently human-score the recorded `RONE_Models/gpt-6-luna` run before treating its provisional 100% rubric estimate as an accepted score.
 - Optional follow-up: repeat live-provider measurements to establish variance before making latency or token-efficiency claims, and visually review the TUI in live Terminal.app and WezTerm.
+- In progress: Added configured-provider filtering to stdio model listing, reports missing workspace environment-key variable names without exposing values, and validates model selection against only available models. Focused checks were not run at the user's request; package/full build remains unverified.

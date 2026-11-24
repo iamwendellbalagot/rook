@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Readable } from "node:stream";
 import type {
+  ModelInfo,
   AgentEvent,
   AgentGateway,
   ExternalAccessChoice,
@@ -186,11 +187,22 @@ export async function runStdioProtocol(
   const providersWithSource = (current: AgentGateway): JsonObject[] =>
     current.listProviders().map((provider) => {
       const workspaceProvider = workspaceProviders[provider.id];
+      const missingEnvironmentVariables =
+        workspaceProvider?.apiKey?.startsWith("$") &&
+        !process.env[workspaceProvider.apiKey.slice(1)]
+          ? [workspaceProvider.apiKey.slice(1)]
+          : [];
       return {
         ...provider,
+        ...(workspaceProvider?.apiKey?.startsWith("$")
+          ? { configured: missingEnvironmentVariables.length === 0 }
+          : {}),
         source: workspaceProvider ? "workspace" : "provider",
         ...(workspaceProvider?.baseUrl
           ? { endpoint: workspaceProvider.baseUrl }
+          : {}),
+        ...(missingEnvironmentVariables.length
+          ? { missingEnvironmentVariables }
           : {}),
         ...(workspaceProvider
           ? {
@@ -530,7 +542,7 @@ export async function runStdioProtocol(
       try {
         await refreshWorkspaceProviders();
         workspaceConfigurationChanged = hasWorkspaceConfigurationChanged();
-        if (workspaceConfigurationChanged) {
+        if (workspaceConfigurationChanged && method !== "provider/list") {
           send({
             jsonrpc: "2.0",
             method: "workspace/providers_changed",
@@ -677,7 +689,9 @@ export async function runStdioProtocol(
           )
             throw new RpcError(-32602, "provider and id are required.");
           requireWorkspaceProviderConsent(params.provider);
-          const model = (await current.listModels()).find(
+          const model = (
+            await listAvailableModels(current, workspaceProviders)
+          ).find(
             (candidate) =>
               candidate.provider === params.provider &&
               candidate.id === params.id,
@@ -895,8 +909,7 @@ async function listModelRecords(
   gateway: AgentGateway,
   providers: Awaited<ReturnType<typeof loadWorkspaceModelProviders>>,
 ): Promise<JsonObject[]> {
-  const models = await gateway.listModels();
-  return models.map((model) => ({
+  return (await listAvailableModels(gateway, providers)).map((model) => ({
     ...model,
     ...(providers[model.provider]
       ? {
@@ -907,6 +920,28 @@ async function listModelRecords(
         }
       : { source: "provider" }),
   }));
+}
+
+async function listAvailableModels(
+  gateway: AgentGateway,
+  workspaceProviders: Awaited<ReturnType<typeof loadWorkspaceModelProviders>>,
+): Promise<ModelInfo[]> {
+  const providers = gateway.listProviders();
+  const configuredProviders = new Set(
+    providers
+      .filter((provider) => provider.configured)
+      .map((provider) => provider.id),
+  );
+  return (await gateway.listModels()).filter((model) => {
+    const workspaceProvider = workspaceProviders[model.provider];
+    return (
+      configuredProviders.has(model.provider) &&
+      !(
+        workspaceProvider?.apiKey?.startsWith("$") &&
+        !process.env[workspaceProvider.apiKey.slice(1)]
+      )
+    );
+  });
 }
 
 function publicAuthPrompt(prompt: ProviderAuthPrompt): JsonObject {

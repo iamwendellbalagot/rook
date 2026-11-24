@@ -93,7 +93,7 @@ function createFixtureGateway(
       {
         id: "fixture",
         name: "Fixture",
-        configured: false,
+        configured: true,
         authMethods: [{ type: "api_key", name: "API key" }],
       },
     ],
@@ -368,6 +368,7 @@ describe("Rook stdio protocol v1", () => {
       );
       h.send(rpc(1, "initialize", { protocolVersion: 1 }));
       const initialized = await h.next((message) => message.id === 1);
+
       const provider = (
         initialized.result as { providers: Record<string, unknown>[] }
       ).providers[0]!;
@@ -423,6 +424,87 @@ describe("Rook stdio protocol v1", () => {
       h.input.close();
       await h.task;
     } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("lists available models only for configured providers", async () => {
+    const fixture = createFixtureGateway();
+    fixture.gateway.listProviders = () => [
+      { id: "fixture", name: "Fixture", configured: true, authMethods: [] },
+      {
+        id: "signed-out",
+        name: "Signed out",
+        configured: false,
+        authMethods: [],
+      },
+    ];
+    fixture.gateway.listModels = vi.fn(async () => [
+      { provider: "fixture", id: "model-1", name: "Fixture Model" },
+      { provider: "signed-out", id: "model-2", name: "Unavailable Model" },
+    ]);
+    const h = harness(vi.fn(async () => fixture.gateway));
+    h.send(rpc(1, "initialize", { protocolVersion: 1 }));
+    await h.next((message) => message.id === 1);
+    h.send(rpc(2, "model/list"));
+    expect((await h.next((message) => message.id === 2)).result).toMatchObject({
+      models: [{ provider: "fixture", id: "model-1" }],
+    });
+    h.input.close();
+    await h.task;
+  });
+
+  it("marks workspace providers missing environment credentials without exposing values", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rook-stdio-missing-env-"));
+    const previousKey = process.env.ROOK_MISSING_KEY;
+    delete process.env.ROOK_MISSING_KEY;
+    try {
+      await writeFile(
+        join(directory, "models.json"),
+        JSON.stringify({
+          providers: {
+            workspace: {
+              name: "Workspace",
+              baseUrl: "https://api.example.com/v1",
+              api: "openai-completions",
+              apiKey: "$ROOK_MISSING_KEY",
+              models: [{ id: "model-1", name: "Model" }],
+            },
+          },
+        }),
+      );
+      const fixture = createFixtureGateway();
+      fixture.gateway.listProviders = () => [
+        {
+          id: "workspace",
+          name: "Workspace",
+          configured: false,
+          authMethods: [],
+        },
+      ];
+      const h = harness(
+        vi.fn(async () => fixture.gateway),
+        directory,
+      );
+      h.send(rpc(1, "initialize", { protocolVersion: 1 }));
+      const initialized = await h.next((message) => message.id === 1);
+      expect(initialized.result).toMatchObject({
+        providers: [
+          {
+            configured: false,
+            missingEnvironmentVariables: ["ROOK_MISSING_KEY"],
+          },
+        ],
+      });
+      expect(JSON.stringify(initialized.result)).not.toContain("test-token");
+      expect(JSON.stringify(initialized.result)).not.toContain(
+        "never-log-this-secret",
+      );
+      h.input.close();
+      await h.task;
+    } finally {
+      if (previousKey === undefined) delete process.env.ROOK_MISSING_KEY;
+      else process.env.ROOK_MISSING_KEY = previousKey;
       await rm(directory, { recursive: true, force: true });
     }
   });
