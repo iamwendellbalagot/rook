@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { Readable } from "node:stream";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -645,5 +645,148 @@ describe("Rook stdio protocol v1", () => {
     expect(frames).toHaveLength(2);
     expect(frames[0]).toBeInstanceOf(Error);
     expect(frames[1]).toBe('{"jsonrpc":"2.0","id":7,"method":"noop"}');
+  });
+
+  it("inspects skills without executing them and round-trips mcp.json config with secret redaction", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "rook-cap-ws-"));
+    const previousRookHome = process.env.ROOK_HOME;
+    const fakeHome = await mkdtemp(join(tmpdir(), "rook-cap-home-"));
+    process.env.ROOK_HOME = fakeHome;
+    try {
+      await mkdir(join(workspace, ".rook", "skills", "auditor"), {
+        recursive: true,
+      });
+      await writeFile(
+        join(workspace, ".rook", "skills", "auditor", "SKILL.md"),
+        "---\nname: auditor\ndescription: Audit repo changes\n---\n# Auditor\nNever execute on inspect.\n",
+      );
+      await mkdir(join(workspace, ".pi"), { recursive: true });
+      await writeFile(
+        join(workspace, ".pi", "mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            docs: {
+              url: "https://docs.example.com/mcp",
+              headers: { Authorization: "Bearer super-secret-token-value" },
+            },
+          },
+        }),
+      );
+
+      const fixture = createFixtureGateway();
+      const h = harness(
+        vi.fn(async () => fixture.gateway),
+        workspace,
+      );
+      h.send(rpc(1, "initialize", { protocolVersion: 1 }));
+      const init = await h.next((m) => m.id === 1);
+      expect(init.result).toMatchObject({
+        capabilities: {
+          arbitraryMcp: false,
+          capabilitiesInspection: true,
+          mcpConfig: true,
+        },
+      });
+
+      // Untrusted workspace sees project MCP as inactive and redacts Authorization secret
+      h.send(rpc(2, "capabilities/snapshot", { projectTrusted: false }));
+      const snap1 = await h.next((m) => m.id === 2);
+      const snapJson = JSON.stringify(snap1.result);
+      expect(snapJson).not.toContain("super-secret-token-value");
+      expect(snap1.result).toMatchObject({
+        arbitraryMcpEnabled: false,
+        skills: [
+          expect.objectContaining({
+            name: "auditor",
+            scope: "project",
+            precedence: "active",
+          }),
+        ],
+      });
+      const docsServer = (
+        snap1.result as { mcpServers: Array<Record<string, unknown>> }
+      ).mcpServers.find((s) => s.name === "docs");
+      expect(docsServer).toMatchObject({
+        configured: "valid",
+        enabled: false,
+        connected: false,
+        connectionStatus: "untrusted_project",
+        authorizationPolicy: "approval_required",
+      });
+
+      // Read-only SKILL.md inspect
+      h.send(rpc(3, "skills/inspect", { name: "auditor", scope: "project" }));
+      const inspected = await h.next((m) => m.id === 3);
+      expect(inspected.result).toMatchObject({
+        name: "auditor",
+        scope: "project",
+        truncated: false,
+      });
+      expect((inspected.result as { content: string }).content).toContain(
+        "Never execute on inspect.",
+      );
+
+      // Untrusted project mcp/update is rejected
+      h.send(
+        rpc(4, "mcp/update", {
+          action: "toggle",
+          scope: "project",
+          name: "docs",
+          enabled: false,
+          projectTrusted: false,
+        }),
+      );
+      expect((await h.next((m) => m.id === 4)).error).toBeDefined();
+
+      // Trusted project mcp/update persists to .pi/mcp.json and round-trips
+      h.send(
+        rpc(5, "mcp/update", {
+          action: "add",
+          scope: "project",
+          name: "localfs",
+          transport: "stdio",
+          command: "npx",
+          args: ["-y", "@modelcontextprotocol/server-filesystem", "."],
+          projectTrusted: true,
+        }),
+      );
+      const added = await h.next((m) => m.id === 5);
+      const addedServer = (
+        added.result as { mcpServers: Array<Record<string, unknown>> }
+      ).mcpServers.find((s) => s.name === "localfs");
+      expect(addedServer).toMatchObject({
+        configured: "valid",
+        enabled: true,
+        connected: false,
+        connectionStatus: "blocked_by_stdio_policy",
+      });
+
+      h.send(
+        rpc(6, "mcp/update", {
+          action: "toggle",
+          scope: "project",
+          name: "localfs",
+          enabled: false,
+          projectTrusted: true,
+        }),
+      );
+      const toggled = await h.next((m) => m.id === 6);
+      const toggledServer = (
+        toggled.result as { mcpServers: Array<Record<string, unknown>> }
+      ).mcpServers.find((s) => s.name === "localfs");
+      expect(toggledServer).toMatchObject({
+        configEnabled: false,
+        enabled: false,
+        connectionStatus: "disabled",
+      });
+
+      h.input.close();
+      await h.task;
+    } finally {
+      if (previousRookHome === undefined) delete process.env.ROOK_HOME;
+      else process.env.ROOK_HOME = previousRookHome;
+      await rm(workspace, { recursive: true, force: true });
+      await rm(fakeHome, { recursive: true, force: true });
+    }
   });
 });

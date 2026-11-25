@@ -17,6 +17,11 @@ import {
   workspaceEndpointFingerprint,
   workspaceModelEndpoint,
 } from "../pi/workspace-models.js";
+import {
+  applyMcpConfigUpdate,
+  collectCapabilitiesSnapshot,
+  inspectInstalledSkill,
+} from "./capabilities.js";
 import { ROOK_PACKAGE_VERSION } from "../version.js";
 
 export const ROOK_PROTOCOL_VERSION = 1;
@@ -432,6 +437,8 @@ export async function runStdioProtocol(
                   buildSessions: false,
                 }),
             arbitraryMcp: false,
+            capabilitiesInspection: true,
+            mcpConfig: true,
           },
           providers,
           currentModel: gateway.currentModel() ?? null,
@@ -825,6 +832,76 @@ export async function runStdioProtocol(
             });
           pendingRequests.add(task);
           void task.finally(() => pendingRequests.delete(task));
+          return;
+        }
+        case "capabilities/snapshot": {
+          requireReady();
+          const cwd = workspacePath ?? resolve(options.cwd ?? process.cwd());
+          const snapshot = await collectCapabilitiesSnapshot(cwd, {
+            projectTrusted: params.projectTrusted === true,
+          });
+          respond(id, snapshot);
+          return;
+        }
+        case "skills/inspect": {
+          requireReady();
+          const cwd = workspacePath ?? resolve(options.cwd ?? process.cwd());
+          if (
+            typeof params.name !== "string" ||
+            (params.scope !== "project" && params.scope !== "global")
+          ) {
+            throw new RpcError(
+              -32602,
+              'name and scope ("project" | "global") are required.',
+            );
+          }
+          const inspected = await inspectInstalledSkill(
+            cwd,
+            params.name,
+            params.scope,
+          );
+          respond(id, inspected);
+          return;
+        }
+        case "mcp/update": {
+          requireIdle();
+          const cwd = workspacePath ?? resolve(options.cwd ?? process.cwd());
+          if (
+            (params.action !== "toggle" &&
+              params.action !== "add" &&
+              params.action !== "remove") ||
+            (params.scope !== "global" && params.scope !== "project") ||
+            typeof params.name !== "string"
+          ) {
+            throw new RpcError(
+              -32602,
+              "action, scope, and name are required for mcp/update.",
+            );
+          }
+          const updated = await applyMcpConfigUpdate(cwd, {
+            action: params.action,
+            scope: params.scope,
+            name: params.name,
+            ...(typeof params.enabled === "boolean"
+              ? { enabled: params.enabled }
+              : {}),
+            ...(params.transport === "stdio" || params.transport === "http"
+              ? { transport: params.transport }
+              : {}),
+            ...(typeof params.command === "string"
+              ? { command: params.command }
+              : {}),
+            ...(Array.isArray(params.args)
+              ? {
+                  args: params.args.filter(
+                    (item): item is string => typeof item === "string",
+                  ),
+                }
+              : {}),
+            ...(typeof params.url === "string" ? { url: params.url } : {}),
+            projectTrusted: params.projectTrusted === true,
+          });
+          respond(id, updated);
           return;
         }
         default:
