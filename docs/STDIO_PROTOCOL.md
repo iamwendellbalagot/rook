@@ -11,8 +11,9 @@ Ask-compatible but require sign-in/model selection in Rook.
 
 - Node.js 22.19.0 or newer.
 - Provider setup may use native stdio sign-in or Rook's supported CLI/TUI login.
-- Launch the installed executable with `node <rook-bin> --stdio [--cwd PATH]`.
-  The process working directory is used when `--cwd` is omitted.
+- Launch the installed executable with `node <rook-bin> --stdio [--cwd PATH] [--mode ask|build]`.
+  The process working directory is used when `--cwd` is omitted. Mode defaults
+  to `ask` and is pinned for the lifetime of the process.
 - stdin and stdout are reserved for protocol frames. Each frame is one UTF-8
   JSON value followed by a newline. Diagnostics go to stderr.
 
@@ -36,7 +37,7 @@ canonical `workspaceId`, provider configuration status, and capabilities. A
 version mismatch returns error `-32010`. Only one initialization is accepted
 per process.
 
-Create an immutable Ask session:
+Create a session matching the process's pinned mode (`ask` or `build`):
 
 ```json
 {
@@ -47,10 +48,14 @@ Create an immutable Ask session:
 }
 ```
 
-The result includes `workspaceId`, `sessionId`, and `mode: "ask"`. Build mode
-is not available in v1. The advertised read-only tool set is fixed for the
-process; mode changes cannot widen it. Arbitrary MCP and executable extension
-tools are not exposed through this interface.
+The result includes `workspaceId`, `sessionId`, and `mode`. An `ask` process
+pins read-only tools (`immutableReadOnlyTools`) and rejects `mode: "build"` with
+`-32011`. A `build` process pins `buildTools` (`read`, `find`, `ls`, `edit`,
+`write`, `bash`, and Rook workspace tools), advertises `buildSessions: true` and
+effective `sandbox` status (`{ enabled, runtime, available }`), and rejects
+`mode: "ask"` with `-32011`. Mode changes cannot widen a running process.
+Arbitrary MCP and executable extension tools are not exposed through this
+interface (`arbitraryMcp: false`).
 
 Other session methods:
 
@@ -147,5 +152,9 @@ client response is not itself filesystem authorization.
 - Send `shutdown` to cancel current work, deny pending permissions, dispose
   the gateway, and exit. stdin EOF also cancels and disposes.
 
-Protocol v1 does not support Build sessions, arbitrary MCP, remote execution,
-durable event replay, or automatic prompt replay.
+Protocol v1 does not support arbitrary MCP, remote execution, durable event
+replay, or automatic prompt replay. On macOS (Seatbelt) and Linux (Bubblewrap),
+sandboxed Build shell commands keep the workspace writable with `.git`
+write-protected and network disabled; if the OS sandbox is unavailable (such as
+Windows), Rook fails closed on shell execution and reports `sandbox.available:
+false` in `initialize`.

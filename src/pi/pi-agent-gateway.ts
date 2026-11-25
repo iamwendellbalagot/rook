@@ -120,7 +120,7 @@ const PLAN_TOOLS = [
   "rook_code",
   TASK_CHECKLIST_TOOL_NAME,
 ];
-const BUILD_TOOLS = [
+export const BUILD_TOOLS = [
   ...AVAILABLE_TOOLS,
   "rook_inspect",
   "rook_search",
@@ -139,10 +139,15 @@ function activeToolsForSession(
   mode: PermissionMode,
   readOnlyTools?: string[],
   pilotRunGuard?: PilotRunGuard,
+  allowedTools?: string[],
 ): string[] {
   if (pilotRunGuard) return [...pilotRunGuard.allowedTools];
   if (readOnlyTools)
     return readOnlyTools.filter((name) => PLAN_TOOLS.includes(name));
+  if (allowedTools) {
+    const allowedForMode = activeToolsFor(mode);
+    return allowedTools.filter((name) => allowedForMode.includes(name));
+  }
   const mcpTools = session
     .getAllTools()
     .map((tool) => tool.name)
@@ -168,6 +173,7 @@ export async function createPiAgentGateway(
     listRepositoryInstructions?: () => string[] | Promise<string[]>;
     memoryCapture?: MemoryCaptureManager;
     readOnlyTools?: string[];
+    allowedTools?: string[];
     reviewBudget?: ReviewBudget;
     maxOutputTokensPerResponse?: number;
     maxProviderRequests?: number;
@@ -483,6 +489,7 @@ export async function createPiAgentGateway(
         policy.getMode(),
         options.readOnlyTools,
         options.pilotRunGuard,
+        options.allowedTools,
       ),
     );
     policy.clearSessionPermissionGrants();
@@ -801,6 +808,7 @@ export async function createPiAgentGateway(
           mode,
           options.readOnlyTools,
           options.pilotRunGuard,
+          options.allowedTools,
         ),
       );
     },
@@ -1131,6 +1139,13 @@ export async function createPiAgentGateway(
     },
     getActiveTools(): string[] {
       return runtime.session.getActiveToolNames();
+    },
+    getSandboxStatus() {
+      return {
+        enabled: executionConfig.sandboxShell,
+        runtime: sandboxRuntime ?? null,
+        available: !executionConfig.sandboxShell || Boolean(sandboxRuntime),
+      };
     },
     async listSessions(): Promise<SessionInfo[]> {
       return (await SessionManager.list(runtime.cwd, options.sessionDir)).map(

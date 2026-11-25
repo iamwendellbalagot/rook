@@ -208,6 +208,12 @@ export interface ForkPoint {
   text: string;
 }
 
+export interface SandboxStatus {
+  enabled: boolean;
+  runtime: "seatbelt" | "bwrap" | null;
+  available: boolean;
+}
+
 export interface AgentGateway {
   isRunning(): boolean;
   send(prompt: string, disposition?: PromptDisposition): Promise<void>;
@@ -280,6 +286,7 @@ export interface AgentGateway {
   getSessionPermissionGrants(): SessionPermissionGrant[];
   revokeExternalAccessGrant(id: string): boolean;
   getActiveTools(): string[];
+  getSandboxStatus?(): SandboxStatus;
   subscribe(handler: (event: AgentEvent) => void): () => void;
   dispose(): Promise<void>;
 }

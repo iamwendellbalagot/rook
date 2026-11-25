@@ -11,7 +11,7 @@ import type {
   ProviderAuthPrompt,
   SessionInfo,
 } from "../pi/agent-gateway.js";
-import { createPiAgentGateway } from "../pi/pi-agent-gateway.js";
+import { BUILD_TOOLS, createPiAgentGateway } from "../pi/pi-agent-gateway.js";
 import {
   loadWorkspaceModelProviders,
   workspaceEndpointFingerprint,
@@ -57,9 +57,12 @@ interface PendingAuthPrompt {
   onAbort: () => void;
 }
 
+export type StdioMode = "ask" | "build";
+
 export interface StdioProtocolOptions {
   cwd?: string;
   sessionDir?: string;
+  mode?: StdioMode;
   input: AsyncIterable<string | Error>;
   write: Write;
   onError?: (message: string) => void;
@@ -83,6 +86,7 @@ export async function runStdioProtocol(
     });
   };
 
+  const processMode: StdioMode = options.mode ?? "ask";
   const pendingRequests = new Set<Promise<void>>();
   const pendingPermissions = new Map<string, PendingPermission>();
   const pendingAuthPrompts = new Map<string, PendingAuthPrompt>();
@@ -370,14 +374,16 @@ export async function runStdioProtocol(
           ((workspace, sessionDir) =>
             createPiAgentGateway(workspace, {
               ...(sessionDir ? { sessionDir } : {}),
-              // This list is fixed for the lifetime of the process. Calling
-              // setMode("build") cannot widen a desktop Ask session.
-              readOnlyTools: READ_ONLY_TOOLS,
+              // Tool scope is fixed for the lifetime of the stdio process:
+              // ask processes stay read-only; build processes pin BUILD_TOOLS without arbitrary MCP.
+              ...(processMode === "build"
+                ? { allowedTools: [...BUILD_TOOLS] }
+                : { readOnlyTools: READ_ONLY_TOOLS }),
             }));
         gateway = options.sessionDir
           ? await factory(cwd, options.sessionDir)
           : await factory(cwd);
-        gateway.setMode("plan");
+        gateway.setMode(processMode === "build" ? "build" : "plan");
         gateway.setExternalAccessPrompt(requestPermission);
         workspaceId = pathToFileURL(cwd).href;
         workspaceProviders = await loadWorkspaceModelProviders(cwd);
@@ -389,12 +395,18 @@ export async function runStdioProtocol(
         initialized = true;
         unsubscribe = gateway.subscribe(emitUpdate);
         const providers = providersWithSource(gateway);
+        const sandbox = gateway.getSandboxStatus?.() ?? {
+          enabled: true,
+          runtime: null,
+          available: false,
+        };
         respond(id, {
           protocolVersion: ROOK_PROTOCOL_VERSION,
           rookVersion: ROOK_PACKAGE_VERSION,
           nodeVersion: process.version,
           workspaceId,
           capabilities: {
+            mode: processMode,
             sessions: ["new", "list", "load", "history"],
             hostSessionStorage: Boolean(options.sessionDir),
             streamedPrompts: true,
@@ -409,8 +421,16 @@ export async function runStdioProtocol(
             },
             modelCatalog: true,
             modelSelection: true,
-            immutableReadOnlyTools: [...READ_ONLY_TOOLS],
-            buildSessions: false,
+            ...(processMode === "build"
+              ? {
+                  buildSessions: true,
+                  buildTools: [...BUILD_TOOLS],
+                  sandbox,
+                }
+              : {
+                  immutableReadOnlyTools: [...READ_ONLY_TOOLS],
+                  buildSessions: false,
+                }),
             arbitraryMcp: false,
           },
           providers,
@@ -667,17 +687,19 @@ export async function runStdioProtocol(
         }
         case "session/new": {
           const current = requireIdle();
-          if (params.mode !== undefined && params.mode !== "ask")
+          if (params.mode !== undefined && params.mode !== processMode)
             throw new RpcError(
               -32011,
-              "Only immutable read-only Ask sessions are supported by protocol v1.",
+              processMode === "build"
+                ? "This Rook stdio process is pinned to build mode."
+                : "Only immutable read-only Ask sessions are supported by this Rook process.",
             );
           if (!initialized)
             throw new RpcError(-32001, "Initialize the Rook connection first.");
           await current.newSession();
           sessionId = current.currentSession().id;
           eventSequence = 0;
-          respond(id, { workspaceId, sessionId, mode: "ask" });
+          respond(id, { workspaceId, sessionId, mode: processMode });
           return;
         }
         case "session/list": {
@@ -697,7 +719,7 @@ export async function runStdioProtocol(
             throw new RpcError(-32602, "sessionId must be a string.");
           if (current.currentSession().id === params.sessionId) {
             sessionId = params.sessionId;
-            respond(id, { workspaceId, sessionId, mode: "ask" });
+            respond(id, { workspaceId, sessionId, mode: processMode });
             return;
           }
           const sessions = await current.listSessions();
@@ -709,7 +731,7 @@ export async function runStdioProtocol(
           await current.resumeSession(selected.path);
           sessionId = current.currentSession().id;
           eventSequence = 0;
-          respond(id, { workspaceId, sessionId, mode: "ask" });
+          respond(id, { workspaceId, sessionId, mode: processMode });
           return;
         }
         case "session/history": {
@@ -944,11 +966,13 @@ function publicAuthPrompt(prompt: ProviderAuthPrompt): JsonObject {
 export async function runStdioProcess(
   cwd?: string,
   sessionDir?: string,
+  mode: StdioMode = "ask",
 ): Promise<void> {
   const input = readProtocolLines(process.stdin);
   await runStdioProtocol({
     ...(cwd ? { cwd } : {}),
     ...(sessionDir ? { sessionDir } : {}),
+    mode,
     input,
     write: async (message) => {
       const output = `${JSON.stringify(message)}\n`;

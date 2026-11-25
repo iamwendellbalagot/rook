@@ -17,7 +17,7 @@ import {
   removeWorktree,
 } from "./repo/worktrees.js";
 import { createRookTui } from "./tui/rook-tui.js";
-import { runStdioProcess } from "./protocol/stdio.js";
+import { runStdioProcess, type StdioMode } from "./protocol/stdio.js";
 import { ROOK_PACKAGE_VERSION } from "./version.js";
 import { initialAppState, reduceAppState, type AppState } from "./app/state.js";
 import {
@@ -52,15 +52,32 @@ export function parseCliArguments(
 
 export async function main(args = process.argv.slice(2)): Promise<void> {
   if (args[0] === "--stdio") {
-    const cwdIndex = args.indexOf("--cwd");
-    if (
-      (cwdIndex >= 0 &&
-        (!args[cwdIndex + 1] || args.indexOf("--cwd", cwdIndex + 1) >= 0)) ||
-      (cwdIndex < 0 ? args.length !== 1 : args.length !== 3)
-    )
-      throw new Error("Usage: rook --stdio [--cwd PATH]");
-    const cwd = cwdIndex < 0 ? process.cwd() : args[cwdIndex + 1];
-    await runStdioProcess(cwd!, process.env.LAPLACE_ROOK_SESSION_DIR);
+    let cwd: string | undefined;
+    let mode: StdioMode | undefined;
+    for (let index = 1; index < args.length; index++) {
+      const arg = args[index];
+      if (arg === "--cwd") {
+        if (cwd !== undefined || !args[index + 1])
+          throw new Error(
+            "Usage: rook --stdio [--cwd PATH] [--mode ask|build]",
+          );
+        cwd = args[++index];
+      } else if (arg === "--mode") {
+        const value = args[++index];
+        if (mode !== undefined || (value !== "ask" && value !== "build"))
+          throw new Error(
+            "Usage: rook --stdio [--cwd PATH] [--mode ask|build]",
+          );
+        mode = value;
+      } else {
+        throw new Error("Usage: rook --stdio [--cwd PATH] [--mode ask|build]");
+      }
+    }
+    await runStdioProcess(
+      cwd ?? process.cwd(),
+      process.env.LAPLACE_ROOK_SESSION_DIR,
+      mode ?? "ask",
+    );
     return;
   }
   if (args[0] === "worktree") {

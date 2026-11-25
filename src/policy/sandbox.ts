@@ -206,6 +206,7 @@ function seatbeltProfile(): string {
 (allow file-read* (subpath "/System") (subpath "/usr") (subpath "/bin") (subpath "/sbin") (subpath "/usr/local") (subpath "/opt/homebrew") (subpath "/Library/Apple") (subpath "/private/var/db/dyld") (literal "/") (literal "/private/var/select/sh") (literal "/dev/null") (literal "/dev/urandom") (literal "/dev/random") (subpath (param "WORKSPACE")))
 (allow file-read* (subpath (param "PRIVATE_TMP")))
 (allow file-write* (subpath (param "WORKSPACE")) (subpath (param "PRIVATE_TMP")))
+(deny file-write* (literal (param "WORKSPACE_GIT_DIR")))
 (deny file-write* (subpath (param "WORKSPACE_GIT_DIR")))
 (deny file-write-unlink (require-all (literal (param "WORKSPACE")) (vnode-type DIRECTORY)))
 (allow file-write-data (require-all (literal "/dev/null") (vnode-type CHARACTER-DEVICE)))

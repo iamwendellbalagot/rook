@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { AgentEvent, AgentGateway } from "../../src/pi/agent-gateway.js";
 import {
   readProtocolLines,
@@ -149,6 +150,7 @@ function harness(
   createGateway = vi.fn(async () => createFixtureGateway().gateway),
   cwd = process.cwd(),
   sessionDir?: string,
+  mode?: "ask" | "build",
 ) {
   const input = new InputQueue();
   const output: Record<string, unknown>[] = [];
@@ -156,6 +158,7 @@ function harness(
   const task = runStdioProtocol({
     cwd,
     ...(sessionDir ? { sessionDir } : {}),
+    ...(mode ? { mode } : {}),
     input,
     createGateway,
     write: (message) => {
@@ -255,7 +258,7 @@ describe("Rook stdio protocol v1", () => {
         JSON.stringify(message).includes("source-linked answer"),
     );
     expect(update.params).toMatchObject({
-      workspaceId: `file://${process.cwd()}`,
+      workspaceId: pathToFileURL(process.cwd()).href,
       sessionId: "session-2",
       runId: "run-1",
       event: { type: "text_delta" },
@@ -580,6 +583,53 @@ describe("Rook stdio protocol v1", () => {
     expect((await h.next((message) => message.id === 4)).result).toMatchObject({
       messages: [{ text: "fixture history" }],
       truncated: false,
+    });
+    h.input.close();
+    await h.task;
+  });
+
+  it("pins build mode processes to build capabilities and enforces mode separation", async () => {
+    const fixture = createFixtureGateway("once");
+    fixture.gateway.getSandboxStatus = vi.fn(() => ({
+      enabled: true,
+      runtime: "seatbelt",
+      available: true,
+    }));
+    const h = harness(
+      vi.fn(async () => fixture.gateway),
+      process.cwd(),
+      undefined,
+      "build",
+    );
+    h.send(rpc(1, "initialize", { protocolVersion: 1 }));
+    const initialized = await h.next((message) => message.id === 1);
+    expect(fixture.gateway.setMode).toHaveBeenCalledWith("build");
+    expect(initialized.result).toMatchObject({
+      protocolVersion: 1,
+      capabilities: {
+        mode: "build",
+        buildSessions: true,
+        arbitraryMcp: false,
+        sandbox: { enabled: true, runtime: "seatbelt", available: true },
+      },
+    });
+    expect(
+      (initialized.result as { capabilities: { buildTools: string[] } })
+        .capabilities.buildTools,
+    ).toEqual(expect.arrayContaining(["read", "edit", "write", "bash"]));
+    h.send(rpc(2, "session/new", { mode: "ask" }));
+    expect((await h.next((message) => message.id === 2)).error).toMatchObject({
+      code: -32011,
+    });
+    h.send(rpc(3, "session/new", { mode: "build" }));
+    expect((await h.next((message) => message.id === 3)).result).toMatchObject({
+      mode: "build",
+      sessionId: "session-2",
+    });
+    h.send(rpc(4, "session/load", { sessionId: "session-1" }));
+    expect((await h.next((message) => message.id === 4)).result).toMatchObject({
+      mode: "build",
+      sessionId: "session-1",
     });
     h.input.close();
     await h.task;
