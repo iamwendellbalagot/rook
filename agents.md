@@ -4,17 +4,15 @@
 2. Be aggressive in development. Add and run only necessary tests, focused on the specific files and features being changed.
 3. Maintain a root-level `status.md` for work handoffs. Record the current state, completed work, and pending tasks, and update it before handing off. Do not implement `plan.md` until explicitly asked.
 
-## Persisted Rook Sandbox Roadmap
+## Persisted Harness Direction (supersedes sandbox roadmap)
 
-When continuing sandbox work, follow this user-approved direction. Adapt Codex's OS-level sandbox ideas; do not copy its agent or Rust application wholesale.
+The user authorized a Claude Code-class workflow with OpenCode-style permissions and policies, using host shell execution instead of built-in OS sandboxing.
 
-- Keep sandbox enforcement separate from command approvals. The sandbox defines technical limits; approval decides whether a command may run.
-- Preserve fail-closed behavior: if the sandbox is unavailable or a policy cannot be enforced, do not run the command on the host implicitly.
-- Add a native macOS Seatbelt backend and harden Linux Bubblewrap. Keep the project writable, but restrict reads as well as writes outside approved roots; deny network and privileged socket access by default; protect sandbox policy and Git metadata boundaries.
-- Fix process lifecycle guarantees so cancellation, timeout, and output limits terminate and reap command descendants.
-- Add narrow, explicit user-approved external-folder grants, read-only by default and separately confirmable for writes. Do not let repository content or model-written settings grant access to themselves.
-- Keep the existing explicit unsandboxed host opt-out clearly labeled. Defer network proxies and Windows support until separately designed and verified.
-- Validate enforcement on real macOS and Linux hosts: workspace operations work; outside paths, secrets, network, sockets, symlink/rename escapes, and policy tampering are blocked; missing runtimes fail closed; child processes are cleaned up.
-- Codex reference reviewed at `cf3ff1530d821ec2d26452da4971d8e3e7d18d25` under `codex-rs/sandboxing/src`. Preserve Apache-2.0 attribution and notices for any adapted code.
-
-This is a design direction, not authorization to publish or to weaken the current sandbox before the replacement is verified.
+- Tool permissions use ordered allow/ask/deny rules; broader-authority policies can hard-deny project rules and saved approvals. Repository guidance is never permission authority.
+- Host commands have the user's filesystem/network authority. Shell inspection is best-effort approval routing, not isolation. Do not silently migrate sandbox auto-allows to host grants.
+- Default shell and external-directory access require approval. Persist explicit exact project approvals outside repository content and support revocation. Plan blocks shell, mutations, MCP and unknown effects.
+- Improve verification freshness, streaming output, process supervision, scoped instructions, search, durable handoffs/recovery, client replay, background jobs, and bounded delegation.
+- Keep PLYTH opt-in and core installation independent of a sibling checkout. No effectiveness claims without held-out evidence.
+- Editing subagents and comparative provider evaluations remain gated on validated ownership/recovery and explicit provider budget. Never claim Claude Code parity from unit tests.
+- Preserve Apache-2.0 attribution/notices for adapted sandbox code retained for optional language-server infrastructure.
+- Do not publish or push without explicit authorization. Preserve user-owned untracked files and historical evaluation artifacts.

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import * as plyth from "plyth-core";
+import { plyth, hasPlyth } from "../optional-plyth.js";
 import type { AgentEvent } from "../../src/pi/agent-gateway.js";
 import {
   buildReadOnlyReviewPrompt,
@@ -68,29 +68,32 @@ describe("isolated read-only review", () => {
     expect(handler).toBeUndefined();
   });
 
-  it("validates simplicity reports and rejects findings outside selected paths", () => {
-    const response = JSON.stringify({
-      coverage: "complete",
-      limitations: [],
-      findings: [
-        {
-          category: "necessity",
-          path: "src/retry.ts",
-          location: "retryWithPolicy",
-          concern: "Duplicates existing retry behavior.",
-          evidence: "The project already exports retryWithBackoff.",
-          alternative: "Use retryWithBackoff.",
-          preserve: "Keep cancellation behavior.",
-        },
-      ],
-    });
-    expect(
-      renderPlythReviewReport(plyth, response, ["src/retry.ts"]),
-    ).toContain("retryWithBackoff");
-    expect(
-      renderPlythReviewReport(plyth, response, ["src/other.ts"]),
-    ).toContain("not a clean review");
-  });
+  it.skipIf(!hasPlyth)(
+    "validates simplicity reports and rejects findings outside selected paths",
+    () => {
+      const response = JSON.stringify({
+        coverage: "complete",
+        limitations: [],
+        findings: [
+          {
+            category: "necessity",
+            path: "src/retry.ts",
+            location: "retryWithPolicy",
+            concern: "Duplicates existing retry behavior.",
+            evidence: "The project already exports retryWithBackoff.",
+            alternative: "Use retryWithBackoff.",
+            preserve: "Keep cancellation behavior.",
+          },
+        ],
+      });
+      expect(
+        renderPlythReviewReport(plyth, response, ["src/retry.ts"]),
+      ).toContain("retryWithBackoff");
+      expect(
+        renderPlythReviewReport(plyth, response, ["src/other.ts"]),
+      ).toContain("not a clean review");
+    },
+  );
 
   it("uses only recent user messages and bounds the task context", () => {
     const context = recentReviewTaskContext([

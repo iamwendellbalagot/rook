@@ -1,7 +1,16 @@
-import { createHash } from "node:crypto";
-import { lstat, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  lstat,
+  mkdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { realpathSync } from "node:fs";
-import { relative, resolve, sep } from "node:path";
+import { relative, resolve, sep, join, dirname } from "node:path";
+import { rookHome } from "./permissions.js";
 
 const MAX_RECOVERY_BYTES = 1024 * 1024;
 
@@ -18,6 +27,7 @@ interface ReversibleChange extends FileSnapshot {
 export class FileChangeRecovery {
   private readonly pending = new Map<string, FileSnapshot>();
   private latest: ReversibleChange | undefined;
+  private recoveryPath: string | undefined;
 
   private readonly workspace: string;
 
@@ -25,9 +35,69 @@ export class FileChangeRecovery {
     this.workspace = realpathSync(workspace);
   }
 
+  async bindSession(session: string): Promise<void> {
+    this.latest = undefined;
+    this.pending.clear();
+    this.recoveryPath = join(
+      rookHome(),
+      "recovery",
+      `${hash(Buffer.from(`${this.workspace}\0${session}`))}.json`,
+    );
+    try {
+      const text = await readFile(this.recoveryPath, "utf8");
+      if (Buffer.byteLength(text) > 2 * MAX_RECOVERY_BYTES)
+        throw new Error("Recovery record exceeds limit");
+      const value = JSON.parse(text);
+      if (value === null) return;
+      if (
+        typeof value.path !== "string" ||
+        typeof value.afterHash !== "string" ||
+        !/^[a-f0-9]{64}$/.test(value.afterHash) ||
+        !(value.before === null || typeof value.before === "string") ||
+        !isWithin(this.workspace, resolve(this.workspace, value.path)) ||
+        isSensitivePath(value.path)
+      )
+        throw new Error("Invalid recovery record");
+      const before =
+        value.before === null ? null : Buffer.from(value.before, "base64");
+      if (before && before.length > MAX_RECOVERY_BYTES)
+        throw new Error("Recovery snapshot exceeds limit");
+      this.latest = {
+        path: value.path,
+        before,
+        afterHash: value.afterHash,
+        ...(typeof value.beforeMode === "number"
+          ? { beforeMode: value.beforeMode }
+          : {}),
+      };
+    } catch (error) {
+      if (!isMissing(error)) throw error;
+    }
+  }
+
+  private async persist(): Promise<void> {
+    if (!this.recoveryPath) return;
+    await mkdir(dirname(this.recoveryPath), { recursive: true, mode: 0o700 });
+    const temporary = `${this.recoveryPath}.${randomUUID()}.tmp`;
+    await writeFile(
+      temporary,
+      JSON.stringify(
+        this.latest
+          ? {
+              ...this.latest,
+              before: this.latest.before?.toString("base64") ?? null,
+            }
+          : null,
+      ),
+      { mode: 0o600 },
+    );
+    await rename(temporary, this.recoveryPath);
+  }
+
   async begin(id: string, toolName: string, input: unknown): Promise<void> {
     if (toolName !== "edit" && toolName !== "write") return;
     this.latest = undefined;
+    await this.persist();
     if (!input || typeof input !== "object") return;
     const path = (input as { path?: unknown }).path;
     if (typeof path !== "string") return;
@@ -68,6 +138,7 @@ export class FileChangeRecovery {
       const after = await readFile(target);
       if (snapshot.before?.equals(after)) return;
       this.latest = { ...snapshot, afterHash: hash(after) };
+      await this.persist();
     } catch {
       // If the tool deleted or moved a file, there is no safe recovery record.
     }
@@ -79,10 +150,12 @@ export class FileChangeRecovery {
       : "No reversible Rook file edit is available in this session.";
   }
 
-  async undo(): Promise<string> {
+  async undo(authorize?: (path: string) => Promise<boolean>): Promise<string> {
     const change = this.latest;
     if (!change) return this.preview();
     const target = resolve(this.workspace, change.path);
+    if (authorize && !(await authorize(target)))
+      return "Recovery blocked by edit permissions.";
     try {
       await realpathDirectory(target, this.workspace);
       const info = await lstat(target);
@@ -102,6 +175,7 @@ export class FileChangeRecovery {
         await writeFile(target, change.before, { mode: change.beforeMode });
       }
       this.latest = undefined;
+      await this.persist();
       return `Restored Rook's last edit to ${change.path}.`;
     } catch {
       return "Recovery failed safely; the file could not be verified or restored.";

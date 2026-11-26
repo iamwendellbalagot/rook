@@ -24,16 +24,16 @@ Rook combines selected harness ideas around Pi; it is not a feature-for-feature 
 ## Deliberate non-goals and limits
 
 - No automatic stage, commit, stash, reset, restore, push, deploy, or history rewrite.
-- Shell execution uses Bubblewrap on Linux by default and fails closed when unavailable. `sandbox_shell: false` is an explicit host-execution opt-out. A Git worktree isolates changes, not host process access; use an external container/VM for stronger whole-session isolation.
+- Shell execution is host-based and gated by OpenCode-inspired allow/ask/deny permissions and higher-authority policies. It is not OS isolation. Worktrees separate changes, not process access; use an external container/VM for isolation. See [permissions](PERMISSIONS.md).
 - No automatic second-model/critic pass: extra calls add latency and cost. `/architect`, `/explore`, and `/review` are separate, read-only Pi sessions that run only when explicitly invoked.
-- MCP servers are opt-in and every tool call passes through Rook's policy hook. User-directed MCP use is authorized by that request; Rook-recommended use requires interactive approval, and session grants apply to the individual tool/source. Unknown registered tools also require approval and receive tool-scoped session grants. Approval does not sandbox a local server or constrain its API access. Arbitrary third-party executable extension files remain disabled.
-- Routine Build shell commands run without per-call prompts only inside the default sandbox, which disables network and restricts writes. Destructive or unclassified commands require approval; session grants match the exact command and workspace. The shell classifier is conservative prompt routing, not a sandbox; unattended calls requiring approval fail closed.
+- MCP and unknown-effect tools require Build and configured permission/approval. Natural-language requests are not blanket authorization. Approval does not confine server startup or API access. Executable third-party extension files remain disabled.
+- Shell defaults to approval, with exact session/project grants and revocation. Shell inspection is best-effort; dynamic syntax is one-time-only and fails closed when configured denials cannot be checked. Unattended calls requiring approval are denied.
 - Rook loads only its inline extensions and selected Pi built-ins; project/global executable extension files are not loaded. Unclassified registered tool calls require an interactive approval; without an approval handler they are denied. This is the current extension boundary; changes to the blocked hooks, tools, or capabilities are deferred for separate discussion.
 - No eager whole-repository dump or embedding index. `rook_map` is on-demand, bounded, source/symbol-only, and query-ranked; focused reads/search remain the default.
 
 ## Current implementation anchors
 
-- Repository-scoped `AGENTS.md` discovery and bounded untrusted injection: `src/repo/instructions.ts`; `/instructions` lists applicable files. Root and current-directory ancestry are included, with named nested paths resolved from the prompt; symlinks, outside paths, and oversized files are skipped.
+- Scoped instruction discovery, bounded untrusted context and tool-path refresh: `src/repo/instructions.ts`. Root-to-leaf precedence selects `AGENTS.md`, `agents.md`, then `CLAUDE.md` per directory. Outside/linked/oversized guidance is skipped.
 - Pi adapter and session lifecycle: `src/pi/pi-agent-gateway.ts`.
 - Tool policy, approvals, and recovery ledger: `src/policy/`.
 - Read-only search/Git inspection, TypeScript/JavaScript symbol navigation/diagnostics, and change-impact analysis: `src/pi/`.
@@ -44,6 +44,7 @@ Rook combines selected harness ideas around Pi; it is not a feature-for-feature 
 - Project-configured subagents in `.rook/agents.json` run with fresh sessions and profile-selected tools from a fixed read-only allowlist. Their prompt instructions cannot grant capabilities; `/agents` lists profiles and `/agents <name> <task>` invokes one.
 - User-facing mode, command, and review controls: `src/tui/rook-tui.ts`.
 - Local evidence-backed repository memory: `src/memory/` and `src/db/`.
+- Durable handoffs/background lifecycle/replay: `src/pi/task-state.ts`, `src/pi/background-jobs.ts`, `src/policy/process-supervisor.ts`, `src/protocol/event-journal.ts`. See [reliability evidence and remaining gates](HARNESS_RELIABILITY.md).
 
 ## References
 
@@ -51,4 +52,4 @@ Rook combines selected harness ideas around Pi; it is not a feature-for-feature 
 - [Aider repository map](https://aider.chat/docs/repomap.html) and [lint/test workflow](https://aider.chat/docs/usage/lint-test.html)
 - [Claude Code permission modes](https://code.claude.com/docs/en/permission-modes) and [hooks](https://code.claude.com/docs/en/hooks)
 - [Codex sandboxing](https://developers.openai.com/codex/concepts/sandboxing) and [agent approvals](https://developers.openai.com/codex/agent-approvals-security)
-- [OpenCode agents](https://opencode.ai/docs/agents), [permissions](https://opencode.ai/docs/permissions), and [providers](https://opencode.ai/docs/providers)
+- [OpenCode V2 permissions](https://opencode.ai/v2/docs/permissions) and [policies](https://opencode.ai/v2/docs/policies)

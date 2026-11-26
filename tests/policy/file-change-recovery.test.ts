@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FileChangeRecovery } from "../../src/policy/file-change-recovery.js";
 
 const roots: string[] = [];
@@ -13,12 +13,31 @@ async function workspace(): Promise<string> {
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
 
 describe("Rook file change recovery", () => {
+  it("persists session-scoped recovery and rechecks edit authorization after restart", async () => {
+    const root = await workspace();
+    vi.stubEnv("ROOK_HOME", join(root, "private-state"));
+    const path = join(root, "file.txt");
+    await writeFile(path, "before\n");
+    const original = new FileChangeRecovery(root);
+    await original.bindSession("session");
+    await original.begin("edit", "edit", { path: "file.txt" });
+    await writeFile(path, "after\n");
+    await original.finish("edit", false);
+    const restored = new FileChangeRecovery(root);
+    await restored.bindSession("session");
+    expect(restored.preview()).toContain("file.txt");
+    expect(await restored.undo(async () => false)).toContain("blocked");
+    expect(await readFile(path, "utf8")).toBe("after\n");
+    expect(await restored.undo(async () => true)).toContain("Restored");
+    expect(await readFile(path, "utf8")).toBe("before\n");
+  });
   it("restores a verified Rook edit after explicit confirmation", async () => {
     const root = await workspace();
     const path = join(root, "file.txt");

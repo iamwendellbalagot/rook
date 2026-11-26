@@ -213,6 +213,28 @@ class ExternalAccessPromptPanel implements Component {
   ) {}
 
   private choices(): { choice: ExternalAccessChoice; label: string }[] {
+    if (this.request?.permissionResources) {
+      return [
+        { choice: "deny", label: "Deny" },
+        ...(this.canApproveShell
+          ? [
+              { choice: "once" as const, label: "Allow once" },
+              ...(this.request.rememberAllowed !== false
+                ? [
+                    {
+                      choice: "session" as const,
+                      label: "Allow these exact resources for this session",
+                    },
+                    {
+                      choice: "always" as const,
+                      label: "Remember these exact resources for this project",
+                    },
+                  ]
+                : []),
+            ]
+          : []),
+      ];
+    }
     if (this.request?.access === "mcp") {
       return [
         { choice: "deny", label: "Deny MCP call" },
@@ -315,7 +337,7 @@ class ExternalAccessPromptPanel implements Component {
                 tone(
                   this.request.sandboxed
                     ? "Runs in an OS sandbox: writes are limited to the workspace and temporary directory; network access is disabled."
-                    : "Runs on your host, NOT sandboxed: can access files outside the project, credentials, and network (explicit policy opt-out).",
+                    : "Runs on your host, NOT sandboxed: can access files outside the project, credentials, and network.",
                   "amber",
                 ),
                 width,
@@ -349,14 +371,29 @@ class ExternalAccessPromptPanel implements Component {
                 Math.max(1, width - visibleWidth("Folder: ")),
               )}`,
             ];
-    this.canApproveShell = body.length + 4 <= this.availableRows();
-    if (this.request.access === "execute" && !this.canApproveShell) {
+    if (this.request.permissionResources)
+      body.push(
+        ...this.request.permissionResources.flatMap((item) =>
+          wrapTextWithAnsi(
+            `Approval scope: ${safeTerminalText(item.action)} ${JSON.stringify(item.resource)}`,
+            width,
+          ),
+        ),
+      );
+    this.canApproveShell = body.length + 6 <= this.availableRows();
+    if (
+      (this.request.permissionResources && !this.canApproveShell) ||
+      (this.request.access === "execute" && !this.canApproveShell)
+    ) {
       body = wrapTextWithAnsi(
         "Command cannot be fully reviewed at this terminal size. Enlarge the terminal or deny and request a shorter command.",
         width,
       );
     }
-    const options = this.choices();
+    const options =
+      this.request.permissionResources && !this.canApproveShell
+        ? [{ choice: "deny" as const, label: "Deny" }]
+        : this.choices();
     const lines = [
       ...body,
       ...options.map((option, index) => {
@@ -1497,11 +1534,13 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
         }
         case "/permissions":
           if (prompt === "/permissions") {
-            showPermissionDecisions();
+            await showPermissionDecisions();
           } else if (prompt === "/permissions revoke") {
             appendText("Usage: /permissions revoke <grant-id>", "error");
           } else if (prompt.startsWith("/permissions revoke ")) {
-            revokeExternalGrant(prompt.slice("/permissions revoke ".length));
+            await revokeExternalGrant(
+              prompt.slice("/permissions revoke ".length),
+            );
           } else {
             appendText("Usage: /permissions [revoke <grant-id>]", "error");
           }
@@ -2089,9 +2128,15 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
     }
   }
 
-  function showPermissionDecisions(): void {
+  async function showPermissionDecisions(): Promise<void> {
     const grants = options.gateway.getExternalAccessGrants();
     const sessionGrants = options.gateway.getSessionPermissionGrants();
+    const saved = (await options.gateway.getSavedPermissionGrants?.()) ?? [];
+    if (saved.length)
+      appendText(
+        `Remembered project approvals:\n${formatSessionPermissionGrants(saved)}`,
+        "muted",
+      );
     if (grants.length) {
       appendText(
         `External folder grants (session only):\n${grants
@@ -2141,8 +2186,8 @@ export function createRookTui(options: RookTuiOptions): RookTuiController {
       .join("\n");
   }
 
-  function revokeExternalGrant(id: string): void {
-    const revoked = options.gateway.revokeExternalAccessGrant(id.trim());
+  async function revokeExternalGrant(id: string): Promise<void> {
+    const revoked = await options.gateway.revokeExternalAccessGrant(id.trim());
     appendText(
       revoked
         ? "Permission grant revoked."

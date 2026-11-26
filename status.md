@@ -1,11 +1,51 @@
 # Work Handoff Status
 
+## Current handoff — permission-first harness (2026-11-26)
+
+The user's latest approved direction **supersedes the former sandbox roadmap**: pursue Claude Code-class coding workflows with OpenCode-style tool permissions/policies and host execution. `agents.md`, README, protocol capabilities and current reference docs reflect this. This is a substantial implementation slice, **not completion of every roadmap gate or evidence of Claude Code parity**.
+
+### Completed
+
+- Added shared ordered allow/ask/deny permissions and project → user → system `tool.use` policy precedence. Configured denials override saved approvals; policy allowance does not grant ordinary access. Config lives in project `.rook/permissions.json`, `$ROOK_HOME/permissions.json`, and system locations. Invalid configuration fails closed; project configuration cannot traverse symlinks.
+- Standard Bash/job execution now runs on the host, with approval by default. Old sandbox auto-allows and prose-derived MCP authorizations are not migrated. Plan blocks edits, shell, MCP and unknown effects. Conservative quote-aware compound-command inspection checks extracted commands and inferred external operands; dynamic/unsupported syntax is one-time-only and denied when shell denials cannot be checked reliably.
+- Exact remembered project approvals persist privately outside the repository; TUI and stdio list/revoke them. Scope is displayed before approval. Approval expiration and async execution reservations are tested. Revoking a session grant conservatively clears all session grants. Agent file tools cannot edit permission configuration/user-owned Rook state; an approved host command still has host authority.
+- Removed hard blocking of repeated successful verification and implementation-before-baseline guidance. Receipts compare bounded Git fingerprints and label later/uncertain workspace freshness honestly.
+- Added streaming host process supervision: output presentation caps do not terminate builds, private logs retain up to 2 MiB/command, timeout/cancellation escalates process-group TERM → KILL even after early leader close. Arbitrary daemonized descendants are not guaranteed contained.
+- Added ignore-aware ripgrep literal/regex/glob/case search and per-file read filtering. Custom scoped read restrictions conservatively disable aggregate Git/map/navigation rather than bypassing policy.
+- Scoped instructions now refresh on tool paths, block an unguided first edit, and replace prior context instead of repeatedly accumulating it. Per-directory precedence: `AGENTS.md`, `agents.md`, `CLAUDE.md`; existing bounded scope/file limits remain.
+- Added private session-scoped durable task handoffs and recent tool outcomes through `rook_task`; incomplete tools restore as interrupted/unknown, never replayed. Supported file-tool undo persists per session and rechecks current content/edit permissions.
+- Added `rook_job` session-owned background start/status/output/wait/cancel (four concurrent jobs, existing 300s maximum), with owned-work cancellation on session transition/shutdown. Added `rook_agent` for configured bounded read-only delegation (three concurrent children, 12 provider requests and two minutes each), with parent cancellation/settlement tracking. Editing subagents remain gated.
+- Added bounded stdio replay with session-monotonic cursors/gap detection, session-transition guards, and `permissions/list` / `permissions/revoke`. Replay is asynchronous/bounded, not exactly-once execution or reconnect-to-a-live-terminated-process.
+- PLYTH is opt-in; explicit simplicity review loads it on demand. Core package/lockfile and CI no longer depend on a sibling checkout or its moving main. Optional integration tests skip if the checked export contract is unavailable/incompatible.
+- Added `npm run test:harness`, `docs/PERMISSIONS.md`, and `docs/HARNESS_RELIABILITY.md`; reconciled current README/protocol/principles/capability inventory. Narrow pre-existing endpoint-test typing issues were corrected as part of validation.
+
+### Validation
+
+- `npm run test:harness`: **83 passed** (14 files).
+- Focused Bash/optional PLYTH/review/runtime/Pi-flow suites: **44 passed, 1 platform skip** (7 files).
+- Focused permission/approval/grant TUI checks: **4 passed**; unrelated TUI tests were intentionally not selected.
+- `npm run typecheck` and `npm run build` pass. Changed files are formatted; final staged diff check is performed before commit.
+- Fresh disposable tarball consumer: installs **without PLYTH**, passes mock smoke, and initializes/disposes the real gateway in host Build mode with the job tool registered, without inference. Temporary consumer removed. No provider request, publish, Git push, or historical evaluation rerun.
+
+### Pending gates — do not represent these as delivered
+
+1. Freeze and run representative held-out coding tasks and an independently assessed Claude Code comparison under an explicitly approved provider budget. The task families/metrics are documented in `docs/HARNESS_RELIABILITY.md`; regression tests are not coding-quality evidence.
+2. Editing subagents: isolated ownership, integration/conflict handling and acceptance evidence before expansion beyond read-only delegation.
+3. Complete gateway/TUI lifecycle refactoring; the new authority/process/state/job/replay modules are incremental separation, not a completed architectural rewrite.
+4. Power-loss/concurrent-session testing, approval-store merge/locking, output/recovery retention quotas, full language-server compatibility decisions, and native Linux/Windows host supervision. Core host execution was checked on macOS only.
+5. Provider-backed compaction/restart continuity, complete requirement capture, and dedicated pinned optional-PLYTH CI. Structured task state is untrusted reference, not a guarantee that every constraint was captured.
+6. Fine-grained aggregate tool read authorization and broader shell-parser coverage. Current scanner is a conservative POSIX subset and policy configuration requires restart; it is not full OpenCode implementation parity. Old sandbox infrastructure remains only for dormant experimental language-server support/tests, not standard shell execution.
+
+Pre-existing untracked `.rook/`, dashboard PNG, `evals/phase4-pilot/runs/`, and `tui_references/` remain untouched.
+
+## Historical handoffs (superseded where inconsistent with the current handoff)
+
 - **Stdio capabilities, skills inspection, and MCP config RPCs:** Added `src/protocol/capabilities.ts` and exposed `capabilities/snapshot`, `skills/inspect`, and `mcp/update` in `src/protocol/stdio.ts` (advertising `capabilitiesInspection: true`, `mcpConfig: true`, while keeping `arbitraryMcp: false` immutable). Lists project/global skills with precedence and SHA-256 digests, reads `SKILL.md` safely within managed directories without execution, reads/edits Pi/Rook `mcp.json` with secret/header redaction and distinct `configured`/`enabled`/`connected`/`authorized` states, enforces workspace trust on project MCP mutations, and exposes Rook's feature-parity inventory.
 - **Process-pinned stdio Build mode:** Extended `rook --stdio [--cwd PATH] [--mode ask|build]` (default `ask`) with immutable process-level mode pinning. `--mode build` pins `BUILD_TOOLS` without arbitrary MCP, calls `setMode("build")`, advertises `capabilities.mode`, `buildSessions: true`, `buildTools`, and `sandbox` (`{ enabled, runtime, available }`), and rejects mismatched `session/new` modes with `-32011`. Hardened macOS Seatbelt profile with literal `.git` write denial alongside subpath denial, updated `docs/STDIO_PROTOCOL.md`, and fixed URL-encoded `workspaceId` expectation in `tests/protocol/stdio.test.ts`.
 - **Latest Laplace Ask integration:** stdio now lists configured and unconfigured models with missing environment-variable names, permits direct selection of configured models without workspace-consent gates, and blocks prompts until an unconfigured provider is set up. Laplace embeds provider login in its model picker and removes Ask trust/endpoint approval UI. Focused stdio tests (11) pass; full typecheck remains blocked by pre-existing `plyth-core` missing exports and workspace-model test typing errors, with no changed-source errors. No live login/model request or native manual verification was performed.
 - **Desktop provider/model protocol:** Supports provider/model list/select, interactive login prompts/events/cancellation, workspace model source labeling, endpoint-change notifications, and secret-redacted login errors. No live login or model request has been run; package build is not verified because unrelated `plyth-core` checkout exports are stale.
 
-## Current state
+## Historical state
 
 - **Rook stdio protocol v1 documented; experimental `0.1.6` release candidate validated.** Added newline-delimited JSON-RPC over `rook --stdio [--cwd PATH]` for immutable read-only Ask sessions, streamed gateway events, permission requests, cancellation, and workspace-local session new/list/load/history. Build sessions and arbitrary MCP are unavailable. Added bounded framing, prompt/context/history limits, package-derived `--version`, and distributed protocol documentation. Focused tests (9), typecheck, build, Prettier, and diff checks pass. The 0.1.6 tarball installed into a disposable consumer, included the MIT license and protocol docs, and passed real-gateway version/handshake, Ask create/list/load/history, clean shutdown, and JSON-RPC-only stdout without inference. Local tarball integrity: `sha512-ZqmlSjkz+zTdSU8Gdp1iSduIAnmGIbixd4D3bZsdjLOFGDnskQv6fshYuu6ub44RRGrLr8j/DED9vgiGKV/iHQ==` (272,343 bytes). Ready for the authorized npm publish and registry verification. No model calls or Git push. Pre-existing untracked `.rook/`, dashboard PNG, evaluation runs, and `tui_references/` remain untouched.
 - **`rook-agent@0.1.5` published and verified; Rook `main` pushed (2026-11-22).** npm `latest` is 0.1.5. Registry metadata and a cache-busted tarball match the prepared artifact: 261,388 bytes; SHA-1 `1e9b61b31a8ac19d7155e73bcebbba96e3379111`; SHA-512 `sha512-Qg0GDc9HVHZu3SCNDjM8cz0ClKBDyj/qD1CdZKxcAxDB4ru8mKuv+iE1vG4YK4zbfotZ15JY9D4HPyyFIHHrBA==`. npm initially processed publication asynchronously (HTTP 202); verification completed after propagation. Fix and release commits are on `main`; full test/typecheck/build/smoke and targeted formatting checks passed. Live Plan → Build test passed in a disposable workspace.

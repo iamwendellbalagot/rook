@@ -118,10 +118,24 @@ const ROOK_PARITY_INVENTORY: RookParityItem[] = [
   },
   {
     id: "ask-build-sessions",
-    feature: "Ask & Build sessions with OS sandbox",
+    feature: "Ask & Build sessions with tool permissions",
     status: "native",
     detail:
-      "Process-pinned Ask (read-only) and Build (Seatbelt/bwrap sandbox) sessions.",
+      "Process-pinned Ask (read-only) and Build (permission-controlled host execution) sessions; no OS sandbox.",
+  },
+  {
+    id: "permission-controls",
+    feature: "Tool permissions and higher-authority policies",
+    status: "native",
+    detail:
+      "Ordered allow/ask/deny rules, user/system policy denials, exact remembered project grants, and permissions/list / permissions/revoke.",
+  },
+  {
+    id: "session-replay",
+    feature: "Bounded durable event replay",
+    status: "native",
+    detail:
+      "session/replay returns a private session tail with monotonic cursor and gap detection; not exactly-once execution.",
   },
   {
     id: "skills-inspect",

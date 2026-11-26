@@ -57,12 +57,16 @@ effective `sandbox` status (`{ enabled, runtime, available }`), and rejects
 Arbitrary MCP and executable extension tools are not exposed through this
 interface (`arbitraryMcp: false`).
 
+Standard Build shell execution is now host-based. The legacy `sandbox` field reports disabled/null/available; it is not evidence of isolation. `execution: "host"`, `permissionControls: true`, and `eventReplay: true` advertise the newer behavior. See [permissions](PERMISSIONS.md).
+
 Other session methods:
 
 - `session/list` returns up to 100 persisted sessions, `truncated`, and
   `currentSessionId` (an empty in-memory session may not yet be persisted).
 - `session/load` takes a workspace-local `sessionId`; it does not accept a
   filesystem path.
+- `session/replay` accepts `afterCursor` and returns the bounded session event tail and gap status.
+- `permissions/list` returns session/saved grants and recent decisions; `permissions/revoke` accepts a grant `id`.
 - `session/history` returns the latest 1–200 messages (default 200), plus
   `truncated`.
 
@@ -71,11 +75,7 @@ Other session methods:
 `initialize` advertises `providerControls`, `modelCatalog`, and
 `modelSelection`. It reports effective providers, workspace source/endpoint,
 and the active model. Methods are `provider/list`, `provider/login`,
-`provider/logout`, `model/list`, and `model/select`. Workspace-defined
-providers require a Laplace project-trust decision and a matching
-`workspace/allow_provider` endpoint fingerprint before sign-in, model selection,
-or prompting. A changed or unreadable `models.json` blocks provider use until
-the updated endpoint is reviewed and explicitly approved again.
+`provider/logout`, `model/list`, and `model/select`. Workspace endpoint changes are reported to clients. Unreadable workspace configuration blocks prompting; providers missing required environment variables must be configured before model use. Clients should present workspace-defined endpoint provenance explicitly.
 
 `provider/login` accepts a client-chosen `loginId`. Rook requests interactive
 values with `provider/auth_prompt` (text, secret, manual code, or select); the
@@ -105,7 +105,7 @@ untrusted data in the prompt sent to Rook. The response settles after the run;
 intermediate `session/update` notifications carry workspace/session/run IDs,
 monotonic per-run sequence numbers, timestamps, and the underlying Rook event.
 Events include available text deltas, tool activity, usage, and run settlement.
-There is no durable event replay after disconnect.
+Updates additionally include a session-monotonic `cursor` when a replay journal is bound. Call `session/replay` with `afterCursor` after `session/load` to retrieve the bounded private tail, latest `cursor`, and `gap`. A gap means older events were evicted or the client cursor is ahead; refresh history/task state instead of assuming completeness. The tail retains at most 500 events / 1 MiB and persists asynchronously; abrupt crashes may lose recent updates. This is not exactly-once command execution. Clean shutdown flushes replay. A disconnected stdio process does not continue running after shutdown.
 
 Cancel the active prompt using its `runId`:
 
@@ -126,7 +126,7 @@ persisted session but must not replay the prompt automatically.
 
 When Rook's policy requires approval for an external read, it sends a
 `session/request_permission` JSON-RPC request with a peer-prefixed ID and a
-bounded timeout. Reply to that request ID with one of `once`, `session`, or
+bounded timeout. Reply to that request ID with one of `once`, `session`, `always` (remember for this project), or
 `deny`:
 
 ```json
@@ -136,7 +136,7 @@ bounded timeout. Reply to that request ID with one of `once`, `session`, or
 The `session/permission_response` method is also accepted with
 `permissionRequestId` and `choice`. Missing, invalid, expired, or disconnected
 clients are denied. Permission is enforced again by Rook's tool policy; a
-client response is not itself filesystem authorization.
+client response is not itself filesystem authorization. Show the exact `permissionResources` before offering remembered approval. When `rememberAllowed` is false, offer only once/deny; session/always choices are rejected by Rook.
 
 ## Limits, errors, and shutdown
 
@@ -152,9 +152,4 @@ client response is not itself filesystem authorization.
 - Send `shutdown` to cancel current work, deny pending permissions, dispose
   the gateway, and exit. stdin EOF also cancels and disposes.
 
-Protocol v1 does not support arbitrary MCP, remote execution, durable event
-replay, or automatic prompt replay. On macOS (Seatbelt) and Linux (Bubblewrap),
-sandboxed Build shell commands keep the workspace writable with `.git`
-write-protected and network disabled; if the OS sandbox is unavailable (such as
-Windows), Rook fails closed on shell execution and reports `sandbox.available:
-false` in `initialize`.
+Protocol v1 does not support arbitrary MCP, remote execution, or automatic prompt replay. Build uses permission-controlled host execution, not filesystem/network isolation. Windows host process supervision has not been verified.

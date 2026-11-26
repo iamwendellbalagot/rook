@@ -19,42 +19,46 @@ import { RookStore } from "../../src/db/store.js";
 import { MemoryCaptureManager } from "../../src/memory/capture.js";
 import type { RepositoryIdentity } from "../../src/repo/workspace.js";
 import { afterEach, vi } from "vitest";
+import { hasPlyth } from "../optional-plyth.js";
 
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Pi SDK compatibility", () => {
-  it("registers PLYTH integrated modes without provider inference", async () => {
-    const root = await mkdtemp(join(tmpdir(), "rook-plyth-mode-sdk-"));
-    await mkdir(join(root, "node_modules"), { recursive: true });
-    await symlink(
-      join(process.cwd(), "node_modules", "plyth-core"),
-      join(root, "node_modules", "plyth-core"),
-      "dir",
-    );
-    vi.stubEnv("ROOK_PLYTH_MODE", "observe");
-    const modes = [
-      [undefined, "integrated"],
-      ["prompt", "prompt"],
-      ["integrated", "integrated"],
-      ["off", "observe"],
-    ] as const;
-    try {
-      for (const [configured, expected] of modes) {
-        vi.stubEnv("ROOK_PLYTH_INTEGRATED", configured);
-        const gateway = await createPiAgentGateway(root, {
-          sessionDir: join(root, `sessions-${expected}`),
-        });
-        try {
-          expect(gateway.getPlythMode?.()).toBe(expected);
-          expect(gateway.getActiveTools()).toEqual(expect.any(Array));
-        } finally {
-          await gateway.dispose();
+  it.skipIf(!hasPlyth)(
+    "registers PLYTH integrated modes without provider inference",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "rook-plyth-mode-sdk-"));
+      await mkdir(join(root, "node_modules"), { recursive: true });
+      await symlink(
+        join(process.cwd(), "node_modules", "plyth-core"),
+        join(root, "node_modules", "plyth-core"),
+        "dir",
+      );
+      vi.stubEnv("ROOK_PLYTH_MODE", "observe");
+      const modes = [
+        [undefined, "observe"],
+        ["prompt", "prompt"],
+        ["integrated", "integrated"],
+        ["off", "observe"],
+      ] as const;
+      try {
+        for (const [configured, expected] of modes) {
+          vi.stubEnv("ROOK_PLYTH_INTEGRATED", configured);
+          const gateway = await createPiAgentGateway(root, {
+            sessionDir: join(root, `sessions-${expected}`),
+          });
+          try {
+            expect(gateway.getPlythMode?.()).toBe(expected);
+            expect(gateway.getActiveTools()).toEqual(expect.any(Array));
+          } finally {
+            await gateway.dispose();
+          }
         }
+      } finally {
+        await rm(root, { recursive: true, force: true });
       }
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
+    },
+  );
 
   it("starts normally when PLYTH is not installed in the workspace", async () => {
     const root = await mkdtemp(join(tmpdir(), "rook-no-plyth-"));

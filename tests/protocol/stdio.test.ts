@@ -135,6 +135,10 @@ function createFixtureGateway(
       session = { id: found.id, path: found.path };
     }),
     sessionHistory: () => [{ role: "user", text: "fixture history" }],
+    getSessionPermissionGrants: () => [],
+    getSavedPermissionGrants: async () => [],
+    getPermissionDecisions: () => [],
+    revokeExternalAccessGrant: async () => false,
     dispose: vi.fn(async () => undefined),
   } as unknown as AgentGateway;
   return {
@@ -272,6 +276,25 @@ describe("Rook stdio protocol v1", () => {
       expect.stringContaining("User request:\nExplain this"),
     );
     expect(fixture.gateway.send).toHaveBeenCalledOnce();
+    const cursor = (update.params as { cursor: number }).cursor;
+    expect(cursor).toBeGreaterThan(0);
+    h.send(rpc(5, "session/replay", { afterCursor: cursor - 1 }));
+    const replay = await h.next((message) => message.id === 5);
+    expect(replay.result).toMatchObject({
+      sessionId: "session-2",
+      gap: false,
+      events: expect.arrayContaining([expect.objectContaining({ cursor })]),
+    });
+    h.send(rpc(6, "permissions/list"));
+    expect((await h.next((message) => message.id === 6)).result).toEqual({
+      session: [],
+      saved: [],
+      decisions: [],
+    });
+    h.send(rpc(7, "permissions/revoke", { id: "missing" }));
+    expect((await h.next((message) => message.id === 7)).result).toEqual({
+      revoked: false,
+    });
     h.input.close();
     await h.task;
     expect(fixture.gateway.dispose).toHaveBeenCalledOnce();
@@ -591,8 +614,8 @@ describe("Rook stdio protocol v1", () => {
   it("pins build mode processes to build capabilities and enforces mode separation", async () => {
     const fixture = createFixtureGateway("once");
     fixture.gateway.getSandboxStatus = vi.fn(() => ({
-      enabled: true,
-      runtime: "seatbelt",
+      enabled: false,
+      runtime: null,
       available: true,
     }));
     const h = harness(
@@ -610,7 +633,8 @@ describe("Rook stdio protocol v1", () => {
         mode: "build",
         buildSessions: true,
         arbitraryMcp: false,
-        sandbox: { enabled: true, runtime: "seatbelt", available: true },
+        execution: "host",
+        sandbox: { enabled: false, runtime: null, available: true },
       },
     });
     expect(

@@ -90,8 +90,13 @@ export async function loadWorkspaceModelProviders(
   return providers;
 }
 
+type EndpointConfiguration = {
+  baseUrl?: string;
+  models?: { id: string; baseUrl?: string }[];
+};
+
 export function workspaceModelEndpoint(
-  provider: WorkspaceProvider,
+  provider: EndpointConfiguration,
   modelId: string,
 ): string | undefined {
   return (
@@ -101,7 +106,7 @@ export function workspaceModelEndpoint(
 }
 
 export function workspaceEndpointFingerprint(
-  provider: Pick<WorkspaceProvider, "baseUrl" | "models">,
+  provider: EndpointConfiguration,
 ): string {
   const endpointConfig = [provider.baseUrl ?? ""];
   for (const model of provider.models ?? [])

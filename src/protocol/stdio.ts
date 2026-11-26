@@ -23,6 +23,7 @@ import {
   inspectInstalledSkill,
 } from "./capabilities.js";
 import { ROOK_PACKAGE_VERSION } from "../version.js";
+import { EventJournal } from "./event-journal.js";
 
 export const ROOK_PROTOCOL_VERSION = 1;
 const MAX_LINE_BYTES = 1024 * 1024;
@@ -106,6 +107,8 @@ export async function runStdioProtocol(
   let activeRunId: string | undefined;
   let runSequence = 0;
   let eventSequence = 0;
+  let journal: EventJournal | undefined;
+  let transitioning = false;
   let initialized = false;
   let initializing = false;
   let stopping = false;
@@ -124,7 +127,7 @@ export async function runStdioProtocol(
 
   const emitUpdate = (event: AgentEvent): void => {
     if (!workspaceId || !sessionId) return;
-    notification("session/update", {
+    const update = {
       protocolVersion: ROOK_PROTOCOL_VERSION,
       workspaceId,
       sessionId,
@@ -132,7 +135,15 @@ export async function runStdioProtocol(
       sequence: ++eventSequence,
       timestamp: new Date().toISOString(),
       event,
-    });
+    };
+    notification("session/update", journal ? journal.append(update) : update);
+    void journal
+      ?.flush()
+      .catch((error: unknown) =>
+        options.onError?.(
+          `Event replay persistence failed: ${errorMessage(error)}`,
+        ),
+      );
   };
 
   const closePendingPermissions = (): void => {
@@ -287,6 +298,8 @@ export async function runStdioProtocol(
 
   const requireSession = (): AgentGateway => {
     const current = requireReady();
+    if (transitioning)
+      throw new RpcError(-32003, "A session transition is in progress.");
     if (!sessionId)
       throw new RpcError(-32002, "Create or load a session first.");
     return current;
@@ -294,9 +307,32 @@ export async function runStdioProtocol(
 
   const requireIdle = (): AgentGateway => {
     const current = requireReady();
-    if (activeRunId)
+    if (activeRunId || transitioning)
       throw new RpcError(-32003, "Wait for the active prompt to settle.");
     return current;
+  };
+
+  const transitionSession = async (
+    current: AgentGateway,
+    change: () => Promise<void>,
+  ) => {
+    if (transitioning)
+      throw new RpcError(-32003, "A session transition is in progress.");
+    transitioning = true;
+    sessionId = undefined;
+    try {
+      await journal?.flush();
+      await change();
+      const nextId = current.currentSession().id;
+      journal = await EventJournal.open(workspacePath!, nextId);
+      sessionId = nextId;
+      eventSequence = 0;
+    } catch (error) {
+      journal = undefined;
+      throw error;
+    } finally {
+      transitioning = false;
+    }
   };
 
   const handle = async (
@@ -337,7 +373,10 @@ export async function runStdioProtocol(
       }
       const result = isObject(message.result) ? message.result : {};
       const choice = result.choice;
-      if (!pending || !["once", "session", "deny"].includes(String(choice))) {
+      if (
+        !pending ||
+        !["once", "session", "always", "deny"].includes(String(choice))
+      ) {
         options.onError?.("Ignored an invalid or expired permission response.");
         return;
       }
@@ -401,9 +440,9 @@ export async function runStdioProtocol(
         unsubscribe = gateway.subscribe(emitUpdate);
         const providers = providersWithSource(gateway);
         const sandbox = gateway.getSandboxStatus?.() ?? {
-          enabled: true,
+          enabled: false,
           runtime: null,
-          available: false,
+          available: true,
         };
         respond(id, {
           protocolVersion: ROOK_PROTOCOL_VERSION,
@@ -412,7 +451,10 @@ export async function runStdioProtocol(
           workspaceId,
           capabilities: {
             mode: processMode,
-            sessions: ["new", "list", "load", "history"],
+            sessions: ["new", "list", "load", "history", "replay"],
+            eventReplay: true,
+            permissionControls: true,
+            execution: "host",
             hostSessionStorage: Boolean(options.sessionDir),
             streamedPrompts: true,
             cancellation: true,
@@ -485,7 +527,7 @@ export async function runStdioProtocol(
       const choice = params.choice;
       if (
         typeof permissionId !== "string" ||
-        !["once", "session", "deny"].includes(String(choice))
+        !["once", "session", "always", "deny"].includes(String(choice))
       ) {
         if (id !== undefined) fail(id, -32602, "Invalid permission response.");
         return;
@@ -703,9 +745,7 @@ export async function runStdioProtocol(
             );
           if (!initialized)
             throw new RpcError(-32001, "Initialize the Rook connection first.");
-          await current.newSession();
-          sessionId = current.currentSession().id;
-          eventSequence = 0;
+          await transitionSession(current, () => current.newSession());
           respond(id, { workspaceId, sessionId, mode: processMode });
           return;
         }
@@ -726,6 +766,7 @@ export async function runStdioProtocol(
             throw new RpcError(-32602, "sessionId must be a string.");
           if (current.currentSession().id === params.sessionId) {
             sessionId = params.sessionId;
+            journal ??= await EventJournal.open(workspacePath!, sessionId);
             respond(id, { workspaceId, sessionId, mode: processMode });
             return;
           }
@@ -735,10 +776,45 @@ export async function runStdioProtocol(
           );
           if (!selected)
             throw new RpcError(-32006, "Session not found in this workspace.");
-          await current.resumeSession(selected.path);
-          sessionId = current.currentSession().id;
-          eventSequence = 0;
+          await transitionSession(current, () =>
+            current.resumeSession(selected.path),
+          );
           respond(id, { workspaceId, sessionId, mode: processMode });
+          return;
+        }
+        case "session/replay": {
+          requireSession();
+          const after = params.afterCursor ?? 0;
+          if (
+            typeof after !== "number" ||
+            !Number.isSafeInteger(after) ||
+            after < 0
+          )
+            throw new RpcError(
+              -32602,
+              "afterCursor must be a nonnegative safe integer.",
+            );
+          journal ??= await EventJournal.open(workspacePath!, sessionId!);
+          await journal.flush();
+          respond(id, { workspaceId, sessionId, ...journal.replay(after) });
+          return;
+        }
+        case "permissions/list": {
+          const current = requireSession();
+          respond(id, {
+            session: current.getSessionPermissionGrants(),
+            saved: (await current.getSavedPermissionGrants?.()) ?? [],
+            decisions: current.getPermissionDecisions(),
+          });
+          return;
+        }
+        case "permissions/revoke": {
+          const current = requireSession();
+          if (typeof params.id !== "string")
+            throw new RpcError(-32602, "id must be a grant ID.");
+          respond(id, {
+            revoked: await current.revokeExternalAccessGrant(params.id),
+          });
           return;
         }
         case "session/history": {
@@ -971,6 +1047,7 @@ export async function runStdioProtocol(
     if (activeRunId) await gateway?.cancel().catch(() => undefined);
     await Promise.allSettled([...pendingRequests]);
     await disposeGateway();
+    await journal?.flush();
     await writing;
   }
 }

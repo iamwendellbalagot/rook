@@ -23,6 +23,45 @@ afterEach(async () => {
 });
 
 describe("repository instructions", () => {
+  it("discovers scoped guidance from tool access, blocks the first unguided edit, and deduplicates context", async () => {
+    const root = await tempDirectory();
+    await writeFile(join(root, "agents.md"), "Root lowercase guidance");
+    await mkdir(join(root, "src"));
+    await writeFile(
+      join(root, "src/CLAUDE.md"),
+      "Nested compatibility guidance",
+    );
+    const hooks = new Map<string, any>();
+    const extension = createRepositoryInstructionsExtension((prompt) =>
+      loadRepositoryInstructions(root, prompt),
+    );
+    if (typeof extension === "function")
+      throw new Error("Expected inline extension");
+    extension.factory({
+      on: (event: string, handler: any) => hooks.set(event, handler),
+    } as unknown as ExtensionAPI);
+    await hooks.get("before_agent_start")({
+      messageType: "user",
+      prompt: "Fix the bug",
+    });
+    expect(
+      await hooks.get("tool_call")({
+        toolName: "edit",
+        input: { path: "src/new.ts" },
+      }),
+    ).toMatchObject({ block: true });
+    const context = hooks.get("context")({ messages: [] });
+    expect(context.messages[0].content).toContain(
+      "Nested compatibility guidance",
+    );
+    expect(hooks.get("context")(context).messages).toHaveLength(1);
+    expect(
+      await hooks.get("tool_call")({
+        toolName: "edit",
+        input: { path: "src/new.ts" },
+      }),
+    ).toBeUndefined();
+  });
   it("loads root and applicable nested AGENTS.md files in scope order", async () => {
     const root = await tempDirectory();
     await writeFile(join(root, "AGENTS.md"), "Root guidance.");
@@ -204,8 +243,8 @@ function createHook(
     factory(api: ExtensionAPI): void;
   };
   extension.factory({
-    on: (_event: string, callback: unknown) => {
-      handler = callback as typeof handler;
+    on: (event: string, callback: unknown) => {
+      if (event === "before_agent_start") handler = callback as typeof handler;
     },
   } as unknown as ExtensionAPI);
   if (!handler)

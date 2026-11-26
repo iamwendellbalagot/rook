@@ -131,7 +131,10 @@ export interface PermissionDecision {
   timestamp: Date;
 }
 
-export type ExternalAccessRequest =
+export type ExternalAccessRequest = {
+  permissionResources?: { action: string; resource: string }[];
+  rememberAllowed?: boolean;
+} & (
   | {
       toolName: string;
       path: string;
@@ -161,9 +164,10 @@ export type ExternalAccessRequest =
       access: "tool";
       inputSummary: string;
       reason: string;
-    };
+    }
+);
 
-export type ExternalAccessChoice = "once" | "session" | "deny";
+export type ExternalAccessChoice = "once" | "session" | "always" | "deny";
 
 export interface ExternalAccessGrant {
   id: string;
@@ -284,7 +288,8 @@ export interface AgentGateway {
   ): void;
   getExternalAccessGrants(): ExternalAccessGrant[];
   getSessionPermissionGrants(): SessionPermissionGrant[];
-  revokeExternalAccessGrant(id: string): boolean;
+  getSavedPermissionGrants?(): Promise<SessionPermissionGrant[]>;
+  revokeExternalAccessGrant(id: string): boolean | Promise<boolean>;
   getActiveTools(): string[];
   getSandboxStatus?(): SandboxStatus;
   subscribe(handler: (event: AgentEvent) => void): () => void;

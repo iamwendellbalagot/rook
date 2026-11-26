@@ -18,20 +18,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: rook
-      - uses: actions/checkout@v4
-        with:
-          repository: iamwendellbalagot/plyth
-          path: plyth
-          ref: main
       - uses: actions/setup-node@v4
         with:
           node-version: 22.19.0
           cache: npm
           cache-dependency-path: rook/package-lock.json
-      - run: npm ci
-        working-directory: plyth
-      - run: npm run build
-        working-directory: plyth
       - run: npm ci
         working-directory: rook
       - run: npm run lint

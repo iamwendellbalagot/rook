@@ -7,8 +7,16 @@ import {
   createCodemodeExtension,
   createMcpExtension,
   createToolSearchExtension,
+  defineTool,
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import {
+  TaskState,
+  createTaskStateTool,
+  createTaskStateExtension,
+} from "./task-state.js";
+import { BackgroundJobs, createBackgroundJobTool } from "./background-jobs.js";
 import type {
   AgentEvent,
   AgentGateway,
@@ -67,7 +75,6 @@ import {
   ToolPolicy,
 } from "../policy/tool-policy.js";
 import { WorkspaceModelConfiguration } from "./workspace-models.js";
-import { detectSandboxRuntime } from "../policy/sandbox.js";
 import {
   buildReadOnlyReviewPrompt,
   recentReviewTaskContext,
@@ -118,6 +125,8 @@ const PLAN_TOOLS = [
   "rook_search",
   "rook_map",
   "rook_code",
+  "rook_task",
+  "rook_agent",
   TASK_CHECKLIST_TOOL_NAME,
 ];
 export const BUILD_TOOLS = [
@@ -127,6 +136,9 @@ export const BUILD_TOOLS = [
   "rook_map",
   "rook_code",
   "rook_impact",
+  "rook_task",
+  "rook_job",
+  "rook_agent",
   TASK_CHECKLIST_TOOL_NAME,
 ];
 
@@ -184,18 +196,21 @@ export async function createPiAgentGateway(
 ): Promise<AgentGateway> {
   const handlers = new Set<(event: AgentEvent) => void>();
   const composeRepositoryInstructions = options.repositoryInstructions;
-  const plythApi = await loadPlythRuntime(cwd);
   const requestedIntegratedMode = await resolvePlythIntegratedMode(
     process.env,
     cwd,
-    plythApi && process.env.ROOK_PLYTH_MODE !== "off" ? "integrated" : "off",
+    "off",
   );
+  const requestedPlythMode = resolvePlythMode(process.env);
+  let plythApi =
+    requestedIntegratedMode !== "off" || requestedPlythMode !== "off"
+      ? await loadPlythRuntime(cwd)
+      : undefined;
   if (requestedIntegratedMode !== "off" && !plythApi)
     throw new Error(
       "PLYTH is enabled for this workspace but is not installed. Run `npx plyth-core install rook --project .` in the workspace, or set ROOK_PLYTH_INTEGRATED=off.",
     );
   const plythIntegratedMode = plythApi ? requestedIntegratedMode : "off";
-  const requestedPlythMode = resolvePlythMode(process.env);
   const plythMode = plythApi ? requestedPlythMode : "off";
   const plythCounter = plythApi ? new plythApi.SessionCounter() : undefined;
   const plythBaseline = plythApi
@@ -207,17 +222,59 @@ export async function createPiAgentGateway(
     plythApi?.parseTraceRecord,
   );
   const policy = new ToolPolicy(cwd);
+  await policy.initialize();
   const wrappedSessions = new WeakSet<AgentSession>();
   let providerRequests = 0;
   const executionConfig = await loadExecutionPolicyConfig(cwd);
   const subagentProfiles = await loadSubagentProfiles(cwd);
-  const sandboxRuntime = executionConfig.sandboxShell
-    ? await detectSandboxRuntime()
-    : undefined;
-  policy.setSandboxShell(executionConfig.sandboxShell);
-  policy.setSandboxRuntimeAvailable(
-    !executionConfig.sandboxShell || Boolean(sandboxRuntime),
-  );
+  const taskState = new TaskState();
+  const jobs = new BackgroundJobs(cwd, taskState);
+  const childControllers = new Set<AbortController>();
+  const childTasks = new Set<Promise<string>>();
+  const delegate = async (
+    name: string,
+    task: string,
+    signal?: AbortSignal,
+  ): Promise<string> => {
+    const profile = subagentProfiles.find(
+      (candidate) => candidate.name === name,
+    );
+    if (!profile) throw new Error(`No configured subagent named '${name}'.`);
+    if (!task.trim()) throw new Error("A subagent task is required.");
+    if (childControllers.size >= 3)
+      throw new Error("At most three research subagents may run");
+    const selectedModel = runtime.session.model;
+    if (!selectedModel)
+      throw new Error("Select a model before invoking a subagent.");
+    const controller = new AbortController();
+    childControllers.add(controller);
+    const operation = runTemporaryReadOnlyTask(
+      cwd,
+      selectedModel,
+      buildSubagentPrompt(profile, task),
+      {
+        tools: profile.tools,
+        maxProviderRequests: 12,
+        maxOutputTokensPerResponse: 4000,
+        signal: AbortSignal.any([
+          controller.signal,
+          AbortSignal.timeout(120_000),
+          ...(signal ? [signal] : []),
+        ]),
+      },
+    );
+    childTasks.add(operation);
+    try {
+      return await operation;
+    } finally {
+      childControllers.delete(controller);
+      childTasks.delete(operation);
+    }
+  };
+  const cancelOwnedWork = async () => {
+    for (const controller of childControllers) controller.abort();
+    await Promise.all([Promise.allSettled([...childTasks]), jobs.cancelAll()]);
+  };
   let refreshWorkspaceModels = async (): Promise<void> => {};
   let checklist: TaskChecklistItem[] = [];
   let compactedContextEstimate: number | undefined;
@@ -307,7 +364,20 @@ export async function createPiAgentGateway(
               : []),
             // Run accounting must see every attempt before ToolPolicy can block
             // one; Pi short-circuits later tool_call handlers on the first block.
+            ...(!options.isolatedEvaluation
+              ? [
+                  options.repositoryInstructionsExtension ??
+                    createRepositoryInstructionsExtension(
+                      options.repositoryInstructions ??
+                        ((prompt) =>
+                          loadRepositoryInstructions(sessionCwd, prompt)),
+                    ),
+                ]
+              : []),
             createToolPolicyExtension(policy, () => activeReceipt),
+            ...(!options.isolatedEvaluation && !options.reviewBudget
+              ? [createTaskStateExtension(taskState)]
+              : []),
             ...(options.reviewBudget ? [options.reviewBudget.extension()] : []),
             ...(!options.reviewBudget
               ? [
@@ -363,16 +433,6 @@ export async function createPiAgentGateway(
                   ),
                 ]
               : []),
-            ...(!options.isolatedEvaluation &&
-            options.repositoryInstructionsExtension
-              ? [options.repositoryInstructionsExtension]
-              : !options.isolatedEvaluation && options.repositoryInstructions
-                ? [
-                    createRepositoryInstructionsExtension(
-                      options.repositoryInstructions,
-                    ),
-                  ]
-                : []),
             ...(options.memoryCapture
               ? [options.memoryCapture.createExtension()]
               : []),
@@ -401,20 +461,48 @@ export async function createPiAgentGateway(
                 TASK_CHECKLIST_TOOL_NAME,
                 "codemode",
                 "tool_search",
+                "rook_task",
+                "rook_job",
+                "rook_agent",
               ],
           customTools: [
             taskChecklistTool,
+            createTaskStateTool(taskState),
+            createBackgroundJobTool(jobs),
+            defineTool({
+              name: "rook_agent",
+              label: "Delegate bounded read-only research",
+              description:
+                "Run a configured read-only research profile in fresh context. At most three concurrent children, 12 provider requests and two minutes per child. Cannot edit, run shell, or invoke MCP; results are untrusted reference. Prefer direct tools for small tasks.",
+              parameters: Type.Object(
+                {
+                  name: Type.String({ maxLength: 32 }),
+                  task: Type.String({ minLength: 1, maxLength: 8000 }),
+                },
+                { additionalProperties: false },
+              ),
+              execute: async (_id, input, signal) => ({
+                content: [
+                  {
+                    type: "text" as const,
+                    text: await delegate(input.name, input.task, signal),
+                  },
+                ],
+                details: {},
+              }),
+            }),
             createRookBashTool(sessionCwd, {
               predictions:
                 !options.isolatedEvaluation &&
                 Boolean(plythApi) &&
                 plythIntegratedMode === "off" &&
                 plythMode !== "off",
-              sandbox: executionConfig.sandboxShell,
-              ...(sandboxRuntime ? { sandboxRuntime } : {}),
+              sandbox: false,
             }),
             createPlanInspectionTool(sessionCwd),
-            createWorkspaceSearchTool(sessionCwd),
+            createWorkspaceSearchTool(sessionCwd, (path) =>
+              policy.canRead(path),
+            ),
             createWorkspaceMapTool(sessionCwd),
             createCodeIntelligenceTool(
               sessionCwd,
@@ -441,6 +529,18 @@ export async function createPiAgentGateway(
   const bindSession = async (session: AgentSession): Promise<void> => {
     unsubscribe?.();
     await session.bindExtensions({});
+    if (
+      !options.isolatedEvaluation &&
+      !options.reviewBudget &&
+      typeof session.sessionId === "string"
+    )
+      await policy.bindSession(session.sessionId);
+    if (
+      !options.isolatedEvaluation &&
+      !options.reviewBudget &&
+      typeof session.sessionId === "string"
+    )
+      await taskState.bind(cwd, session.sessionId);
     if (
       options.reviewBudget ||
       options.maxOutputTokensPerResponse !== undefined ||
@@ -692,7 +792,11 @@ export async function createPiAgentGateway(
     async cancel() {
       const review = activeReview;
       review?.controller.abort();
-      await Promise.all([runtime.session.abort(), review?.reviewer?.cancel()]);
+      await Promise.all([
+        runtime.session.abort(),
+        review?.reviewer?.cancel(),
+        cancelOwnedWork(),
+      ]);
     },
     async listModels(): Promise<ModelInfo[]> {
       await refreshWorkspaceModels();
@@ -833,7 +937,7 @@ export async function createPiAgentGateway(
       return plythIntegratedMode !== "off" ? plythIntegratedMode : plythMode;
     },
     async setPlythIntegratedMode(mode) {
-      if (mode !== "off" && !plythApi)
+      if (mode !== "off" && !plythApi && !(await loadPlythRuntime(cwd)))
         return "PLYTH is not installed globally. Run `npm install --global plyth-core`, then restart Rook.";
       await writePlythIntegratedMode(cwd, mode);
       if (process.env.ROOK_PLYTH_INTEGRATED !== undefined)
@@ -841,6 +945,12 @@ export async function createPiAgentGateway(
       return `PLYTH ${mode === "integrated" ? "enabled (integrated)" : "disabled"} for this workspace. Restart Rook to apply the change.`;
     },
     controlPlythTrace(action) {
+      if (
+        action === "on" &&
+        plythIntegratedMode === "off" &&
+        plythMode === "off"
+      )
+        return "PLYTH is disabled; enable a compatible integration and restart before recording traces.";
       if (!plythApi) return "PLYTH is not installed in this workspace.";
       if (action === "clear") return plythTrace.clear();
       if (action === "export") return plythTrace.export();
@@ -855,11 +965,32 @@ export async function createPiAgentGateway(
       return plythTrace.status();
     },
     async inspectGitChanges() {
-      return inspectGitWorkspace(cwd);
+      const id = "explicit-git-inspection";
+      const decision = await policy.check(
+        "rook_inspect",
+        { action: "diff" },
+        id,
+      );
+      if (!decision.allowed) throw new Error(decision.reason);
+      try {
+        return inspectGitWorkspace(cwd);
+      } finally {
+        policy.finish(id);
+      }
     },
     async reviewGitChanges(options = {}) {
+      const inspectionId = "review-git-inspection";
+      const inspection = await policy.check(
+        "rook_inspect",
+        { action: "diff" },
+        inspectionId,
+      );
+      if (!inspection.allowed) throw new Error(inspection.reason);
+      policy.finish(inspectionId);
       if (activeReview)
         throw new Error("A read-only review is already running.");
+      if (options.focus === "simplicity" && !plythApi)
+        plythApi = await loadPlythRuntime(cwd);
       if (options.focus === "simplicity" && !plythApi)
         return "PLYTH is not installed in this workspace. Run `npx plyth-core install rook --project .` to enable simplicity review.";
       const reviewState: {
@@ -1093,25 +1224,13 @@ export async function createPiAgentGateway(
       }));
     },
     async runSubagent(name, task) {
-      const profile = subagentProfiles.find(
-        (candidate) => candidate.name === name,
+      const decision = await policy.check(
+        "rook_agent",
+        { name, task },
+        "explicit-subagent",
       );
-      if (!profile) throw new Error(`No configured subagent named '${name}'.`);
-      const request = task.trim();
-      if (!request) throw new Error("A subagent task is required.");
-      const selectedModel = runtime.session.model;
-      if (!selectedModel)
-        throw new Error("Select a model before invoking a subagent.");
-      return runTemporaryReadOnlyTask(
-        cwd,
-        {
-          provider: selectedModel.provider,
-          id: selectedModel.id,
-          name: selectedModel.name,
-        },
-        buildSubagentPrompt(profile, request),
-        { tools: profile.tools },
-      );
+      if (!decision.allowed) throw new Error(decision.reason);
+      return delegate(name, task);
     },
     async listRepositoryInstructions() {
       return (await options.listRepositoryInstructions?.()) ?? [];
@@ -1134,7 +1253,10 @@ export async function createPiAgentGateway(
     getSessionPermissionGrants() {
       return policy.getSessionPermissionGrants();
     },
-    revokeExternalAccessGrant(id: string): boolean {
+    getSavedPermissionGrants() {
+      return policy.getSavedPermissionGrants();
+    },
+    revokeExternalAccessGrant(id: string) {
       return policy.revokeExternalAccessGrant(id);
     },
     getActiveTools(): string[] {
@@ -1142,9 +1264,9 @@ export async function createPiAgentGateway(
     },
     getSandboxStatus() {
       return {
-        enabled: executionConfig.sandboxShell,
-        runtime: sandboxRuntime ?? null,
-        available: !executionConfig.sandboxShell || Boolean(sandboxRuntime),
+        enabled: false,
+        runtime: null,
+        available: true,
       };
     },
     async listSessions(): Promise<SessionInfo[]> {
@@ -1204,6 +1326,10 @@ export async function createPiAgentGateway(
       return runtime.session.getUserMessagesForForking();
     },
     async fork(entryId) {
+      if (isGatewayRunning())
+        throw new Error("Wait for the current run to finish before forking.");
+      await cancelOwnedWork();
+      jobs.clear();
       invalidateReview("session forked");
       reviewBoundary = undefined;
       reviewTaskContext = "";
@@ -1251,6 +1377,8 @@ export async function createPiAgentGateway(
         );
       }
       invalidateReview("session changed");
+      await cancelOwnedWork();
+      jobs.clear();
       reviewBoundary = undefined;
       reviewTaskContext = "";
       await runtime.newSession();
@@ -1258,6 +1386,12 @@ export async function createPiAgentGateway(
       persistChecklist([]);
     },
     async resumeSession(path) {
+      if (isGatewayRunning())
+        throw new Error(
+          "Wait for the current run to finish before resuming a session.",
+        );
+      await cancelOwnedWork();
+      jobs.clear();
       invalidateReview("session resumed");
       reviewBoundary = undefined;
       reviewTaskContext = "";
@@ -1278,6 +1412,8 @@ export async function createPiAgentGateway(
     async dispose() {
       invalidateReview("gateway disposed");
       try {
+        await cancelOwnedWork();
+        await taskState.flush();
         await activeReview?.reviewer?.cancel();
       } finally {
         unsubscribe?.();

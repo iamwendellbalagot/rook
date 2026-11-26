@@ -23,6 +23,7 @@ type Check = {
   status: "blocked" | "started" | "passed" | "failed or incomplete";
   revision: number;
   sandboxUnavailable: boolean;
+  fingerprint?: string;
 };
 
 export class TaskReceipt {
@@ -89,6 +90,8 @@ export class TaskReceipt {
     const check = this.checks.get(id);
     if (check?.status === "started") {
       check.status = isError ? "failed or incomplete" : "passed";
+      const value = fingerprint(snapshot(this.cwd));
+      if (value !== undefined) check.fingerprint = value;
     }
   }
 
@@ -157,9 +160,11 @@ export class TaskReceipt {
         case "passed":
           hasPass = true;
           status =
-            check.revision === this.revision
+            check.revision === this.revision &&
+            check.fingerprint !== undefined &&
+            check.fingerprint === fingerprint(end)
               ? "Passed when run"
-              : "Passed before a later operation";
+              : "Passed before a later operation or workspace change (freshness uncertain)";
           break;
       }
       lines.push(`  ${status}: ${check.label}`);
@@ -198,6 +203,14 @@ export class TaskReceipt {
       sandboxUnavailable,
     });
   }
+}
+
+function fingerprint(value: ReturnType<typeof snapshot>): string | undefined {
+  if (!value || value.partial) return undefined;
+  return JSON.stringify([
+    value.head,
+    [...value.paths.entries()].sort(([a], [b]) => a.localeCompare(b)),
+  ]);
 }
 
 function snapshot(cwd: string) {

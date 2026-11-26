@@ -13,7 +13,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createTraceRecord, parseTraceRecord } from "plyth-core";
+import { plyth, hasPlyth } from "../optional-plyth.js";
+const { createTraceRecord, parseTraceRecord } = plyth;
 import { PlythTraceStore } from "../../src/pi/plyth-trace.js";
 import { plythWorkspaceRevision } from "../../src/pi/plyth-workspace.js";
 import { resolvePlythMode } from "../../src/pi/plyth-mode.js";
@@ -40,81 +41,78 @@ const record = () =>
     observedOutcome: "pass",
   })!;
 
-describe.skipIf(typeof process.getuid !== "function" || !constants.O_NOFOLLOW)(
-  "PLYTH private opt-in traces",
-  () => {
-    it("writes nothing by default; supports explicit enable, disable, safe export and deletion", () => {
-      const root = join(temporary(), "rook-home");
-      const store = traceStore(false, root);
-      store.append(record());
-      expect(existsSync(root)).toBe(false);
-      store.setEnabled(true);
-      store.append(record());
-      expect(JSON.parse(store.export())).toEqual(record());
-      if (process.getuid) {
-        expect(statSync(store.file).mode & 0o777).toBe(0o600);
-        expect(statSync(store.directory).mode & 0o777).toBe(0o700);
-      }
-      store.setEnabled(false);
-      store.append(record());
-      expect(readFileSync(store.file, "utf8").trim().split("\n")).toHaveLength(
-        1,
-      );
-      expect(store.clear()).toContain("cleared");
-      expect(existsSync(store.file)).toBe(false);
-      store.append(record());
-      expect(existsSync(store.file)).toBe(false);
-    });
+describe.skipIf(
+  !hasPlyth || typeof process.getuid !== "function" || !constants.O_NOFOLLOW,
+)("PLYTH private opt-in traces", () => {
+  it("writes nothing by default; supports explicit enable, disable, safe export and deletion", () => {
+    const root = join(temporary(), "rook-home");
+    const store = traceStore(false, root);
+    store.append(record());
+    expect(existsSync(root)).toBe(false);
+    store.setEnabled(true);
+    store.append(record());
+    expect(JSON.parse(store.export())).toEqual(record());
+    if (process.getuid) {
+      expect(statSync(store.file).mode & 0o777).toBe(0o600);
+      expect(statSync(store.directory).mode & 0o777).toBe(0o700);
+    }
+    store.setEnabled(false);
+    store.append(record());
+    expect(readFileSync(store.file, "utf8").trim().split("\n")).toHaveLength(1);
+    expect(store.clear()).toContain("cleared");
+    expect(existsSync(store.file)).toBe(false);
+    store.append(record());
+    expect(existsSync(store.file)).toBe(false);
+  });
 
-    it("caps storage and rejects unknown fields on both append and export", () => {
-      const store = traceStore(true, temporary());
-      for (let i = 0; i < 500; i++) store.append(record());
-      expect(statSync(store.file).size).toBeLessThanOrEqual(65536);
-      expect(store.status()).not.toContain("dropped 0");
-      const contents = readFileSync(store.file, "utf8");
-      store.append({ ...record(), command: "secret" } as ReturnType<
-        typeof record
-      >);
-      expect(readFileSync(store.file, "utf8")).toBe(contents);
-      writeFileSync(
-        store.file,
-        JSON.stringify({ ...record(), output: "secret" }) + "\n",
-      );
-      expect(store.export()).toContain("no raw records exported");
-      expect(store.export()).not.toContain("secret");
-    });
+  it("caps storage and rejects unknown fields on both append and export", () => {
+    const store = traceStore(true, temporary());
+    for (let i = 0; i < 500; i++) store.append(record());
+    expect(statSync(store.file).size).toBeLessThanOrEqual(65536);
+    expect(store.status()).not.toContain("dropped 0");
+    const contents = readFileSync(store.file, "utf8");
+    store.append({ ...record(), command: "secret" } as ReturnType<
+      typeof record
+    >);
+    expect(readFileSync(store.file, "utf8")).toBe(contents);
+    writeFileSync(
+      store.file,
+      JSON.stringify({ ...record(), output: "secret" }) + "\n",
+    );
+    expect(store.export()).toContain("no raw records exported");
+    expect(store.export()).not.toContain("secret");
+  });
 
-    it("does not follow a symlinked trace file or directory", () => {
-      const root = temporary();
-      const target = join(root, "target");
-      writeFileSync(target, "untouched");
-      const store = traceStore(true, root);
-      mkdirSync(store.directory, { mode: 0o700 });
-      symlinkSync(target, store.file);
-      expect(() => store.append(record())).not.toThrow();
-      expect(store.export()).toContain("unavailable");
-      expect(store.clear()).toContain("deletion unavailable");
-      expect(readFileSync(target, "utf8")).toBe("untouched");
-      const other = temporary();
-      symlinkSync(root, join(other, "plyth"));
-      const linked = traceStore(true, other);
-      linked.append(record());
-      expect(linked.status()).toContain("storage unavailable");
-    });
+  it("does not follow a symlinked trace file or directory", () => {
+    const root = temporary();
+    const target = join(root, "target");
+    writeFileSync(target, "untouched");
+    const store = traceStore(true, root);
+    mkdirSync(store.directory, { mode: 0o700 });
+    symlinkSync(target, store.file);
+    expect(() => store.append(record())).not.toThrow();
+    expect(store.export()).toContain("unavailable");
+    expect(store.clear()).toContain("deletion unavailable");
+    expect(readFileSync(target, "utf8")).toBe("untouched");
+    const other = temporary();
+    symlinkSync(root, join(other, "plyth"));
+    const linked = traceStore(true, other);
+    linked.append(record());
+    expect(linked.status()).toContain("storage unavailable");
+  });
 
-    it("fails open on append contention and refuses a publicly readable ledger", () => {
-      const store = traceStore(true, temporary());
-      store.append(record());
-      const before = readFileSync(store.file, "utf8");
-      writeFileSync(join(store.directory, "append.lock"), "", { mode: 0o600 });
-      expect(() => store.append(record())).not.toThrow();
-      expect(readFileSync(store.file, "utf8")).toBe(before);
-      expect(store.status()).toContain("storage unavailable");
-      chmodSync(store.file, 0o644);
-      expect(store.export()).toContain("no raw records exported");
-    });
-  },
-);
+  it("fails open on append contention and refuses a publicly readable ledger", () => {
+    const store = traceStore(true, temporary());
+    store.append(record());
+    const before = readFileSync(store.file, "utf8");
+    writeFileSync(join(store.directory, "append.lock"), "", { mode: 0o600 });
+    expect(() => store.append(record())).not.toThrow();
+    expect(readFileSync(store.file, "utf8")).toBe(before);
+    expect(store.status()).toContain("storage unavailable");
+    chmodSync(store.file, 0o644);
+    expect(store.export()).toContain("no raw records exported");
+  });
+});
 
 describe.skipIf(!constants.O_NOFOLLOW)(
   "PLYTH baseline workspace revision",

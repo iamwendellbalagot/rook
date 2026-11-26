@@ -35,6 +35,11 @@ it("distinguishes a mixed edit, an unattributed change, and checks before cancel
       command: "npm run typecheck -- --sensitive-argument=placeholder",
     });
     receipt.finished("test", false);
+    expect(receipt.render()).toContain("Passed when run: npm run typecheck");
+    await writeFile(file("readme.md"), "external editor change\n");
+    expect(receipt.render()).toContain(
+      "workspace change (freshness uncertain)",
+    );
     receipt.started("edit", "edit", { path: file("mixed.ts") });
     await writeFile(file("mixed.ts"), "user and Rook change\n");
     receipt.finished("edit", false);
@@ -55,7 +60,7 @@ it("distinguishes a mixed edit, an unattributed change, and checks before cancel
       "Observed dirty-state changes not attributed to file tools: readme.md",
     );
     expect(text).toContain(
-      "Passed before a later operation: npm run typecheck",
+      "Passed before a later operation or workspace change (freshness uncertain): npm run typecheck",
     );
     expect(text).toContain("Blocked (sandbox unavailable): node --test");
     expect(text).not.toContain("placeholder");

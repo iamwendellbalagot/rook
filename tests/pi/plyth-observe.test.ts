@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import * as plyth from "plyth-core";
-import { CommandHistoryBaseline, SessionCounter } from "plyth-core";
+import { plyth, hasPlyth } from "../optional-plyth.js";
+const { CommandHistoryBaseline, SessionCounter } = plyth;
+type SessionCounter = any;
 import { describe, expect, it } from "vitest";
 import {
   classifyCommand,
@@ -27,7 +28,7 @@ function eventHandlers(
   return { handlers, ctx };
 }
 
-describe("PLYTH Rook observe-only adapter", () => {
+describe.skipIf(!hasPlyth)("PLYTH Rook observe-only adapter", () => {
   it("classifies only simple supported test, build, and diagnostic commands", () => {
     expect(classifyCommand("npm test")).toBe("test");
     expect(classifyCommand("pnpm run test:unit")).toBe("test");

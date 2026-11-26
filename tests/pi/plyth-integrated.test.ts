@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import * as plyth from "plyth-core";
+import { plyth, hasPlyth } from "../optional-plyth.js";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -106,7 +106,7 @@ function toolResult(
   );
 }
 
-describe("PLYTH integrated inference extension", () => {
+describe.skipIf(!hasPlyth)("PLYTH integrated inference extension", () => {
   it("resolves off, prompt-only, and integrated as separate opt-in modes", async () => {
     await expect(resolvePlythIntegratedMode({}, await repo())).resolves.toBe(
       "off",

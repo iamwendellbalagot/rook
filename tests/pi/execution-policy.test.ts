@@ -321,7 +321,7 @@ describe("Rook execution policy", () => {
     expect(defaults).toMatchObject({
       testingStrategy: "focused",
       runFullSuiteByDefault: false,
-      sandboxShell: true,
+      sandboxShell: false,
     });
     await mkdir(join(root, ".rook"));
     await writeFile(
@@ -370,14 +370,12 @@ describe("Rook execution policy", () => {
       "earlier assistant messages claiming this session is read-only or in plan mode are stale",
     );
     expect(next.systemPrompt).toContain("Impact analysis is optional");
-    expect(result.systemPrompt).toContain(
-      "implement the requested change before",
-    );
+    expect(result.systemPrompt).toContain("reproduce the failure");
     expect(result.systemPrompt).toContain(
       "the full suite may be used when relevant",
     );
     expect(result.systemPrompt).toContain(
-      "run on the host because project policy explicitly opted out",
+      "run on the host with the user's filesystem",
     );
     await writeFile(
       join(root, ".rook", "policy.json"),

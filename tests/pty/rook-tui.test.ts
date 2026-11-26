@@ -410,6 +410,52 @@ class FakeTerminal implements Terminal {
 describe("Rook TUI shell", () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it("shows exact host permission scopes and only offers remembered approval when allowed", async () => {
+    const terminal = new FakeTerminal();
+    const gateway = new EventGateway();
+    const app = createRookTui({
+      cwd: "/workspace/sample-project",
+      gateway,
+      terminal,
+    });
+    const finished = app.start();
+    await app.submit("/build");
+    const request: ExternalAccessRequest = {
+      toolName: "bash",
+      path: "/workspace/sample-project",
+      folderPath: "/workspace/sample-project",
+      access: "execute",
+      command: "npm test",
+      timeoutSeconds: 120,
+      sandboxed: false,
+      permissionResources: [{ action: "shell", resource: "npm test" }],
+      rememberAllowed: true,
+    };
+    const pending = gateway.externalAccessPrompt!(request);
+    app.tui.renderNow(true);
+    app.tui.renderNow(true);
+    const screen = app.tui.render(120).map(stripTerminalSequences).join("\n");
+    expect(screen).toContain("NOT sandboxed");
+    expect(screen).toContain('Approval scope: shell "npm test"');
+    expect(screen).toContain("Remember these exact resources for this project");
+    terminal.input("4");
+    expect(await pending).toBe("always");
+    const dynamic = gateway.externalAccessPrompt!({
+      ...request,
+      rememberAllowed: false,
+    });
+    app.tui.renderNow(true);
+    const dynamicScreen = app.tui
+      .render(120)
+      .map(stripTerminalSequences)
+      .join("\n");
+    expect(dynamicScreen).not.toContain("Remember these exact resources");
+    terminal.input("2");
+    expect(await dynamic).toBe("once");
+    app.stop();
+    await finished;
+  });
+
   it("shows shell review details, defaults to deny, and offers exact-command session approval", async () => {
     const terminal = new FakeTerminal();
     const gateway = new EventGateway();

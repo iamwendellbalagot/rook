@@ -29,6 +29,7 @@
     "lint": "prettier --check .",
     "format": "prettier --write .",
     "test": "vitest run",
+    "test:harness": "vitest run tests/policy tests/repo/instructions.test.ts tests/pi/execution-policy.test.ts tests/pi/task-receipt.test.ts tests/pi/task-state.test.ts tests/pi/background-jobs.test.ts tests/pi/workspace-search-tool.test.ts tests/pi/gateway-lifecycle.test.ts tests/protocol tests/integration/pi-sdk.test.ts",
     "test:integration": "vitest run tests/integration",
     "test:pty": "vitest run tests/pty",
     "benchmark:memory": "tsx scripts/memory-benchmark.ts",
@@ -48,7 +49,6 @@
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.19.0",
     "prettier": "3.6.2",
-    "plyth-core": "file:../plyth",
     "tsx": "4.20.6",
     "typescript": "7.0.2",
     "vitest": "5.1.0"
